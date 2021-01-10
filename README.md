@@ -1,5 +1,6 @@
+Simple C-like scripting engine written in Free Pascal
+
 #### Features
-- Simple C-like scripting engine written in Free Pascal
 - Dynamic typing, with 3 types of data (Number, String, Array)
 - \+ - * / % & | ! < <= > >= != operators
 - Array manipulation
@@ -11,6 +12,6 @@
 - See Test.pas
   
 #### Notes
-- By default SE_STRING is disable for performance reason. Enable it in ScriptEngine.pas if you need to perform string manipulations (concat, compare)
-- Number type by default is Single type. Enable SE_PRECISION flag in ScriptEngine.pas if you want more precision (Double type).
+- By default SE_STRING is disabled for performance reason. Enable it in ScriptEngine.pas if you need to perform string manipulations (concat, compare)
+- Number type by default is Single type. Enable SE_PRECISION flag in ScriptEngine.pas if you want more precision (Double type)
 - No support for defining functions inside script (easy to add if needed)
