@@ -109,7 +109,7 @@ begin
   SE.Reset;
   SE.Source := ResultTest;
   SE.Exec;
-  Writeln(SE.VM.Stack[0].VarSingle);
+  Writeln(SE.VM.Stack[0].VarNumber);
 end;
 
 begin
