@@ -5,7 +5,7 @@ Simple C-like scripting engine written in Free Pascal
 - \+ - * / % & | ! < <= > >= != operators
 - Array manipulation
 - String manipulation (only for assign, need to enable SE_STRING flag for concat and compare strings)
-- while, if, break, continue, yield, pause
+- while, if, else, break, continue, yield, pause
 - Call free pascal native functions by registering them to script engine
 
 #### How to use
