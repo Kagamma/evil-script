@@ -4,8 +4,10 @@ unit ScriptEngine;
 {$H+}
 {$modeswitch nestedprocvars}
 {$modeswitch advancedrecords}
-// disable this if you want to perform string manipulation (concat, compare)
-{$define SE_FAST}
+// enable this if you want to perform string manipulation (concat, compare)
+{.$define SE_STRING}
+// enable this if you want precision (use Double instead of TSENumber)
+{.$define SE_PRECISION}
 
 interface
 
@@ -13,6 +15,8 @@ uses
   SysUtils, Classes, Generics.Collections;
 
 type
+  TSENumber = {$ifdef SE_PRECISION}Double{$else}Single{$endif};
+
   TSEOpcode = (
     opPushConst,
     opPushLocalVar,
@@ -52,18 +56,18 @@ type
     sevkPointer
   );
   TSEValue = record
-    {$ifndef SE_FAST}
+    {$ifdef SE_STRING}
     VarString: String;
     {$endif}
     function Value: Variant;
     case Kind: TSEValueKind of
       sevkSingle:
         (
-          VarSingle: Single;
+          VarNumber: TSENumber;
         );
       sevkString:
         (
-          {$ifndef SE_FAST}
+          {$ifdef SE_STRING}
           VarStringDummy: PChar;
           {$else}
           VarString: PChar;
@@ -242,7 +246,7 @@ type
     property Source: String read FSource write SetSource;
   end;
 
-operator := (V: Single) R: TSEValue;
+operator := (V: TSENumber) R: TSEValue;
 operator := (V: String) R: TSEValue;
 operator := (V: Boolean) R: TSEValue;
 operator := (V: TSEValueArray) R: TSEValue;
@@ -252,30 +256,30 @@ operator := (V: TSEValue) R: Integer;
 operator := (V: TSEValue) R: Int64;
 {$endif}
 operator := (V: TSEValue) R: Boolean;
-operator := (V: TSEValue) R: Single;
+operator := (V: TSEValue) R: TSENumber;
 operator := (V: TSEValue) R: String;
 operator := (V: TSEValue) R: TSEValueArray;
 operator := (V: TSEValue) R: Pointer;
-operator + (V1: TSEValue; V2: Single) R: TSEValue;
-{$ifndef SE_FAST}
+operator + (V1: TSEValue; V2: TSENumber) R: TSEValue;
+{$ifdef SE_STRING}
 operator + (V1: TSEValue; V2: String) R: TSEValue;
 {$endif}
 operator + (V1: TSEValue; V2: Pointer) R: TSEValue;
-operator - (V1: TSEValue; V2: Single) R: TSEValue;
+operator - (V1: TSEValue; V2: TSENumber) R: TSEValue;
 operator - (V1: TSEValue; V2: Pointer) R: TSEValue;
-operator * (V1: TSEValue; V2: Single) R: TSEValue;
-operator / (V1: TSEValue; V2: Single) R: TSEValue;
+operator * (V1: TSEValue; V2: TSENumber) R: TSEValue;
+operator / (V1: TSEValue; V2: TSENumber) R: TSEValue;
 operator + (V1, V2: TSEValue) R: TSEValue;
 operator - (V1, V2: TSEValue) R: TSEValue;
 operator - (V: TSEValue) R: TSEValue;
 operator * (V1, V2: TSEValue) R: TSEValue;
 operator / (V1, V2: TSEValue) R: TSEValue;
-operator < (V1: TSEValue; V2: Single) R: Boolean;
-operator > (V1: TSEValue; V2: Single) R: Boolean;
-operator <= (V1: TSEValue; V2: Single) R: Boolean;
-operator >= (V1: TSEValue; V2: Single) R: Boolean;
-operator = (V1: TSEValue; V2: Single) R: Boolean;
-{$ifndef SE_FAST}
+operator < (V1: TSEValue; V2: TSENumber) R: Boolean;
+operator > (V1: TSEValue; V2: TSENumber) R: Boolean;
+operator <= (V1: TSEValue; V2: TSENumber) R: Boolean;
+operator >= (V1: TSEValue; V2: TSENumber) R: Boolean;
+operator = (V1: TSEValue; V2: TSENumber) R: Boolean;
+{$ifdef SE_STRING}
 operator <> (V1: TSEValue; V2: String) R: Boolean;
 {$endif}
 operator < (V1, V2: TSEValue) R: Boolean;
@@ -331,7 +335,7 @@ end;
 
 class function TBuiltInFunction.SEWait(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  VM.WaitTime := GetTickCount + Round(Args[0].VarSingle);
+  VM.WaitTime := GetTickCount + Round(Args[0].VarNumber);
 end;
 
 class function TBuiltInFunction.SELength(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -359,7 +363,7 @@ end;
 
 class function TBuiltInFunction.SESign(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  Exit(Sign(Args[0].VarSingle));
+  Exit(Sign(Args[0].VarNumber));
 end;
 
 function TSEFuncList.Ptr(const P: Integer): PSEFuncInfo; inline;
@@ -381,7 +385,7 @@ function TSEValue.Value: Variant; inline;
 begin
   case Self.Kind of
     sevkSingle:
-      Exit(Self.VarSingle);
+      Exit(Self.VarNumber);
     sevkString:
       Exit(Self.VarString);
     sevkArray:
@@ -391,12 +395,12 @@ begin
   end;
 end;
 
-operator := (V: Single) R: TSEValue; inline;
+operator := (V: TSENumber) R: TSEValue; inline;
 begin
   R.Kind := sevkSingle;
-  R.VarSingle := V;
+  R.VarNumber := V;
 end;
-{$ifndef SE_FAST}
+{$ifdef SE_STRING}
 operator := (V: String) R: TSEValue; inline;
 begin
   R.Kind := sevkString;
@@ -412,7 +416,7 @@ end;
 operator := (V: Boolean) R: TSEValue; inline;
 begin
   R.Kind := sevkSingle;
-  R.VarSingle := Integer(V);
+  R.VarNumber := Integer(V);
 end;
 operator := (V: TSEValueArray) R: TSEValue; inline;
 begin
@@ -427,21 +431,21 @@ end;
 
 operator := (V: TSEValue) R: Integer; inline;
 begin
-  R := Round(V.VarSingle);
+  R := Round(V.VarNumber);
 end;
 {$ifdef CPU64}
 operator := (V: TSEValue) R: Int64; inline;
 begin
-  R := Round(V.VarSingle);
+  R := Round(V.VarNumber);
 end;
 {$endif}
 operator := (V: TSEValue) R: Boolean; inline;
 begin
-  R := Round(V.VarSingle) <> 0;
+  R := Round(V.VarNumber) <> 0;
 end;
-operator := (V: TSEValue) R: Single; inline;
+operator := (V: TSEValue) R: TSENumber; inline;
 begin
-  R := V.VarSingle;
+  R := V.VarNumber;
 end;
 operator := (V: TSEValue) R: String; inline;
 begin
@@ -456,12 +460,12 @@ begin
   R := V.VarPointer;
 end;
 
-operator + (V1: TSEValue; V2: Single) R: TSEValue; inline;
+operator + (V1: TSEValue; V2: TSENumber) R: TSEValue; inline;
 begin
   R.Kind := sevkSingle;
-  R.VarSingle := V1.VarSingle + V2;
+  R.VarNumber := V1.VarNumber + V2;
 end;
-{$ifndef SE_FAST}
+{$ifdef SE_STRING}
 operator + (V1: TSEValue; V2: String) R: TSEValue; inline;
 begin
   R.VarString := V2;
@@ -473,10 +477,10 @@ begin
   R.VarPointer := V1.VarPointer + V2;
 end;
 
-operator - (V1: TSEValue; V2: Single) R: TSEValue; inline;
+operator - (V1: TSEValue; V2: TSENumber) R: TSEValue; inline;
 begin
   R.Kind := sevkSingle;
-  R.VarSingle := V1.VarSingle - V2;
+  R.VarNumber := V1.VarNumber - V2;
 end;
 operator - (V1: TSEValue; V2: Pointer) R: TSEValue; inline;
 begin
@@ -484,16 +488,16 @@ begin
   R.VarPointer := V1.VarPointer + V2;
 end;
 
-operator * (V1: TSEValue; V2: Single) R: TSEValue; inline;
+operator * (V1: TSEValue; V2: TSENumber) R: TSEValue; inline;
 begin
   R.Kind := sevkSingle;
-  R.VarSingle := V1.VarSingle * V2;
+  R.VarNumber := V1.VarNumber * V2;
 end;
 
-operator / (V1: TSEValue; V2: Single) R: TSEValue; inline;
+operator / (V1: TSEValue; V2: TSENumber) R: TSEValue; inline;
 begin
   R.Kind := sevkSingle;
-  R.VarSingle := V1.VarSingle / V2;
+  R.VarNumber := V1.VarNumber / V2;
 end;
 
 operator + (V1, V2: TSEValue) R: TSEValue; inline;
@@ -502,14 +506,14 @@ begin
     sevkSingle:
       begin
         R.Kind := sevkSingle;
-        R.VarSingle := V1.VarSingle + V2.VarSingle;
+        R.VarNumber := V1.VarNumber + V2.VarNumber;
       end;
     sevkPointer:
       begin
         R.Kind := sevkPointer;
         R.VarPointer := V1.VarPointer + V2.VarPointer;
       end;
-    {$ifndef SE_FAST}
+    {$ifdef SE_STRING}
     sevkString:
       begin
         R.Kind := sevkString;
@@ -521,7 +525,7 @@ end;
 operator - (V: TSEValue) R: TSEValue; inline;
 begin
   R.Kind := sevkSingle;
-  R.VarSingle := -V.VarSingle;
+  R.VarNumber := -V.VarNumber;
 end;
 operator - (V1, V2: TSEValue) R: TSEValue; inline;
 begin
@@ -529,7 +533,7 @@ begin
     sevkSingle:
       begin
         R.Kind := sevkSingle;
-        R.VarSingle := V1.VarSingle - V2.VarSingle;
+        R.VarNumber := V1.VarNumber - V2.VarNumber;
       end;
     sevkPointer:
       begin
@@ -544,7 +548,7 @@ begin
     sevkSingle:
       begin
         R.Kind := sevkSingle;
-        R.VarSingle := V1.VarSingle * V2.VarSingle;
+        R.VarNumber := V1.VarNumber * V2.VarNumber;
       end;
   end;
 end;
@@ -554,47 +558,47 @@ begin
     sevkSingle:
       begin
         R.Kind := sevkSingle;
-        R.VarSingle := V1.VarSingle * V2.VarSingle;
+        R.VarNumber := V1.VarNumber * V2.VarNumber;
       end;
   end;
 end;
 
-operator < (V1: TSEValue; V2: Single) R: Boolean; inline;
+operator < (V1: TSEValue; V2: TSENumber) R: Boolean; inline;
 begin
   case V1.Kind of
     sevkSingle:
-      R := V1.VarSingle < V2;
+      R := V1.VarNumber < V2;
   end;
 end;
-operator > (V1: TSEValue; V2: Single) R: Boolean; inline;
+operator > (V1: TSEValue; V2: TSENumber) R: Boolean; inline;
 begin
   case V1.Kind of
     sevkSingle:
-      R := V1.VarSingle > V2;
+      R := V1.VarNumber > V2;
   end;
 end;
-operator <= (V1: TSEValue; V2: Single) R: Boolean; inline;
+operator <= (V1: TSEValue; V2: TSENumber) R: Boolean; inline;
 begin
   case V1.Kind of
     sevkSingle:
-      R := V1.VarSingle <= V2;
+      R := V1.VarNumber <= V2;
   end;
 end;
-operator >= (V1: TSEValue; V2: Single) R: Boolean; inline;
+operator >= (V1: TSEValue; V2: TSENumber) R: Boolean; inline;
 begin
   case V1.Kind of
     sevkSingle:
-      R := V1.VarSingle >= V2;
+      R := V1.VarNumber >= V2;
   end;
 end;
-operator = (V1: TSEValue; V2: Single) R: Boolean; inline;
+operator = (V1: TSEValue; V2: TSENumber) R: Boolean; inline;
 begin
   case V1.Kind of
     sevkSingle:
-      R := V1.VarSingle = V2;
+      R := V1.VarNumber = V2;
   end;
 end;
-{$ifndef SE_FAST}
+{$ifdef SE_STRING}
 operator = (V1: TSEValue; V2: String) R: Boolean; inline;
 begin
   case V1.Kind of
@@ -603,14 +607,14 @@ begin
   end;
 end;
 {$endif}
-operator <> (V1: TSEValue; V2: Single) R: Boolean; inline;
+operator <> (V1: TSEValue; V2: TSENumber) R: Boolean; inline;
 begin
   case V1.Kind of
     sevkSingle:
-      R := V1.VarSingle <> V2;
+      R := V1.VarNumber <> V2;
   end;
 end;
-{$ifndef SE_FAST}
+{$ifdef SE_STRING}
 operator <> (V1: TSEValue; V2: String) R: Boolean; inline;
 begin
   case V1.Kind of
@@ -624,43 +628,43 @@ operator < (V1, V2: TSEValue) R: Boolean; inline;
 begin
   case V1.Kind of
     sevkSingle:
-      R := V1.VarSingle < V2.VarSingle;
+      R := V1.VarNumber < V2.VarNumber;
   end;
 end;
 operator > (V1, V2: TSEValue) R: Boolean; inline;
 begin
   case V1.Kind of
     sevkSingle:
-      R := V1.VarSingle > V2.VarSingle;
+      R := V1.VarNumber > V2.VarNumber;
   end;
 end;
 operator <= (V1, V2: TSEValue) R: Boolean; inline;
 begin
   case V1.Kind of
     sevkSingle:
-      R := V1.VarSingle <= V2.VarSingle;
+      R := V1.VarNumber <= V2.VarNumber;
   end;
 end;
 operator >= (V1, V2: TSEValue) R: Boolean; inline;
 begin
   case V1.Kind of
     sevkSingle:
-      R := V1.VarSingle >= V2.VarSingle;
+      R := V1.VarNumber >= V2.VarNumber;
   end;
 end;
 operator = (V1, V2: TSEValue) R: Boolean; inline;
 begin
   case V1.Kind of
     sevkSingle:
-      R := V1.VarSingle = V2.VarSingle;
+      R := V1.VarNumber = V2.VarNumber;
   end;
 end;
 operator <> (V1, V2: TSEValue) R: Boolean; inline;
 begin
   case V1.Kind of
     sevkSingle:
-      R := V1.VarSingle <> V2.VarSingle;
-    {$ifndef SE_FAST}
+      R := V1.VarNumber <> V2.VarNumber;
+    {$ifdef SE_STRING}
     sevkString:
       R := V1.VarString <> V2.VarString;
     {$endif}
@@ -705,7 +709,7 @@ procedure TSEVM.Exec;
 var
   A, B, C: PSEValue;
   V: PSEValue;
-  {$ifndef SE_FAST}
+  {$ifdef SE_STRING}
   S: String;
   {$else}
   S: PChar;
@@ -786,7 +790,7 @@ begin
           begin
             B := Pop;
             A := Pop;
-            Push(A^ - B^ * Int(Single(A^ / B^)));
+            Push(A^ - B^ * Int(TSENumber(A^ / B^)));
             Inc(CodePtrLocal);
           end;
         opOperatorEqual:
@@ -873,7 +877,7 @@ begin
             B := Get(A^);
             case B^.Kind of
               sevkString:
-                {$ifndef SE_FAST}
+                {$ifdef SE_STRING}
                 Push(B^.VarString[Integer(Pop^) + 1]);
                 {$else}
                 Push(B^.VarString[Integer(Pop^)]);
@@ -889,7 +893,7 @@ begin
             B := Pop;
             case B^.Kind of
               sevkString:
-                {$ifndef SE_FAST}
+                {$ifdef SE_STRING}
                 Push(B^.VarString[Integer(A^) + 1]);
                 {$else}
                 Push(B^.VarString[Integer(A^)]);
@@ -946,7 +950,7 @@ begin
                   if V^.Kind = sevkString then
                   begin
                     S := V^.VarString;
-                    {$ifndef SE_FAST}
+                    {$ifdef SE_STRING}
                     S[Integer(C^)] := B^.VarString[1];
                     {$else}
                     S[C^] := B^.VarString[0];

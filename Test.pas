@@ -24,7 +24,7 @@ type
 
 class function TCustomFunctions.Add(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  Exit(Args[0].VarSingle + Args[1].VarSingle);
+  Exit(Args[0].VarNumber + Args[1].VarNumber);
 end;
 
 var
