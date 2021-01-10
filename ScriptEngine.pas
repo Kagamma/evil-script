@@ -6,7 +6,7 @@ unit ScriptEngine;
 {$modeswitch advancedrecords}
 // enable this if you want to perform string manipulation (concat, compare)
 {.$define SE_STRING}
-// enable this if you want precision (use Double instead of TSENumber)
+// enable this if you want precision (use Double instead of Single)
 {.$define SE_PRECISION}
 
 interface
