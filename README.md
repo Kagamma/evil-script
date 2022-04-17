@@ -1,12 +1,7 @@
 Simple C-like scripting engine written in Free Pascal
 
 #### Features
-- Dynamic typing, with 3 types of data (Number, String, Array)
-- \+ - * / % & | ! < <= > >= != operators
-- Array manipulation
-- String manipulation (only for assign, need to enable SE_STRING flag for concat and compare strings)
-- while, if, else, break, continue, yield, pause
-- Call free pascal native functions by registering them to script engine
+- https://github.com/Kagamma/satania-buddy/wiki/Scripting-References-&-APIs
 
 #### How to use
 - See Test.pas
