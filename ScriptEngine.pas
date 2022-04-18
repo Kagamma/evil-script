@@ -1,7 +1,9 @@
 unit ScriptEngine;
 
 {$mode objfpc}
-{$asmmode intel}
+{$ifdef CPUX86_64}
+  {$asmmode intel}
+{$endif}
 {$H+}
 {$modeswitch nestedprocvars}
 {$modeswitch advancedrecords}
@@ -108,8 +110,8 @@ type
     seakU64,
    // seakF32,
     seakF64,
-    seakChars,
-    seakWChars
+    seakBuffer,
+    seakWBuffer
   );
   TSEAtomKindArray = array of TSEAtomKind;
 
@@ -216,6 +218,7 @@ type
     tkMul,
     tkDiv,
     tkMod,
+    tkOpAssign,
     tkEqual,
     tkNotEqual,
     tkSmaller,
@@ -259,7 +262,7 @@ type
 TSETokenKinds = set of TSETokenKind;
 
 const TokenNames: array[TSETokenKind] of String = (
-  'EOF', '.', '+', '-', '*', 'div', 'mod', '=', '!=', '<',
+  'EOF', '.', '+', '-', '*', 'div', 'mod', 'operator assign', '=', '!=', '<',
   '>', '<=', '>=', '{', '}', ':', '(', ')', 'neg', 'number', 'string',
   ',', 'if', 'identity', 'function', 'fn', 'variable', 'const',
   'unknown', 'else', 'while', 'break', 'continue', 'pause', 'yield',
@@ -393,6 +396,29 @@ uses
 
 type
   TBuiltInFunction = class
+    class function SEBufferCreate(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEBufferLength(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEBufferGetU8(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEBufferGetU16(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEBufferGetU32(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEBufferGetU64(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEBufferGetI8(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEBufferGetI16(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEBufferGetI32(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEBufferGetI64(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEBufferGetF64(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEBufferSetU8(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEBufferSetU16(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEBufferSetU32(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEBufferSetU64(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEBufferSetI8(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEBufferSetI16(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEBufferSetI32(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEBufferSetI64(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEBufferSetF64(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEStringToBuffer(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEBufferToString(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEWBufferToString(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SETypeOf(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEWrite(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEWriteln(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -470,6 +496,165 @@ begin
   FS := FormatSettings;
   FS.DecimalSeparator := '.';
   Result := FloatToStr(X, FS);
+end;
+
+class function TBuiltInFunction.SEBufferCreate(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+begin
+  Result.Kind := sevkSingle;
+  SetLength(Result.VarString, Round(Args[0].VarNumber));
+  Result.VarNumber := QWord(@Result.VarString[1]);
+end;
+
+class function TBuiltInFunction.SEBufferLength(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+begin
+  Result := Length(Args[0].VarString);
+end;
+
+class function TBuiltInFunction.SEBufferGetU8(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+begin
+  Result.Kind := sevkSingle;
+  Result.VarNumber := Byte(Pointer(Round(Args[0].VarNumber))^);
+end;
+
+class function TBuiltInFunction.SEBufferGetU16(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+begin
+  Result.Kind := sevkSingle;
+  Result.VarNumber := Word(Pointer(Round(Args[0].VarNumber))^);
+end;
+
+class function TBuiltInFunction.SEBufferGetU32(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+begin
+  Result.Kind := sevkSingle;
+  Result.VarNumber := LongWord(Pointer(Round(Args[0].VarNumber))^);
+end;
+
+class function TBuiltInFunction.SEBufferGetU64(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+begin
+  Result.Kind := sevkSingle;
+  Result.VarNumber := QWord(Pointer(Round(Args[0].VarNumber))^);
+end;
+
+class function TBuiltInFunction.SEBufferGetI8(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+begin
+  Result.Kind := sevkSingle;
+  Result.VarNumber := SmallInt(Pointer(Round(Args[0].VarNumber))^);
+end;
+
+class function TBuiltInFunction.SEBufferGetI16(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+begin
+  Result.Kind := sevkSingle;
+  Result.VarNumber := ShortInt(Pointer(Round(Args[0].VarNumber))^);
+end;
+
+class function TBuiltInFunction.SEBufferGetI32(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+begin
+  Result.Kind := sevkSingle;
+  Result.VarNumber := LongInt(Pointer(Round(Args[0].VarNumber))^);
+end;
+
+class function TBuiltInFunction.SEBufferGetI64(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+begin
+  Result.Kind := sevkSingle;
+  Result.VarNumber := Int64(Pointer(Round(Args[0].VarNumber))^);
+end;
+
+class function TBuiltInFunction.SEBufferGetF64(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+begin
+  Result.Kind := sevkSingle;
+  Result.VarNumber := Double(Pointer(Round(Args[0].VarNumber))^);
+end;
+
+class function TBuiltInFunction.SEBufferSetU8(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+var
+  P: Pointer;
+begin
+  P := Pointer(Round(Args[0].VarNumber));
+  Byte(P^) := Round(Args[1].VarNumber);
+end;
+
+class function TBuiltInFunction.SEBufferSetU16(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+var
+  P: Pointer;
+begin
+  P := Pointer(Round(Args[0].VarNumber));
+  Word(P^) := Round(Args[1].VarNumber);
+end;
+
+class function TBuiltInFunction.SEBufferSetU32(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+var
+  P: Pointer;
+begin
+  P := Pointer(Round(Args[0].VarNumber));
+  LongWord(P^) := Round(Args[1].VarNumber);
+end;
+
+class function TBuiltInFunction.SEBufferSetU64(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+var
+  P: Pointer;
+begin
+  P := Pointer(Round(Args[0].VarNumber));
+  QWord(P^) := Round(Args[1].VarNumber);
+end;
+
+class function TBuiltInFunction.SEBufferSetI8(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+var
+  P: Pointer;
+begin
+  P := Pointer(Round(Args[0].VarNumber));
+  ShortInt(P^) := Round(Args[1].VarNumber);
+end;
+
+class function TBuiltInFunction.SEBufferSetI16(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+var
+  P: Pointer;
+begin
+  P := Pointer(Round(Args[0].VarNumber));
+  SmallInt(P^) := Round(Args[1].VarNumber);
+end;
+
+class function TBuiltInFunction.SEBufferSetI32(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+var
+  P: Pointer;
+begin
+  P := Pointer(Round(Args[0].VarNumber));
+  LongInt(P^) := Round(Args[1].VarNumber);
+end;
+
+class function TBuiltInFunction.SEBufferSetI64(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+var
+  P: Pointer;
+begin
+  P := Pointer(Round(Args[0].VarNumber));
+  Int64(P^) := Round(Args[1].VarNumber);
+end;
+
+class function TBuiltInFunction.SEBufferSetF64(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+var
+  P: Pointer;
+begin
+  P := Pointer(Round(Args[0].VarNumber));
+  Double(P^) := Args[1];
+end;
+
+class function TBuiltInFunction.SEStringToBuffer(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+begin
+  Result := QWord(@Args[0].VarString[1]);
+end;
+
+class function TBuiltInFunction.SEBufferToString(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+begin
+  if QWord(Args[0].VarString[1]) = Round(Args[0].VarNumber) then
+    Result := Args[0].VarString
+  else
+    Result := PChar(Round(Args[0].VarNumber));
+end;
+
+class function TBuiltInFunction.SEWBufferToString(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+var
+  WS: WideString;
+begin
+  WS := PWideChar(Round(Args[0].VarNumber));
+  Result := UTF8Encode(WS);
 end;
 
 class function TBuiltInFunction.SETypeOf(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -1311,15 +1496,13 @@ var
   FuncNativeInfo: PSEFuncNativeInfo;
   FuncScriptInfo: PSEFuncScriptInfo;
   FuncImportInfo: PSEFuncImportInfo;
-  I, J, {$ifdef LINUX}ArgCountStack, {$endif}ArgCount, ArgSize: Integer;
+  I, J, ArgCountStack, ArgCount, ArgSize: Integer;
   Args: array of TSEValue;
   CodePtrLocal: Integer;
   StackPtrLocal: PSEValue;
   BinaryLocal: TSEBinary;
   MMXCount, RegCount: QWord;
-  {$ifdef LINUX}
   ImportBufferIndex: array [0..31] of QWord;
-  {$endif}
   ImportBufferData: array [0..8*31] of Byte;
   ImportBufferString: array [0..31] of String;
   ImportBufferWideString: array [0..31] of WideString;
@@ -1353,7 +1536,7 @@ var
 
 label
   Loop, FinishLoop, LoopMMX, LoopMMXAlloc, AllocMMX6, AllocMMX5, AllocMMX4, AllocMMX3, AllocMMX2, AllocMMX1,
-  AllocMMX0, LoopMMXFinishAlloc, LoopReg, LoopRegAlloc, AllocRDI, AllocRSI, AllocRDX, AllocRCX, AllocR9, LoopRegFinishAlloc,
+  AllocMMX0, LoopMMXFinishAlloc, LoopReg, LoopRegAlloc, AllocRDI, AllocRSI, AllocRDX, AllocRCX, AllocR8, AllocR9, LoopRegFinishAlloc,
   LoopFinishAlloc;
 
 begin
@@ -1597,9 +1780,9 @@ begin
               raise Exception.Create(Format('Function "%s" is null', [FuncImportInfo^.Name]));
             ArgCount := Length(FuncImportInfo^.Args);
             ArgSize := ArgCount * 8;
+            RegCount := 0;
             {$ifdef LINUX}
             MMXCount := 0;
-            RegCount := 0;
             {$endif}
 
             for I := ArgCount - 1 downto 0 do
@@ -1608,66 +1791,50 @@ begin
                 seakI8:
                   begin
                     Int64((@ImportBufferData[I * 8])^) := ShortInt(Round(Pop^.VarNumber));
-                    {$ifdef LINUX}
                     ImportBufferIndex[I] := 0;
                     Inc(RegCount);
-                    {$endif}
                   end;
                 seakI16:
                   begin
                     Int64((@ImportBufferData[I * 8])^) := SmallInt(Round(Pop^.VarNumber));
-                    {$ifdef LINUX}
                     ImportBufferIndex[I] := 0;
                     Inc(RegCount);
-                    {$endif}
                   end;
                 seakI32:
                   begin
                     Int64((@ImportBufferData[I * 8])^) := LongInt(Round(Pop^.VarNumber));
-                    {$ifdef LINUX}
                     ImportBufferIndex[I] := 0;
                     Inc(RegCount);
-                    {$endif}
                   end;
                 seakI64:
                   begin
                     Int64((@ImportBufferData[I * 8])^) := Int64(Round(Pop^.VarNumber));
-                    {$ifdef LINUX}
                     ImportBufferIndex[I] := 0;
                     Inc(RegCount);
-                    {$endif}
                   end;
                 seakU8:
                   begin
                     QWord((@ImportBufferData[I * 8])^) := Byte(Round(Pop^.VarNumber));
-                    {$ifdef LINUX}
                     ImportBufferIndex[I] := 0;
                     Inc(RegCount);
-                    {$endif}
                   end;
                 seakU16:
                   begin
                     QWord((@ImportBufferData[I * 8])^) := Word(Round(Pop^.VarNumber));
-                    {$ifdef LINUX}
                     ImportBufferIndex[I] := 0;
                     Inc(RegCount);
-                    {$endif}
                   end;
                 seakU32:
                   begin
                     QWord((@ImportBufferData[I * 8])^) := LongWord(Round(Pop^.VarNumber));
-                    {$ifdef LINUX}
                     ImportBufferIndex[I] := 0;
                     Inc(RegCount);
-                    {$endif}
                   end;
                 seakU64:
                   begin
                     QWord((@ImportBufferData[I * 8])^) := QWord(Round(Pop^.VarNumber));
-                    {$ifdef LINUX}
                     ImportBufferIndex[I] := 0;
                     Inc(RegCount);
-                    {$endif}
                   end;
                { seakF32:
                   begin
@@ -1676,12 +1843,14 @@ begin
                 seakF64:
                   begin
                     Double((@ImportBufferData[I * 8])^) := Pop^.VarNumber;
-                    {$ifdef LINUX}
                     ImportBufferIndex[I] := 1;
+                    {$ifdef WINDOWS}
+                    Inc(RegCount);
+                    {$else}
                     Inc(MMXCount);
                     {$endif}
                   end;
-                seakChars:
+                seakBuffer:
                   begin
                     A := Pop;
                     if A^.Kind = sevkString then
@@ -1690,12 +1859,10 @@ begin
                       PChar((@ImportBufferData[I * 8])^) := PChar(ImportBufferString[I]);
                     end else
                       QWord((@ImportBufferData[I * 8])^) := Round(A^.VarNumber);
-                    {$ifdef LINUX}
                     ImportBufferIndex[I] := 0;
                     Inc(RegCount);
-                    {$endif}
                   end;
-                seakWChars:
+                seakWBuffer:
                   begin
                     A := Pop;
                     if A^.Kind = sevkString then
@@ -1704,55 +1871,105 @@ begin
                       PChar((@ImportBufferData[I * 8])^) := PChar(ImportBufferWideString[I]);
                     end else
                       QWord((@ImportBufferData[I * 8])^) := Round(A^.VarNumber);
-                    {$ifdef LINUX}
                     ImportBufferIndex[I] := 0;
                     Inc(RegCount);
-                    {$endif}
                   end;
               end;
             end;
             P := @ImportBufferData[0];
-            {$if defined(LINUX)}
             PP := @ImportBufferIndex[0];
+            {$if defined(WINDOWS)}
+            ArgCountStack := Max(0, Int64(RegCount) - 4);
+            {$elseif defined(LINUX)}
             ArgCountStack := Max(0, Int64(MMXCount) - 8) + Max(0, Int64(RegCount) - 6);
             {$endif}
             {$ifdef CPUX86_64}
             {$if defined(WINDOWS)}
               asm
-                mov  rbx,P
-                mov  rcx,[rbx]
-                mov  rdx,[rbx + 8]
-                mov  r8,[rbx + 16]
-                mov  r9,[rbx + 24]
-                movsd xmm0,[rbx]
-                movsd xmm1,[rbx + 8]
-                movsd xmm2,[rbx + 16]
-                movsd xmm3,[rbx + 24]
                 xor  rax,rax
                 mov  eax,ArgCount
-                cmp  eax,4
-                jle  FinishLoop
-                add  ebx,ArgSize
-                sub  eax,5
+                mov  r10,rax
+
+                xor  rax,rax
+                mov  eax,ArgSize
+                mov  r14,rax
+
+                mov  rbx,P
+                add  rbx,r14
+                mov  rax,PP
+                add  rax,r14
+                mov  r12,RegCount
               Loop:
+                sub  rax,8
                 sub  rbx,8
-                mov  r11,[rbx]
-                push r11
-                cmp  rax,0
-                je   FinishLoop
-                dec  rax
-                jmp  Loop
+                mov  r13,[rbx]
+                mov  r14,[rax]
+              LoopReg:
+                  cmp  r12,4
+                  jle  LoopRegAlloc // Lower or equal: Register allocation, Higher: Push to stack
+                // Push to stack
+                  push r13 // Always push ...
+                  jmp  LoopRegFinishAlloc
+                LoopRegAlloc:
+                  cmp  r14,1 // MMX?
+                  je   LoopMMX
+
+                  cmp  r12,1
+                  je   AllocRCX
+                  cmp  r12,2
+                  je   AllocRDX
+                  cmp  r12,3
+                  je   AllocR8
+                // R9
+                  mov  r9,r13
+                  jmp  LoopRegFinishAlloc
+                AllocRCX:
+                  mov  rcx,r13
+                  jmp  LoopRegFinishAlloc
+                AllocRDX:
+                  mov  rdx,r13
+                  jmp  LoopRegFinishAlloc
+                AllocR8:
+                  mov  r8,r13
+                  jmp  LoopRegFinishAlloc
+
+                LoopMMX:
+                  cmp  r12,1
+                  je   AllocMMX0
+                  cmp  r12,2
+                  je   AllocMMX1
+                  cmp  r12,3
+                  je   AllocMMX2
+                // MMX3
+                  movsd xmm3,[rbx]
+                  jmp  LoopRegFinishAlloc
+                AllocMMX0:
+                  movsd xmm0,[rbx]
+                  jmp  LoopRegFinishAlloc
+                AllocMMX1:
+                  movsd xmm1,[rbx]
+                  jmp  LoopRegFinishAlloc
+                AllocMMX2:
+                  movsd xmm2,[rbx]
+
+                LoopRegFinishAlloc:
+                  dec  r12
+              LoopFinishAlloc:
+                dec  r10
+                cmp  r10,0 // Still have arguments to take care of?
+                jne  Loop
               FinishLoop:
                 sub  rsp,32
                 call [FuncImport]
                 mov  ImportResult,rax
                 movsd ImportResultD,xmm0
                 xor  rax,rax
-                mov  eax,ArgCount
+                mov  eax,ArgCountStack
                 mov  ecx,8
                 mul  ecx
                 add  rsp,rax
-              end ['rax', 'rbx', 'rcx', 'rdx', 'r8', 'r9', 'r11', 'xmm0', 'xmm1', 'xmm2', 'xmm3'];
+                add  rsp,32
+              end ['rax', 'rbx', 'rcx', 'rdx', 'r8', 'r9', 'r10', 'r11', 'r12', 'r13', 'r14', 'xmm0', 'xmm1', 'xmm2', 'xmm3'];
             {$elseif defined(LINUX)}
               asm
                 xor  rax,rax
@@ -1864,7 +2081,6 @@ begin
                 cmp  r10,0 // Still have arguments to take care of?
                 jne  Loop
               FinishLoop:
-                sub  rsp,8
                 call [FuncImport]
                 mov  ImportResult,rax
                 movsd ImportResultD,xmm0
@@ -1873,8 +2089,7 @@ begin
                 mov  ecx,8
                 mul  ecx
                 add  rsp,rax
-                add  rsp,8
-              end ['rax', 'rbx', 'rcx', 'rdx', 'r8', 'r9', 'r10', 'r11', 'r12', 'r13', 'r14', 'xmm0', 'xmm1', 'xmm2', 'xmm3', 'xmm4', 'xmm5', 'xmm6', 'xmm7'];
+              end ['rsi', 'rdi', 'rax', 'rbx', 'rcx', 'rdx', 'r8', 'r9', 'r10', 'r11', 'r12', 'r13', 'r14', 'xmm0', 'xmm1', 'xmm2', 'xmm3', 'xmm4', 'xmm5', 'xmm6', 'xmm7'];
             {$endif}
             {$else}
             throw Exception.Create('Import external function does not support this CPU architecture');
@@ -1893,7 +2108,7 @@ begin
                 begin
                   TV := QWord(LongWord(ImportResult))
                 end;
-              seakU64, seakChars, seakWChars:
+              seakU64, seakBuffer, seakWBuffer:
                 begin
                   TV := QWord(ImportResult)
                 end;
@@ -2034,6 +2249,29 @@ begin
   Self.IncludeList := TStringList.Create;
   Self.CurrentFileList := TStringList.Create;
   Self.VM.Parent := Self;
+  Self.RegisterFunc('buffer_create', @TBuiltInFunction(nil).SEBufferCreate, 1);
+  Self.RegisterFunc('buffer_length', @TBuiltInFunction(nil).SEBufferLength, 1);
+  Self.RegisterFunc('buffer_u8_get', @TBuiltInFunction(nil).SEBufferGetU8, 1);
+  Self.RegisterFunc('buffer_u16_get', @TBuiltInFunction(nil).SEBufferGetU16, 1);
+  Self.RegisterFunc('buffer_u32_get', @TBuiltInFunction(nil).SEBufferGetU32, 1);
+  Self.RegisterFunc('buffer_u64_get', @TBuiltInFunction(nil).SEBufferGetU64, 1);
+  Self.RegisterFunc('buffer_i8_get', @TBuiltInFunction(nil).SEBufferGetI8, 1);
+  Self.RegisterFunc('buffer_i16_get', @TBuiltInFunction(nil).SEBufferGetI16, 1);
+  Self.RegisterFunc('buffer_i32_get', @TBuiltInFunction(nil).SEBufferGetI32, 1);
+  Self.RegisterFunc('buffer_i64_get', @TBuiltInFunction(nil).SEBufferGetI64, 1);
+  Self.RegisterFunc('buffer_f64_get', @TBuiltInFunction(nil).SEBufferGetF64, 1);
+  Self.RegisterFunc('buffer_u8_set', @TBuiltInFunction(nil).SEBufferSetU8, 2);
+  Self.RegisterFunc('buffer_u16_set', @TBuiltInFunction(nil).SEBufferSetU16, 2);
+  Self.RegisterFunc('buffer_u32_set', @TBuiltInFunction(nil).SEBufferSetU32, 2);
+  Self.RegisterFunc('buffer_u64_set', @TBuiltInFunction(nil).SEBufferSetU64, 2);
+  Self.RegisterFunc('buffer_i8_set', @TBuiltInFunction(nil).SEBufferSetI8, 2);
+  Self.RegisterFunc('buffer_i16_set', @TBuiltInFunction(nil).SEBufferSetI16, 2);
+  Self.RegisterFunc('buffer_i32_set', @TBuiltInFunction(nil).SEBufferSetI32, 2);
+  Self.RegisterFunc('buffer_i64_set', @TBuiltInFunction(nil).SEBufferSetI64, 2);
+  Self.RegisterFunc('buffer_f64_set', @TBuiltInFunction(nil).SEBufferSetF64, 2);
+  Self.RegisterFunc('string_to_buffer', @TBuiltInFunction(nil).SEStringToBuffer, 1);
+  Self.RegisterFunc('buffer_to_string', @TBuiltInFunction(nil).SEBufferToString, 1);
+  Self.RegisterFunc('wbuffer_to_string', @TBuiltInFunction(nil).SEWBufferToString, 1);
   Self.RegisterFunc('typeof', @TBuiltInFunction(nil).SETypeOf, 1);
   Self.RegisterFunc('get', @TBuiltInFunction(nil).SEGet, 2);
   Self.RegisterFunc('set', @TBuiltInFunction(nil).SESet, 2);
@@ -2292,10 +2530,24 @@ begin
           until IsLoopDone;
         end;
       '+':
-        Token.Kind := tkAdd;
+        begin
+          Token.Kind := tkAdd;
+          if PeekAtNextChar = '=' then
+          begin
+            Token.Kind := tkOpAssign;
+            Token.Value := C;
+            NextChar;
+          end;
+        end;
       '-':
         begin
           Token.Kind := tkSub;
+          if PeekAtNextChar = '=' then
+          begin
+            Token.Kind := tkOpAssign;
+            Token.Value := C;
+            NextChar;
+          end else
           if Pos > 1 then
           begin
             PC := Self.Source[Pos - 1];
@@ -2305,7 +2557,15 @@ begin
           end;
         end;
       '*':
-        Token.Kind := tkMul;
+        begin
+          Token.Kind := tkMul;
+          if PeekAtNextChar = '=' then
+          begin
+            Token.Kind := tkOpAssign;
+            Token.Value := C;
+            NextChar;
+          end;
+        end;
       '/':
         begin
           Token.Kind := tkDiv;
@@ -2323,6 +2583,12 @@ begin
             until ((C = '*') and (PeekAtNextChar = '/')) or (C = #0);
             NextChar;
             continue;
+          end else
+          if PeekAtNextChar = '=' then
+          begin
+            Token.Kind := tkOpAssign;
+            Token.Value := C;
+            NextChar;
           end;
         end;
       '=':
@@ -3061,9 +3327,9 @@ var
         'f64':
           Result := seakF64;
         'buffer':
-          Result := seakChars;
+          Result := seakBuffer;
         'wbuffer':
-          Result := seakWChars;
+          Result := seakWBuffer;
       end;
     end;
 
@@ -3308,8 +3574,28 @@ var
           NextTokenExpected([tkSquareBracketClose]);
         end;
     end;
-    Token := NextTokenExpected([tkEqual]);
+    Token := NextTokenExpected([tkEqual, tkOpAssign]);
+    if Token.Kind = tkOpAssign then
+    begin
+      if IsArrayAssign then
+        Emit([Pointer(opPushLocalArray), Addr])
+      else
+        Emit([Pointer(opPushLocalVar), Addr]);
+    end;
     ParseExpr;
+    if Token.Kind = tkOpAssign then
+    begin
+      case Token.Value of
+        '+':
+          Emit([Pointer(opOperatorAdd)]);
+        '-':
+          Emit([Pointer(opOperatorSub)]);
+        '*':
+          Emit([Pointer(opOperatorMul)]);
+        '/':
+          Emit([Pointer(opOperatorDiv)]);
+      end;
+    end;
     if IsArrayAssign then
       Emit([Pointer(opAssignLocalArray), Name, Addr])
     else
@@ -3515,7 +3801,10 @@ begin
   if DynlibMap.ContainsKey(LibName) then
     Lib := DynlibMap[LibName]
   else
+  begin
     Lib := LoadLibrary(LibName);
+    DynlibMap.Add(LibName, Lib);
+  end;
 
   FuncImportInfo.Args := Args;
   FuncImportInfo.Return := Return;
