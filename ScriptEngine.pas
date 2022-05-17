@@ -41,6 +41,7 @@ type
     opOperatorMul,
     opOperatorDiv,
     opOperatorMod,
+    opOperatorPow,
     opOperatorNegative,
     opOperatorSmaller,
     opOperatorSmallerOrEqual,
@@ -199,7 +200,7 @@ type
 
   TSECache = record
     Binary: TSEBinary;
-    LocalVarListCount: Cardinal;
+    GlobalVarCount: Cardinal;
     LineOfCodeList: TIntegerList;
     FuncScriptList: TSEFuncScriptList;
     FuncImportList: TSEFuncImportList;
@@ -218,6 +219,7 @@ type
     tkMul,
     tkDiv,
     tkMod,
+    tkPow,
     tkOpAssign,
     tkEqual,
     tkNotEqual,
@@ -263,7 +265,7 @@ type
 TSETokenKinds = set of TSETokenKind;
 
 const TokenNames: array[TSETokenKind] of String = (
-  'EOF', '.', '+', '-', '*', 'div', 'mod', 'operator assign', '=', '!=', '<',
+  'EOF', '.', '+', '-', '*', 'div', 'mod', '^', 'operator assign', '=', '!=', '<',
   '>', '<=', '>=', '{', '}', ':', '(', ')', 'neg', 'number', 'string',
   ',', 'if', 'identity', 'function', 'fn', 'variable', 'const',
   'unknown', 'else', 'while', 'break', 'continue', 'pause', 'yield',
@@ -312,6 +314,7 @@ type
     VM: TSEVM;
     IncludeList: TStrings;
     TokenList: TSETokenList;
+    GlobalVarCount: Integer;
     LocalVarList: TSEIdentList;
     FuncNativeList: TSEFuncNativeList;
     FuncScriptList: TSEFuncScriptList;
@@ -442,6 +445,7 @@ type
     class function SECos(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SETan(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SECot(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SERange(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEMin(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEMax(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEPow(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -479,7 +483,7 @@ type
   TDynlibMap = specialize TDictionary<String, TLibHandle>;
 
 var
-  DynlibMap: TDynlibMap;
+  DynlibMap: TDynlibMap;  
 
 function PointStrToFloat(S: String): Double;
 var
@@ -562,7 +566,7 @@ end;
 class function TBuiltInFunction.SEBufferGetF64(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
   Result.Kind := sevkSingle;
-  Result.VarNumber := Double(Pointer(Round(Args[0].VarNumber))^);
+  Result.VarNumber := TSENumber(Pointer(Round(Args[0].VarNumber))^);
 end;
 
 class function TBuiltInFunction.SEBufferSetU8(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -634,7 +638,7 @@ var
   P: Pointer;
 begin
   P := Pointer(Round(Args[0].VarNumber));
-  Double(P^) := Args[1];
+  TSENumber(P^) := Args[1];
 end;
 
 class function TBuiltInFunction.SEStringToBuffer(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -712,12 +716,15 @@ end;
 
 class function TBuiltInFunction.SEGet(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  Exit(ScriptVarMap[Args[0]]);
+  if ScriptVarMap.ContainsKey(Args[0].VarString) then
+    Exit(ScriptVarMap[Args[0]])
+  else
+    Exit(0);
 end;
 
 class function TBuiltInFunction.SESet(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  ScriptVarMap.AddOrSetValue(Args[0], Args[1]);
+  ScriptVarMap.AddOrSetValue(Args[0].VarString, Args[1]);
 end;
 
 class function TBuiltInFunction.SEString(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -807,18 +814,54 @@ begin
   Exit(Sign(Args[0].VarNumber));
 end;
 
-class function TBuiltInFunction.SEMin(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+class function TBuiltInFunction.SERange(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+  function EpsilonRound(V: TSENumber): TSENumber;
+  begin
+    if Abs(Frac(V)) < 1E-12 then
+      Result := Round(V)
+    else
+      Result := V;
+  end;
+
+var
+  V: TSENumber;
+  I: Integer = 0;
 begin
-  if Args[0] < Args[1] then
-    Exit(Args[0]);
-  Exit(Args[1]);
+  Result.Kind := sevkArray;
+  SetLength(Result.VarArray, 0);
+  V := Args[0];
+  while EpsilonRound(V) <= Args[1].VarNumber do
+  begin
+    Inc(I);
+    SetLength(Result.VarArray, I);
+    Result.VarArray[I - 1] := V;
+    if Length(Args) = 3 then
+      V := V + Args[2].VarNumber
+    else
+      V := V + 1;
+  end;
+end;
+
+class function TBuiltInFunction.SEMin(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+var
+  I: Integer;
+begin
+  for I := 0 to Length(Args) - 2 do
+    if Args[I] < Args[I + 1] then
+      Result := Args[I]
+    else
+      Result := Args[I + 1];
 end;
 
 class function TBuiltInFunction.SEMax(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+var
+  I: Integer;
 begin
-  if Args[0] > Args[1] then
-    Exit(Args[0]);
-  Exit(Args[1]);
+  for I := 0 to Length(Args) - 2 do
+    if Args[I] > Args[I + 1] then
+      Result := Args[I]
+    else
+      Result := Args[I + 1];
 end;
 
 class function TBuiltInFunction.SEPow(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -1476,11 +1519,11 @@ begin
   Self.IsDone := False;
   Self.Parent.IsDone := False;
   Self.WaitTime := 0;
-  SetLength(Self.Stack, Self.Parent.LocalVarList.Count + 64 + StackWorkingSize);
+  SetLength(Self.Stack, Self.Parent.GlobalVarCount + 64 + StackWorkingSize);
   SetLength(Self.Frame, 64);
   Self.FramePtr := 0;
   Self.StackPtr := @Self.Stack[0];
-  Self.StackPtr := Self.StackPtr + Self.Parent.LocalVarList.Count + 64;
+  Self.StackPtr := Self.StackPtr + Self.Parent.GlobalVarCount + 64;
 end;
 
 procedure TSEVM.Exec;
@@ -1508,7 +1551,7 @@ var
   ImportBufferString: array [0..31] of String;
   ImportBufferWideString: array [0..31] of WideString;
   ImportResult: QWord;
-  ImportResultD: Double;
+  ImportResultD: TSENumber;
   FuncImport, P, PP: Pointer;
 
   procedure Push(const Value: TSEValue); inline;
@@ -1839,11 +1882,11 @@ begin
                   end;
                { seakF32:
                   begin
-                    Double((@ImportBufferData[I * 8])^) := Pop^.VarNumber;
+                    TSENumber((@ImportBufferData[I * 8])^) := Pop^.VarNumber;
                   end;}
                 seakF64:
                   begin
-                    Double((@ImportBufferData[I * 8])^) := Pop^.VarNumber;
+                    TSENumber((@ImportBufferData[I * 8])^) := Pop^.VarNumber;
                     ImportBufferIndex[I] := 1;
                     {$ifdef WINDOWS}
                     Inc(RegCount);
@@ -2129,12 +2172,12 @@ begin
           end;
         opAssignLocal:
           begin
-            Assign(BinaryLocal.Ptr(CodePtrLocal + 2)^, Pop);
-            Inc(CodePtrLocal, 3);
+            Assign(BinaryLocal.Ptr(CodePtrLocal + 1)^, Pop);
+            Inc(CodePtrLocal, 2);
           end;
         opAssignLocalArray:
           begin
-            A := BinaryLocal.Ptr(CodePtrLocal + 2);
+            A := BinaryLocal.Ptr(CodePtrLocal + 1);
             B := Pop;
             C := Pop;
             V := @Self.Stack[Integer(A^)];
@@ -2191,7 +2234,7 @@ begin
                   Self.Stack[Integer(A^)] := V^;
                 end;
             end;
-            Inc(CodePtrLocal, 3);
+            Inc(CodePtrLocal, 2);
           end;
         opPause:
           begin
@@ -2208,6 +2251,13 @@ begin
             Self.CodePtr := CodePtrLocal;
             Self.StackPtr := StackPtrLocal;
             Exit;
+          end;
+        opOperatorPow:
+          begin
+            B := Pop;
+            A := Pop;
+            Push(Power(A^.VarNumber, B^.VarNumber));
+            Inc(CodePtrLocal);
           end;
       end;
       if Self.IsPaused or Self.IsWaited then
@@ -2274,7 +2324,7 @@ begin
   Self.RegisterFunc('buffer_to_string', @TBuiltInFunction(nil).SEBufferToString, 1);
   Self.RegisterFunc('wbuffer_to_string', @TBuiltInFunction(nil).SEWBufferToString, 1);
   Self.RegisterFunc('typeof', @TBuiltInFunction(nil).SETypeOf, 1);
-  Self.RegisterFunc('get', @TBuiltInFunction(nil).SEGet, 2);
+  Self.RegisterFunc('get', @TBuiltInFunction(nil).SEGet, 1);
   Self.RegisterFunc('set', @TBuiltInFunction(nil).SESet, 2);
   Self.RegisterFunc('string', @TBuiltInFunction(nil).SEString, 1);
   Self.RegisterFunc('number', @TBuiltInFunction(nil).SENumber, 1);
@@ -2284,8 +2334,9 @@ begin
   Self.RegisterFunc('array_create', @TBuiltInFunction(nil).SEArrayCreate, -1);
   Self.RegisterFunc('array_delete', @TBuiltInFunction(nil).SEArrayDelete, 3);
   Self.RegisterFunc('sign', @TBuiltInFunction(nil).SESign, 1);
-  Self.RegisterFunc('min', @TBuiltInFunction(nil).SEMin, 2);
-  Self.RegisterFunc('max', @TBuiltInFunction(nil).SEMax, 2);
+  Self.RegisterFunc('min', @TBuiltInFunction(nil).SEMin, -1);
+  Self.RegisterFunc('max', @TBuiltInFunction(nil).SEMax, 1);
+  Self.RegisterFunc('range', @TBuiltInFunction(nil).SERange, -1);
   Self.RegisterFunc('pow', @TBuiltInFunction(nil).SEPow, 2);
   Self.RegisterFunc('string_grep', @TBuiltInFunction(nil).SEStringGrep, -1);
   Self.RegisterFunc('string_format', @TBuiltInFunction(nil).SEStringFormat, 2);
@@ -2539,6 +2590,10 @@ begin
             Token.Value := C;
             NextChar;
           end;
+        end;
+      '^':
+        begin
+          Token.Kind := tkPow;
         end;
       '-':
         begin
@@ -2919,8 +2974,9 @@ var
     Result.Kind := Kind;
     Result.Ln := Token.Ln;
     Result.Col := Token.Col;
-    Result.Addr := Self.LocalVarList.Count - 1;
+    Result.Addr := Self.GlobalVarCount;
     Result.Name := Token.Value;
+    Inc(Self.GlobalVarCount);
   end;
 
   function Emit(const Data: array of TSEValue): Integer; inline;
@@ -3098,7 +3154,7 @@ var
       end;
     end;
 
-    procedure Term;
+    procedure Pow;
     var
       Token: TSEToken;
     begin
@@ -3107,12 +3163,29 @@ var
       begin
         Token := PeekAtNextToken;
         case Token.Kind of
+          tkPow:
+            BinaryOp(opOperatorPow, @SignedFactor, True);
+          else
+            Exit;
+        end;
+      end;
+    end;
+
+    procedure Term;
+    var
+      Token: TSEToken;
+    begin
+      Pow;
+      while True do
+      begin
+        Token := PeekAtNextToken;
+        case Token.Kind of
           tkMul:
-            BinaryOp(opOperatorMul, @SignedFactor, True);
+            BinaryOp(opOperatorMul, @Pow, True);
           tkDiv:
-            BinaryOp(opOperatorDiv, @SignedFactor, True);
+            BinaryOp(opOperatorDiv, @Pow, True);
           tkMod:
-            BinaryOp(opOperatorMod, @SignedFactor, True);
+            BinaryOp(opOperatorMod, @Pow, True);
           else
             Exit;
         end;
@@ -3260,7 +3333,7 @@ var
       if FindFunc(Name) <> nil then
         Error(Format('Duplicate function declaration "%s"', [Token.Value]), Token);
 
-      StackAddr := Self.LocalVarList.Count - 1;
+      StackAddr := Self.GlobalVarCount;
 
       Token.Value := 'result';
       Token.Kind := tkIdent;
@@ -3467,12 +3540,12 @@ var
       end;
       VarName := Token.Value;
       VarAddr := FindVar(VarName)^.Addr;
-      Token := NextTokenExpected([tkEqual, tkIn]);
+      Token := NextTokenExpected([tkEqual, tkIn, tkComma]);
 
       if Token.Kind = tkEqual then
       begin
         ParseExpr;
-        Emit([Pointer(opAssignLocal), VarName, VarAddr]);
+        Emit([Pointer(opAssignLocal), VarAddr]);
 
         Token := NextTokenExpected([tkTo, tkDownto]);
         StartBlock := Self.VM.Binary.Count;
@@ -3504,12 +3577,18 @@ var
           Emit([Pointer(opPushConst), 1]);
           Emit([Pointer(opOperatorSub)]);
         end;
-        Emit([Pointer(opAssignLocal), VarName, VarAddr]);
+        Emit([Pointer(opAssignLocal), VarAddr]);
         JumpBlock := Emit([Pointer(opJumpUnconditional), 0]);
         EndBLock := JumpBlock;
       end else
       begin
-        VarHiddenCountName := '___c' + VarName;
+        if Token.Kind = tkComma then
+        begin
+          Token := NextTokenExpected([tkIdent]);
+          VarHiddenCountName := Token.Value;
+          NextTokenExpected([tkIn]);
+        end else
+          VarHiddenCountName := '___c' + VarName;
         VarHiddenArrayName := '___a' + VarName;
         Token.Value := VarHiddenCountName;
         Self.LocalVarList.Add(CreateIdent(ikVariable, Token));
@@ -3520,9 +3599,9 @@ var
 
         ParseExpr;
 
-        Emit([Pointer(opAssignLocal), VarHiddenArrayName, VarHiddenArrayAddr]);
+        Emit([Pointer(opAssignLocal), VarHiddenArrayAddr]);
         Emit([Pointer(opPushConst), 0]);
-        Emit([Pointer(opAssignLocal), VarHiddenCountName, VarHiddenCountAddr]);
+        Emit([Pointer(opAssignLocal), VarHiddenCountAddr]);
 
         StartBlock := Self.VM.Binary.Count;
 
@@ -3534,14 +3613,14 @@ var
         Emit([Pointer(opPushLocalVar), VarHiddenArrayAddr]);
         Emit([Pointer(opPushLocalVar), VarHiddenCountAddr]);
         Emit([Pointer(opPushLocalArrayPop)]);
-        Emit([Pointer(opAssignLocal), VarName, VarAddr]);
+        Emit([Pointer(opAssignLocal), VarAddr]);
 
         ParseBlock;
 
         Emit([Pointer(opPushLocalVar), VarHiddenCountAddr]);
         Emit([Pointer(opPushConst), 1]);
         Emit([Pointer(opOperatorAdd)]);
-        Emit([Pointer(opAssignLocal), VarHiddenCountName, VarHiddenCountAddr]);
+        Emit([Pointer(opAssignLocal), VarHiddenCountAddr]);
         JumpBlock := Emit([Pointer(opJumpUnconditional), 0]);
         EndBLock := JumpBlock;
       end;
@@ -3646,9 +3725,9 @@ var
       end;
     end;
     if IsArrayAssign then
-      Emit([Pointer(opAssignLocalArray), Name, Addr])
+      Emit([Pointer(opAssignLocalArray), Addr])
     else
-      Emit([Pointer(opAssignLocal), Name, Addr]);
+      Emit([Pointer(opAssignLocal), Addr]);
   end;
 
   procedure ParseBlock;
@@ -3801,6 +3880,7 @@ begin
   Self.LocalVarList.Clear;
   Self.TokenList.Clear;
   Self.IncludeList.Clear;
+  Self.GlobalVarCount := 1;
   Ident.Kind := ikVariable;
   Ident.Addr := 0;
   Ident.Name := 'result';
@@ -3858,6 +3938,7 @@ begin
   FuncImportInfo.Args := Args;
   FuncImportInfo.Return := Return;
   FuncImportInfo.Name := Name;
+  FuncImportInfo.Func := nil;
   if Lib <> nil then
     FuncImportInfo.Func := GetProcAddress(Lib, ActualName);
   Self.FuncImportList.Add(FuncImportInfo);
@@ -3887,7 +3968,7 @@ begin
   begin
     Result.FuncImportList.Add(Self.FuncImportList[I]);
   end;
-  Result.LocalVarListCount := Self.LocalVarList.Count;
+  Result.GlobalVarCount := Self.GlobalVarCount;
 end;
 
 procedure TScriptEngine.Restore(const Cache: TSECache);
@@ -3904,7 +3985,7 @@ begin
     Self.FuncScriptList.Add(Cache.FuncScriptList[I]);
   for I := 0 to Cache.FuncImportList.Count - 1 do
     Self.FuncImportList.Add(Cache.FuncImportList[I]);
-  Self.LocalVarList.Count := Cache.LocalVarListCount;
+  Self.GlobalVarCount := Cache.GlobalVarCount;
   Self.IsParsed := True;
 end;
 
