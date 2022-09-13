@@ -10,7 +10,7 @@ unit ScriptEngine;
 // enable this if you want to perform string manipulation (concat, compare)
 {$define SE_STRING}
 // enable this if you want to handle UTF-8 strings
-{$define SE_STRING_UTF8}
+{.$define SE_STRING_UTF8}
 // enable this if you want precision (use Double instead of Single)
 {$define SE_PRECISION}
 
@@ -175,7 +175,7 @@ type
   TSEScopeStack = specialize TStack<Integer>;
   TIntegerList = specialize TList<Integer>;
 
-   TScriptEngine = class;
+  TScriptEngine = class;
   TSEVM = class
   public
     IsPaused: Boolean;
@@ -187,7 +187,7 @@ type
     StackPtr: PSEValue;
     FramePtr: Integer;
     StackWorkingSize: Integer; // not count memory need for local variables
-    Parent:  TScriptEngine;
+    Parent: TScriptEngine;
     Binary: TSEBinary;
     WaitTime: LongWord;
 
@@ -305,7 +305,7 @@ type
   PSEToken = ^TSEToken;
   TSETokenList = specialize TList<TSEToken>;
 
-   TScriptEngine = class
+  TScriptEngine = class
   private
     FSource: String;
     procedure SetSource(V: String);
@@ -486,7 +486,7 @@ type
 var
   DynlibMap: TDynlibMap;
 
-function PointStrToFloat(S: String): Double;
+function PointStrToFloat(S: String): Double; inline;
 var
   fS: TFormatSettings;
 begin
@@ -495,7 +495,7 @@ begin
   Result := StrToFloat(S, FS);
 end;
 
-function PointFloatToStr(X: Double): String;
+function PointFloatToStr(X: Double): String; inline;
 var
   FS: TFormatSettings;
 begin
@@ -1189,7 +1189,7 @@ end;
 
 // ----- Fast inline TSEValue operations -----
 
-function SEValueAdd(constref V1, V2: TSEValue): TSEValue; inline; overload;
+procedure SEValueAdd(out R: TSEValue; constref V1, V2: TSEValue); inline; overload;
 var
   I, Len: Integer;
 begin
@@ -1197,66 +1197,110 @@ begin
   case V1.Kind of
     sevkSingle:
       begin
-        Result.Kind := sevkSingle;
-        Result.VarNumber := V1.VarNumber + V2.VarNumber;
+        R.Kind := sevkSingle;
+        R.VarNumber := V1.VarNumber + V2.VarNumber;
       end;
     sevkPointer:
       begin
-        Result.Kind := sevkPointer;
-        Result.VarPointer := V1.VarPointer + V2.VarPointer;
+        R.Kind := sevkPointer;
+        R.VarPointer := V1.VarPointer + V2.VarPointer;
       end;
     sevkArray:
       begin
-        Result.Kind := sevkArray;
-        SetLength(Result.VarArray, Length(V1.VarArray) + Length(V2.VarArray));
+        R.Kind := sevkArray;
+        SetLength(R.VarArray, Length(V1.VarArray) + Length(V2.VarArray));
         Len := Length(V1.VarArray);
         for I := 0 to Len - 1 do
-          Result.VarArray[I] := V1.VarArray[I];
+          R.VarArray[I] := V1.VarArray[I];
         for I := Len to Len + Length(V2.VarArray) - 1 do
-          Result.VarArray[I] := V2.VarArray[I - Len];
+          R.VarArray[I] := V2.VarArray[I - Len];
       end;
     {$ifdef SE_STRING}
     sevkString:
       begin
-        Result.Kind := sevkString;
-        Result.VarString := V1.VarString + V2.VarString;
+        R.Kind := sevkString;
+        R.VarString := V1.VarString + V2.VarString;
       end;
     {$endif}
   end;
 end;
 
-function SEValueSub(constref V1, V2: TSEValue): TSEValue; inline; overload;
+procedure SEValueSub(out R: TSEValue; constref V1, V2: TSEValue); inline; overload;
 begin
   if V1.Kind = V2.Kind then
   case V1.Kind of
     sevkSingle:
       begin
-        Result.Kind := sevkSingle;
-        Result.VarNumber := V1.VarNumber - V2.VarNumber;
+        R.Kind := sevkSingle;
+        R.VarNumber := V1.VarNumber - V2.VarNumber;
       end;
     sevkPointer:
       begin
-        Result.Kind := sevkPointer;
-        Result.VarPointer := Pointer(V1.VarPointer - V2.VarPointer);
+        R.Kind := sevkPointer;
+        R.VarPointer := Pointer(V1.VarPointer - V2.VarPointer);
       end;
   end;
 end;
 
-function SEValueNeg(constref V: TSEValue): TSEValue; inline;
+procedure SEValueNeg(out R: TSEValue; constref V: TSEValue); inline;
 begin
-  Result.VarNumber := -V.VarNumber;
+  R.VarNumber := -V.VarNumber;
 end;
 
-function SEValueMul(constref V1, V2: TSEValue): TSEValue; inline; overload;
+procedure SEValueMul(out R: TSEValue; constref V1, V2: TSEValue); inline; overload;
 begin
-  Result.Kind := sevkSingle;
-  Result.VarNumber := V1.VarNumber * V2.VarNumber;
+  R.Kind := sevkSingle;
+  R.VarNumber := V1.VarNumber * V2.VarNumber;
 end;
 
-function SEValueDiv(constref V1, V2: TSEValue): TSEValue; inline; overload;
+procedure SEValueDiv(out R: TSEValue; constref V1, V2: TSEValue); inline; overload;
 begin
-  Result.Kind := sevkSingle;
-  Result.VarNumber := V1.VarNumber / V2.VarNumber;
+  R.Kind := sevkSingle;
+  R.VarNumber := V1.VarNumber / V2.VarNumber;
+end;
+
+procedure SEValueLesser(out R: TSEValue; constref V1, V2: TSEValue); inline; overload;
+begin
+  R := V1.VarNumber < V2.VarNumber;
+end;
+
+procedure SEValueGreater(out R: TSEValue; constref V1, V2: TSEValue); inline; overload;
+begin
+  R := V1.VarNumber > V2.VarNumber;
+end;
+
+procedure SEValueLesserOrEqual(out R: TSEValue; constref V1, V2: TSEValue); inline; overload;
+begin
+  R := V1.VarNumber <= V2.VarNumber;
+end;
+
+procedure SEValueGreaterOrEqual(out R: TSEValue; constref V1, V2: TSEValue); inline; overload;
+begin
+  R := V1.VarNumber >= V2.VarNumber;
+end;
+
+procedure SEValueEqual(out R: TSEValue; constref V1, V2: TSEValue); inline; overload;
+begin
+  case V1.Kind of
+    sevkSingle:
+      R := V1.VarNumber = V2.VarNumber;
+  {$ifdef SE_STRING}
+    sevkString:
+      R := V1.VarString = V2.VarString;
+  {$endif}
+  end;
+end;
+
+procedure SEValueNotEqual(out R: TSEValue; constref V1, V2: TSEValue); inline; overload;
+begin
+  case V1.Kind of
+    sevkSingle:
+      R := V1.VarNumber <> V2.VarNumber;
+    {$ifdef SE_STRING}
+    sevkString:
+      R := V1.VarString <> V2.VarString;
+    {$endif}
+  end;
 end;
 
 function SEValueLesser(constref V1, V2: TSEValue): Boolean; inline; overload;
@@ -1291,7 +1335,7 @@ begin
   end;
 end;
 
-function SEValueNotEqual(constref V1, V2: TSEValue): Boolean; inline;
+function SEValueNotEqual(constref V1, V2: TSEValue): Boolean; inline; overload;
 begin
   case V1.Kind of
     sevkSingle:
@@ -1368,7 +1412,7 @@ end;
 operator := (V: TSEValue) R: Pointer; inline;
 begin
   R := V.VarPointer;
-end;                                                   
+end;
 var
   I, Len: Integer;
 
@@ -1667,28 +1711,32 @@ begin
           begin
             B := Pop;
             A := Pop;
-            Push(SEValueAdd(A^, B^));
+            SEValueAdd(StackPtrLocal^, A^, B^);
+            Inc(StackPtrLocal);
             Inc(CodePtrLocal);
           end;
         opOperatorSub:
           begin
             B := Pop;
             A := Pop;
-            Push(SEValueSub(A^, B^));
+            SEValueSub(StackPtrLocal^, A^, B^);
+            Inc(StackPtrLocal);
             Inc(CodePtrLocal);
           end;
         opOperatorMul:
           begin
             B := Pop;
             A := Pop;
-            Push(SEValueMul(A^, B^));
+            SEValueMul(StackPtrLocal^, A^, B^);
+            Inc(StackPtrLocal);
             Inc(CodePtrLocal);
           end;
         opOperatorDiv:
           begin
             B := Pop;
             A := Pop;
-            Push(SEValueDiv(A^, B^));
+            SEValueDiv(StackPtrLocal^, A^, B^);
+            Inc(StackPtrLocal);
             Inc(CodePtrLocal);
           end;
         opOperatorMod:
@@ -1702,42 +1750,48 @@ begin
           begin
             B := Pop;
             A := Pop;
-            Push(SEValueEqual(A^, B^));
+            SEValueEqual(StackPtrLocal^, A^, B^);
+            Inc(StackPtrLocal);
             Inc(CodePtrLocal);
           end;
         opOperatorNotEqual:
           begin
             B := Pop;
             A := Pop;
-            Push(SEValueNotEqual(A^, B^));
+            SEValueNotEqual(StackPtrLocal^, A^, B^);
+            Inc(StackPtrLocal);
             Inc(CodePtrLocal);
           end;
         opOperatorSmaller:
           begin
             B := Pop;
             A := Pop;
-            Push(SEValueLesser(A^, B^));
+            SEValueLesser(StackPtrLocal^, A^, B^);
+            Inc(StackPtrLocal);
             Inc(CodePtrLocal);
           end;
         opOperatorSmallerOrEqual:
           begin
             B := Pop;
             A := Pop;
-            Push(SEValueLesserOrEqual(A^, B^));
+            SEValueLesserOrEqual(StackPtrLocal^, A^, B^);
+            Inc(StackPtrLocal);
             Inc(CodePtrLocal);
           end;
         opOperatorGreater:
           begin
             B := Pop;
             A := Pop;
-            Push(SEValueGreater(A^, B^));
+            SEValueGreater(StackPtrLocal^, A^, B^);
+            Inc(StackPtrLocal);
             Inc(CodePtrLocal);
           end;
         opOperatorGreaterOrEqual:
           begin
             B := Pop;
             A := Pop;
-            Push(SEValueGreaterOrEqual(A^, B^));
+            SEValueGreaterOrEqual(StackPtrLocal^, A^, B^);
+            Inc(StackPtrLocal);
             Inc(CodePtrLocal);
           end;
         opOperatorAnd:
@@ -1763,7 +1817,8 @@ begin
         opOperatorNegative:
           begin
             A := Pop;
-            Push(SEValueNeg(A^));
+            SEValueNeg(StackPtrLocal^, A^);
+            Inc(StackPtrLocal);
             Inc(CodePtrLocal);
           end;
         opPushConst:
@@ -1825,7 +1880,7 @@ begin
           begin
             B := Pop;
             A := Pop;
-            if A^ = B^ then
+            if SEValueEqual(A^, B^) then
               CodePtrLocal := BinaryLocal.Ptr(CodePtrLocal + 1)^
             else
               Inc(CodePtrLocal, 2);
@@ -1838,7 +1893,7 @@ begin
           begin
             B := Pop;
             A := Pop;
-            if A^ >= B^ then
+            if SEValueGreaterOrEqual(A^, B^) then
               CodePtrLocal := BinaryLocal.Ptr(CodePtrLocal + 1)^
             else
               Inc(CodePtrLocal, 2);
@@ -1847,7 +1902,7 @@ begin
           begin
             B := Pop;
             A := Pop;
-            if A^ <= B^ then
+            if SEValueLesserOrEqual(A^, B^) then
               CodePtrLocal := BinaryLocal.Ptr(CodePtrLocal + 1)^
             else
               Inc(CodePtrLocal, 2);
@@ -2318,7 +2373,7 @@ begin
             Self.CodePtr := CodePtrLocal;
             Self.StackPtr := StackPtrLocal;
             Exit;
-          end;  
+          end;
         opOperatorPow:
           begin
             B := Pop;
@@ -2352,7 +2407,7 @@ begin
   Self.Parent.IsDone := True;
 end;
 
-constructor  TScriptEngine.Create;
+constructor TScriptEngine.Create;
 begin
   inherited;
   Self.VM := TSEVM.Create;
@@ -2449,7 +2504,7 @@ begin
   Self.Source := '';
 end;
 
-destructor  TScriptEngine.Destroy;
+destructor TScriptEngine.Destroy;
 begin
   FreeAndNil(Self.VM);
   FreeAndNil(Self.TokenList);
@@ -2465,40 +2520,40 @@ begin
   inherited;
 end;
 
-procedure  TScriptEngine.AddDefaultConsts;
+procedure TScriptEngine.AddDefaultConsts;
 begin
   Self.ConstMap.Add('PI', PI);
   Self.ConstMap.Add('true', True);
   Self.ConstMap.Add('false', False);
 end;
 
-procedure  TScriptEngine.SetSource(V: String);
+procedure TScriptEngine.SetSource(V: String);
 begin
   Self.Reset;
   Self.FSource := V;
 end;
 
-function  TScriptEngine.IsWaited: Boolean;
+function TScriptEngine.IsWaited: Boolean;
 begin
   Exit(Self.VM.IsWaited);
 end;
 
-function  TScriptEngine.GetIsPaused: Boolean;
+function TScriptEngine.GetIsPaused: Boolean;
 begin
   Exit(Self.VM.IsPaused);
 end;
 
-procedure  TScriptEngine.SetIsPaused(V: Boolean);
+procedure TScriptEngine.SetIsPaused(V: Boolean);
 begin
   Self.VM.IsPaused := V;
 end;
 
-function  TScriptEngine.IsYielded: Boolean;
+function TScriptEngine.IsYielded: Boolean;
 begin
   Exit(Self.VM.IsYielded);
 end;
 
-procedure  TScriptEngine.Lex(const IsIncluded: Boolean = False);
+procedure TScriptEngine.Lex(const IsIncluded: Boolean = False);
 var
   Ln, Col: Integer;
   Pos: Integer = 0;
@@ -2657,7 +2712,7 @@ begin
             Token.Value := C;
             NextChar;
           end;
-        end;   
+        end;
       '^':
         begin
           Token.Kind := tkPow;
@@ -2846,7 +2901,7 @@ begin
             'else':
               Token.Kind := tkElse;
             'for':
-              Token.Kind := tkFor;       
+              Token.Kind := tkFor;
             'in':
               Token.Kind := tkIn;
             'to':
@@ -2883,7 +2938,7 @@ begin
   Self.IsLex := True;
 end;
 
-procedure  TScriptEngine.Parse;
+procedure TScriptEngine.Parse;
 var
   Pos: Integer = -1;
   Token: TSEToken;
@@ -3668,7 +3723,7 @@ var
         ParseExpr;
 
         Emit([Pointer(opAssignLocal), VarHiddenArrayAddr]);
-        Emit([Pointer(opPushConst), 0]);      
+        Emit([Pointer(opPushConst), 0]);
         Emit([Pointer(opAssignLocal), VarHiddenCountAddr]);
 
         StartBlock := Self.VM.Binary.Count;
@@ -3772,10 +3827,10 @@ var
     end;
     Token := NextTokenExpected([tkEqual, tkOpAssign]);
     if Token.Kind = tkOpAssign then
-    begin          
+    begin
       if IsArrayAssign then
         Emit([Pointer(opPushLocalArray), Addr])
-      else    
+      else
         Emit([Pointer(opPushLocalVar), Addr]);
     end;
     ParseExpr;
@@ -3783,7 +3838,7 @@ var
     begin
       case Token.Value of
         '+':
-          Emit([Pointer(opOperatorAdd)]);      
+          Emit([Pointer(opOperatorAdd)]);
         '-':
           Emit([Pointer(opOperatorSub)]);
         '*':
@@ -3932,7 +3987,7 @@ begin
   end;
 end;
 
-procedure  TScriptEngine.Reset;
+procedure TScriptEngine.Reset;
 var
   Ident: TSEIdent;
 begin
@@ -3959,7 +4014,7 @@ begin
   FuncTraversal := 0;
 end;
 
-function  TScriptEngine.Exec: TSEValue;
+function TScriptEngine.Exec: TSEValue;
 begin
   if not Self.IsLex then
     Self.Lex;
@@ -3969,7 +4024,7 @@ begin
   Exit(Self.VM.Stack[0])
 end;
 
-procedure  TScriptEngine.RegisterFunc(const Name: String; const Func: TSEFunc; const ArgCount: Integer);
+procedure TScriptEngine.RegisterFunc(const Name: String; const Func: TSEFunc; const ArgCount: Integer);
 var
   FuncNativeInfo: TSEFuncNativeInfo;
 begin
@@ -3979,7 +4034,7 @@ begin
   Self.FuncNativeList.Add(FuncNativeInfo);
 end;
 
-procedure  TScriptEngine.RegisterScriptFunc(const Name: String; const Addr, StackAddr, ArgCount: Integer);
+procedure TScriptEngine.RegisterScriptFunc(const Name: String; const Addr, StackAddr, ArgCount: Integer);
 var
   FuncScriptInfo: TSEFuncScriptInfo;
 begin
@@ -3990,7 +4045,7 @@ begin
   Self.FuncScriptList.Add(FuncScriptInfo);
 end;
 
-procedure  TScriptEngine.RegisterImportFunc(const Name, ActualName, LibName: String; const Args: TSEAtomKindArray; const Return: TSEAtomKind);
+procedure TScriptEngine.RegisterImportFunc(const Name, ActualName, LibName: String; const Args: TSEAtomKindArray; const Return: TSEAtomKind);
 var
   FuncImportInfo: TSEFuncImportInfo;
   Lib: TLibHandle;
@@ -4012,7 +4067,7 @@ begin
   Self.FuncImportList.Add(FuncImportInfo);
 end;
 
-function  TScriptEngine.Backup: TSECache;
+function TScriptEngine.Backup: TSECache;
 var
   I: Integer;
 begin
@@ -4039,7 +4094,7 @@ begin
   Result.GlobalVarCount := Self.GlobalVarCount;
 end;
 
-procedure  TScriptEngine.Restore(const Cache: TSECache);
+procedure TScriptEngine.Restore(const Cache: TSECache);
 var
   I: Integer;
 begin
