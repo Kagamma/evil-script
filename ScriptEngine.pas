@@ -1192,8 +1192,8 @@ end;
 procedure SEValueAdd(out R: TSEValue; constref V1, V2: TSEValue); inline; overload;
 var
   I, Len: Integer;
+  TempArray: TSEValueArray;
 begin
-  if V1.Kind = V2.Kind then
   case V1.Kind of
     sevkSingle:
       begin
@@ -1208,20 +1208,19 @@ begin
     sevkArray:
       begin
         R.Kind := sevkArray;
-        SetLength(R.VarArray, Length(V1.VarArray) + Length(V2.VarArray));
+        SetLength(TempArray, Length(V1.VarArray) + Length(V2.VarArray));
         Len := Length(V1.VarArray);
         for I := 0 to Len - 1 do
-          R.VarArray[I] := V1.VarArray[I];
+          TempArray[I] := V1.VarArray[I];
         for I := Len to Len + Length(V2.VarArray) - 1 do
-          R.VarArray[I] := V2.VarArray[I - Len];
+          TempArray[I] := V2.VarArray[I - Len];
+        R.VarArray := TempArray;
       end;
-    {$ifdef SE_STRING}
     sevkString:
       begin
         R.Kind := sevkString;
         R.VarString := V1.VarString + V2.VarString;
       end;
-    {$endif}
   end;
 end;
 
