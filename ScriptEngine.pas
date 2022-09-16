@@ -1,4 +1,4 @@
-unit Mcdowell.EvilC;
+unit ScriptEngine;
 
 {$mode objfpc}
 {$ifdef CPUX86_64}
@@ -1439,6 +1439,7 @@ begin
       begin
         GC.AllocMap(@TempArray);
         Len := SESize(V1);
+        TSEValueMap(TempArray.VarMap).List.Count := Len + SESize(V2);
         for I := 0 to Len - 1 do
           SEMapSet(TempArray, I, SEMapGet(V1, I));
         for I := Len to Len + SESize(V2) - 1 do
@@ -1714,6 +1715,7 @@ begin
       begin
         GC.AllocMap(@R);
         Len := SESize(V1);
+        TSEValueMap(R.VarMap).List.Count := Len + SESize(V2);
         for I := 0 to Len - 1 do
           SEMapSet(R, I, SEMapGet(V1, I));
         for I := Len to Len + SESize(V2) - 1 do
