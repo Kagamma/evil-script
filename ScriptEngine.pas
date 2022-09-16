@@ -1,4 +1,4 @@
-unit ScriptEngine;
+unit Mcdowell.EvilC;
 
 {$mode objfpc}
 {$ifdef CPUX86_64}
@@ -8,7 +8,7 @@ unit ScriptEngine;
 {$modeswitch nestedprocvars}
 {$modeswitch advancedrecords}
 // enable this if you want to handle UTF-8 strings (requires LCL)
-{.define SE_STRING_UTF8}
+{.$define SE_STRING_UTF8}
 // enable this if you want precision (use Double instead of Single)
 {$define SE_PRECISION}
 
@@ -92,8 +92,21 @@ type
         (
           VarNull: Pointer;
         );
+  end;                                                
+  TSEValueList = specialize TList<TSEValue>;
+  TSEValueMap = class(specialize TDictionary<String, TSEValue>)
+  private
+    FIsValidArray: Boolean;
+    FList: TSEValueList;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    procedure Set2(const Key: String; const AValue: TSEValue);
+    procedure Del2(const Key: String);
+    function Get2(const Key: String): TSEValue;
+    property List: TSEValueList read FList;
+    property IsValidArray: Boolean read FIsValidArray;
   end;
-  TSEValueMap = specialize TDictionary<String, TSEValue>;
   {$mode objfpc}
   TSEValueArray = array of TSEValue;
   PPSEValue = ^PSEValue;
@@ -473,7 +486,6 @@ type
     class function SELength(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEMapCreate(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEMapDelete(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
-    class function SEMapKey(const VM: TSEVM; const Args: array of TSEValue): TSEValue;    
     class function SEMapKeysGet(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEMapIsValidArray2(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SELerp(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -549,15 +561,19 @@ end;
 function SESize(constref Value: TSEValue): Cardinal; inline;
 begin
   if Value.Kind = sevkMap then
-    Result := TSEValueMap(Value.VarMap).Count
-  else
+  begin
+    if SEMapIsValidArray(Value) then
+      Result := TSEValueMap(Value.VarMap).List.Count
+    else
+      Result := TSEValueMap(Value.VarMap).Count;
+  end else
     Result := Value.Size;
 end;
 
 function SEMapGet(constref V: TSEValue; constref I: Integer): TSEValue; inline; overload;
 begin
   try
-    Result := TSEValueMap(V.VarMap)[IntToStr(I)];
+    Result := TSEValueMap(V.VarMap).Get2(IntToStr(I));
   except
     Result := SENull;
   end;
@@ -566,7 +582,7 @@ end;
 function SEMapGet(constref V: TSEValue; constref S: String): TSEValue; inline; overload;
 begin
   try
-    Result := TSEValueMap(V.VarMap)[S];
+    Result := TSEValueMap(V.VarMap).Get2(S);
   except
     Result := SENull;
   end;
@@ -585,7 +601,7 @@ begin
       else
         Exit(SENull);
     end;
-    Result := TSEValueMap(V.VarMap)[S];
+    Result := TSEValueMap(V.VarMap).Get2(S);
   except
     Result := SENull;
   end;
@@ -593,12 +609,12 @@ end;
 
 procedure SEMapSet(constref V: TSEValue; constref I: Integer; const A: TSEValue); inline; overload;
 begin
-  TSEValueMap(V.VarMap).AddOrSetValue(IntToStr(I), A);
+  TSEValueMap(V.VarMap).Set2(IntToStr(I), A);
 end;
 
 procedure SEMapSet(constref V: TSEValue; constref S: String; const A: TSEValue); inline; overload;
 begin
-  TSEValueMap(V.VarMap).AddOrSetValue(S, A);
+  TSEValueMap(V.VarMap).Set2(S, A);
 end;
 
 procedure SEMapSet(constref V, I: TSEValue; const A: TSEValue); inline; overload;
@@ -613,21 +629,14 @@ begin
     else
       Exit;
   end;
-  TSEValueMap(V.VarMap).AddOrSetValue(S, A);
+  TSEValueMap(V.VarMap).Set2(S, A);
 end;
 
 function SEMapIsValidArray(constref V: TSEValue): Boolean; inline;
-var
-  I: Integer;
 begin
   if V.Kind <> sevkMap then
     Exit(False);
-  for I := 0 to TSEValueMap(V.VarMap).Count - 1 do
-  begin
-    if not TSEValueMap(V.VarMap).ContainsKey(IntToStr(I)) then
-      Exit(False);
-  end;
-  Result := True;
+  Result := TSEValueMap(V.VarMap).IsValidArray;
 end;
 
 function SEClone(constref V: TSEValue): TSEValue;
@@ -935,27 +944,29 @@ end;
 class function TBuiltInFunction.SEMapDelete(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 var
   Key: String;
+  I, J: Integer;
 begin
   GC.AllocMap(@Result);
-  for Key in TSEValueMap(Args[0].VarMap).Keys do
+  if SEMapIsValidArray(Args[0]) then
   begin
-    if Key <> Args[1] then
+    J := 0;
+    for I := 0 to TSEValueMap(Args[0].VarMap).List.Count - 1 do
     begin
-      SEMapSet(Result, Key, SEMapGet(Args[0], Key));
+      if I <> Args[1] then
+      begin
+        SEMapSet(Result, J, SEMapGet(Args[0], I));
+        Inc(J);
+      end;
     end;
-  end;
-end;
-
-class function TBuiltInFunction.SEMapKey(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
-var
-  Key: String;
-  I: Integer = 0;
-begin
-  for Key in TSEValueMap(Args[0].VarMap).Keys do
+  end else
   begin
-    if I = Args[1] then
-      Exit(Key);
-    Inc(I);
+    for Key in TSEValueMap(Args[0].VarMap).Keys do
+    begin
+      if Key <> Args[1] then
+      begin
+        SEMapSet(Result, Key, SEMapGet(Args[0], Key));
+      end;
+    end;
   end;
 end;
 
@@ -964,11 +975,20 @@ var
   Key: String;
   I: Integer = 0;
 begin
-  GC.AllocMap(@Result);
-  for Key in TSEValueMap(Args[0].VarMap).Keys do
+  GC.AllocMap(@Result); 
+  if SEMapIsValidArray(Args[0]) then
   begin
-    SEMapSet(Result, I, Key);
-    Inc(I);
+    for Key in TSEValueMap(Args[0].VarMap).Keys do
+    begin
+      SEMapSet(Result, I, Key);
+      Inc(I);
+    end;
+  end else
+  begin
+    for I := 0 to TSEValueMap(Args[0].VarMap).List.Count - 1 do
+    begin
+      SEMapSet(Result, I, I);
+    end;
   end;
 end;
 
@@ -1819,6 +1839,80 @@ begin
     R := True;
 end;
 
+constructor TSEValueMap.Create;
+begin
+  inherited;
+  Self.FList := TSEValueList.Create;
+  Self.FIsValidArray := True;
+end;
+
+destructor TSEValueMap.Destroy;
+begin
+  Self.FList.Free;
+  inherited;
+end;
+
+procedure TSEValueMap.Set2(const Key: String; const AValue: TSEValue);
+var
+  Index, I: Integer;
+  IsNumber: Boolean;
+begin
+  IsNumber := TryStrToInt(Key, Index);
+  if IsNumber and Self.FIsValidArray and (Index >= 0) then
+  begin
+    if Index > Self.FList.Count - 1 then
+      Self.FList.Count := Index + 1;
+    Self.FList[Index] := AValue;
+  end else
+  begin
+    if Self.FIsValidArray then
+    begin
+      for I := 0 to Self.FList.Count - 1 do
+        Self.AddOrSetValue(IntToStr(I), Self.FList[I]);
+      Self.FList.Clear;
+      Self.FIsValidArray := False;
+    end;
+  end;
+  if not Self.IsValidArray then
+  begin
+    Self.AddOrSetValue(Key, AValue);
+  end;
+end;
+
+procedure TSEValueMap.Del2(const Key: String);
+var
+  Index: Integer;
+  IsNumber: Boolean;
+begin
+  IsNumber := TryStrToInt(Key, Index);
+  if IsNumber and Self.FIsValidArray and (Index >= 0) then
+  begin
+    if Index <= Self.FList.Count - 1 then
+      Self.FList.Delete(Index);
+  end else
+  begin
+    Self.Remove(Key);
+  end;
+end;
+
+function TSEValueMap.Get2(const Key: String): TSEValue;
+var
+  Index: Integer;
+  IsNumber: Boolean;
+begin
+  IsNumber := TryStrToInt(Key, Index);
+  if IsNumber and Self.FIsValidArray and (Index >= 0) then
+  begin
+    if Index <= Self.FList.Count - 1 then
+      Result := Self.FList[Index]
+    else
+      Result := SENull;
+  end else
+  begin
+    Result := Self[Key];
+  end;
+end;
+
 constructor TGarbageCollector.Create;
 var
   Ref0: TSEGCValue;
@@ -1921,6 +2015,7 @@ procedure TGarbageCollector.GC;
     Value: TSEGCValue;
     RValue: TSEValue;
     Key: String;
+    I: Integer;
   begin
     if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) then
       Exit;
@@ -1930,10 +2025,20 @@ procedure TGarbageCollector.GC;
     case Value.Value.Kind of
       sevkMap:
         begin
-          for Key in TSEValueMap(PValue^.VarMap).Keys do
+          if SEMapIsValidArray(PValue^) then
           begin
-            RValue := SEMapGet(PValue^, Key);
-            Mark(@RValue);
+            for I := 0 to TSEValueMap(PValue^.VarMap).List.Count - 1 do
+            begin
+              RValue := SEMapGet(PValue^, I);
+              Mark(@RValue);
+            end;
+          end else
+          begin
+            for Key in TSEValueMap(PValue^.VarMap).Keys do
+            begin
+              RValue := SEMapGet(PValue^, Key);
+              Mark(@RValue);
+            end;
           end;
         end;
     end;
@@ -2861,8 +2966,7 @@ begin
   Self.RegisterFunc('wait', @TBuiltInFunction(nil).SEWait, 1);
   Self.RegisterFunc('length', @TBuiltInFunction(nil).SELength, 1);
   Self.RegisterFunc('map_create', @TBuiltInFunction(nil).SEMapCreate, -1);
-  Self.RegisterFunc('map_delete', @TBuiltInFunction(nil).SEMapDelete, 3);
-  Self.RegisterFunc('map_index_to_key', @TBuiltInFunction(nil).SEMapKey, 2);
+  Self.RegisterFunc('map_delete', @TBuiltInFunction(nil).SEMapDelete, 2);
   Self.RegisterFunc('map_keys_get', @TBuiltInFunction(nil).SEMapKeysGet, 1);   
   Self.RegisterFunc('map_is_valid_array', @TBuiltInFunction(nil).SEMapIsValidArray2, 1);
   Self.RegisterFunc('sign', @TBuiltInFunction(nil).SESign, 1);
