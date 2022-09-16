@@ -1944,6 +1944,7 @@ procedure TGarbageCollector.GC;
 var
   Value: TSEGCValue;
   P: PSEValue;
+  V: TSEValue;
   VM: TSEVM;
   I, J: Integer;
   Key: String;
@@ -1970,14 +1971,17 @@ begin
       Mark(P);
     end;
   end;
-  for Key in ScriptCacheMap.Keys do
+  for Cache in ScriptCacheMap.Values do
   begin;
-    Cache := ScriptCacheMap[Key];
     for J := 0 to Cache.Binary.Count - 1 do
     begin
       P := Cache.Binary.Ptr(J);
       Mark(P);
     end;
+  end;
+  for V in ScriptVarMap.Values do
+  begin;
+    Mark(@V);
   end;
   Sweep;
 end;
