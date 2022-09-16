@@ -87,12 +87,12 @@ type
       sevkPointer:
         (
           VarPointer: Pointer;
-        );  
+        );
       sevkNull:
         (
           VarNull: Pointer;
         );
-  end;                                                
+  end;
   TSEValueList = specialize TList<TSEValue>;
   TSEValueMap = class(specialize TDictionary<String, TSEValue>)
   private
@@ -503,7 +503,7 @@ type
     class function SEStringSplit(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEStringFind(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEStringInsert(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
-    class function SEStringDelete(const VM: TSEVM; const Args: array of TSEValue): TSEValue;  
+    class function SEStringDelete(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEStringConcat(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEStringReplace(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEStringFormat(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -528,7 +528,7 @@ type
     class function SEDTGetMonth(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEDTGetDay(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEDTGetHour(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
-    class function SEDTGetMinute(const VM: TSEVM; const Args: array of TSEValue): TSEValue; 
+    class function SEDTGetMinute(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEGCObjectCount(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEGCUsed(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEGCCollect(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -835,7 +835,7 @@ begin
     sevkSingle:
       Result := 'number';
     sevkString:
-      Result := 'string'; 
+      Result := 'string';
     sevkNull:
       Result := 'null';
     sevkPointer:
@@ -975,7 +975,7 @@ var
   Key: String;
   I: Integer = 0;
 begin
-  GC.AllocMap(@Result); 
+  GC.AllocMap(@Result);
   if SEMapIsValidArray(Args[0]) then
   begin
     for Key in TSEValueMap(Args[0].VarMap).Keys do
@@ -1374,7 +1374,7 @@ var
 begin
   DecodeTime(Args[0].VarNumber, H, M, S, MS);
   Result := M;
-end;  
+end;
 
 class function TBuiltInFunction.SEGCObjectCount(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
@@ -1854,7 +1854,8 @@ begin
     GC.AllocatedMem := GC.AllocatedMem - Self.FList.Count * SizeOf(TSEValue)
   else
     GC.AllocatedMem := GC.AllocatedMem - 1024;
-  Self.FList.Free;
+  if Self.FList <> nil then
+    Self.FList.Free;
   inherited;
 end;
 
@@ -1878,7 +1879,7 @@ begin
       for I := 0 to Self.FList.Count - 1 do
         Self.AddOrSetValue(IntToStr(I), Self.FList[I]);
       GC.AllocatedMem := GC.AllocatedMem - Self.FList.Count * SizeOf(TSEValue) + 1024;
-      Self.FList.Clear;
+      FreeAndNil(Self.FList);
       Self.FIsValidArray := False;
     end;
   end;
@@ -2977,7 +2978,7 @@ begin
   Self.RegisterFunc('length', @TBuiltInFunction(nil).SELength, 1);
   Self.RegisterFunc('map_create', @TBuiltInFunction(nil).SEMapCreate, -1);
   Self.RegisterFunc('map_delete', @TBuiltInFunction(nil).SEMapDelete, 2);
-  Self.RegisterFunc('map_keys_get', @TBuiltInFunction(nil).SEMapKeysGet, 1);   
+  Self.RegisterFunc('map_keys_get', @TBuiltInFunction(nil).SEMapKeysGet, 1);
   Self.RegisterFunc('map_is_valid_array', @TBuiltInFunction(nil).SEMapIsValidArray2, 1);
   Self.RegisterFunc('sign', @TBuiltInFunction(nil).SESign, 1);
   Self.RegisterFunc('min', @TBuiltInFunction(nil).SEMin, -1);
@@ -2993,7 +2994,7 @@ begin
   Self.RegisterFunc('string_replace', @TBuiltInFunction(nil).SEStringReplace, 3);
   Self.RegisterFunc('string_uppercase', @TBuiltInFunction(nil).SEStringUpperCase, 1);
   Self.RegisterFunc('string_lowercase', @TBuiltInFunction(nil).SEStringLowerCase, 1);
-  Self.RegisterFunc('string_find_regex', @TBuiltInFunction(nil).SEStringFindRegex, 2);  
+  Self.RegisterFunc('string_find_regex', @TBuiltInFunction(nil).SEStringFindRegex, 2);
   Self.RegisterFunc('string_concat', @TBuiltInFunction(nil).SEStringConcat, 3);
   Self.RegisterFunc('lerp', @TBuiltInFunction(nil).SELerp, 3);
   Self.RegisterFunc('slerp', @TBuiltInFunction(nil).SESLerp, 3);
@@ -3052,7 +3053,7 @@ procedure TScriptEngine.AddDefaultConsts;
 begin
   Self.ConstMap.Add('PI', PI);
   Self.ConstMap.Add('true', True);
-  Self.ConstMap.Add('false', False); 
+  Self.ConstMap.Add('false', False);
   Self.ConstMap.Add('null', SENull);
 end;
 
@@ -3716,7 +3717,7 @@ var
             NextTokenExpected([tkSquareBracketClose]);
             EmitExpr([Pointer(opPushLocalArrayPop)]);
             Tail;
-          end;             
+          end;
         tkDot:
           begin
             NextToken;
@@ -3775,7 +3776,7 @@ var
                         NextTokenExpected([tkSquareBracketClose]);
                         EmitExpr([Pointer(opPushLocalArray), Ident^.Addr]);
                         Tail;
-                      end;       
+                      end;
                     tkDot:
                       begin
                         NextToken;
@@ -4397,7 +4398,7 @@ var
           NextToken;
           ParseExpr;
           NextTokenExpected([tkSquareBracketClose]);
-        end;                  
+        end;
       tkDot:
         begin
           IsArrayAssign := True;
