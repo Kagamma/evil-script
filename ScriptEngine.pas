@@ -1850,6 +1850,10 @@ end;
 
 destructor TSEValueMap.Destroy;
 begin
+  if Self.FIsValidArray then
+    GC.AllocatedMem := GC.AllocatedMem - Self.FList.Count * SizeOf(TSEValue)
+  else
+    GC.AllocatedMem := GC.AllocatedMem - 1024;
   Self.FList.Free;
   inherited;
 end;
@@ -1862,15 +1866,18 @@ begin
   IsNumber := TryStrToInt(Key, Index);
   if IsNumber and Self.FIsValidArray and (Index >= 0) then
   begin
+    GC.AllocatedMem := GC.AllocatedMem - Self.FList.Count * SizeOf(TSEValue);
     if Index > Self.FList.Count - 1 then
       Self.FList.Count := Index + 1;
     Self.FList[Index] := AValue;
+    GC.AllocatedMem := GC.AllocatedMem + Self.FList.Count * SizeOf(TSEValue);
   end else
   begin
     if Self.FIsValidArray then
     begin
       for I := 0 to Self.FList.Count - 1 do
         Self.AddOrSetValue(IntToStr(I), Self.FList[I]);
+      GC.AllocatedMem := GC.AllocatedMem - Self.FList.Count * SizeOf(TSEValue) + 1024;
       Self.FList.Clear;
       Self.FIsValidArray := False;
     end;
@@ -1890,7 +1897,10 @@ begin
   if IsNumber and Self.FIsValidArray and (Index >= 0) then
   begin
     if Index <= Self.FList.Count - 1 then
+    begin
       Self.FList.Delete(Index);
+      GC.AllocatedMem := GC.AllocatedMem - SizeOf(TSEValue);
+    end;
   end else
   begin
     Self.Remove(Key);
@@ -1986,7 +1996,6 @@ begin
           begin
             if Value.Value.VarMap <> nil then
             begin
-              Self.FAllocatedMem := Self.FAllocatedMem - 1024;
               Value.Value.VarMap.Free;
             end;
           end;
@@ -2100,7 +2109,6 @@ begin
   PValue^.Kind := sevkMap;
   PValue^.VarMap := TSEValueMap.Create;
   PValue^.Size := 0;
-  Self.FAllocatedMem := Self.FAllocatedMem + 1024;
   Self.AddToList(PValue);
 end;
 
