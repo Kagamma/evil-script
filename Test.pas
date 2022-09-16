@@ -10,7 +10,7 @@ const
   IfTest = 'i = 5.1 if i = 5.1 writeln(''True'') else writeln(''Something is wrong!'')';
   StringTest = 's = ''This is a string!'' writeln(s)';
   PerformanceTest = 'i = 0 while i < 999 { i = i + 1 j = 0 while j < 999 { j = j + 1 k = i * j } }';
-  ArrayTest = 'a = array(3) i = 0 while i < 2 { a[i] = 1 + i * 2 i = i + 1 } a[2] = ''text'' writeln(a[0], '' '', a[1], '' '', a[2])';
+  ArrayTest = 'a = [] i = 0 while i < 2 { a[i] = 1 + i * 2 i = i + 1 } a[2] = ''text'' writeln(a[0], '' '', a[1], '' '', a[2])';
   CustomFunctionTest = 'writeln(''5.2 + 2.8 = '', add(5.2, 2.8))';
   YieldTest = 'i = 0 while i < 3 { i = i + 1 yield }';
   PauseTest = 'i = 0 while i < 3 { writeln(''Only run 1 time'') pause i = i + 1 }';
@@ -33,6 +33,7 @@ var
 procedure HelloWorldRun;
 begin
   Writeln('--- HelloWorldRun ---');
+  SE.Reset;
   SE.Source := HelloWorld;
   SE.Exec;
 end;
@@ -40,6 +41,7 @@ end;
 procedure IfTestRun;
 begin
   Writeln('--- IfTestRun ---');
+  SE.Reset;
   SE.Source := IfTest;
   SE.Exec;
 end;
@@ -47,6 +49,7 @@ end;
 procedure StringTestRun;
 begin
   Writeln('--- StringTestRun ---');
+  SE.Reset;
   SE.Source := StringTest;
   SE.Exec;
 end;
@@ -56,6 +59,7 @@ var
   S: Integer;
 begin
   Writeln('--- PerformanceTestRun ---');
+  SE.Reset;
   SE.Source := PerformanceTest;
   S := GetTickCount;
   SE.Exec;
@@ -65,6 +69,7 @@ end;
 procedure ArrayTestRun;
 begin
   Writeln('--- ArrayTestRun ---');
+  SE.Reset;
   SE.Source := ArrayTest;
   SE.Exec;
 end;
@@ -72,6 +77,7 @@ end;
 procedure CustomFunctionTestRun;
 begin
   Writeln('--- CustomFunctionTestRun ---');
+  SE.Reset;
   SE.RegisterFunc('add', @TCustomFunctions(nil).Add, 2);
   SE.Source := CustomFunctionTest;
   SE.Exec;
@@ -80,6 +86,7 @@ end;
 procedure YieldTestRun;
 begin
   Writeln('--- YieldTestRun ---');
+  SE.Reset;
   SE.Source := YieldTest;
   repeat
     SE.Exec;
@@ -91,6 +98,7 @@ end;
 procedure PauseTestRun;
 begin
   Writeln('--- PauseTestRun ---');
+  SE.Reset;
   SE.Source := PauseTest;
   SE.Exec;
 end;
@@ -98,6 +106,7 @@ end;
 procedure ResultTestRun;
 begin
   Writeln('--- ResultTestRun ---');
+  SE.Reset;
   SE.Source := ResultTest;
   SE.Exec;
   Writeln(SE.VM.Stack[0].VarNumber);
