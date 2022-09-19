@@ -23,12 +23,16 @@ type
 
   TSEOpcode = (
     opPushConst,
+    opPushGlobalVar,
     opPushLocalVar,
     opPushLocalArray,
-    opPushLocalArrayPop,
+    opPushGlobalArray,
+    opPushArrayPop,
     opPopConst,
     opPopFrame,
-    opAssignLocal,
+    opAssignGlobalVar,
+    opAssignGlobalArray,
+    opAssignLocalVar,
     opAssignLocalArray,
     opJumpEqual,
     opJumpUnconditional,
@@ -169,9 +173,9 @@ type
 
   TSEFuncScriptInfo = record
     Name: String;
-    Addr,
-    StackAddr: Integer; // Used by parameters
+    Addr: Integer;
     ArgCount: Integer;
+    VarCount: Integer;
   end;
   PSEFuncScriptInfo = ^TSEFuncScriptInfo;
 
@@ -213,6 +217,11 @@ type
   TSEListStack = specialize TStack<TList>;
   TSEScopeStack = specialize TStack<Integer>;
   TIntegerList = specialize TList<Integer>;
+  TSEFrame = record
+    Code: Integer;
+    Stack: PSEValue;
+  end;
+  PSEFrame = ^TSEFrame;
 
   TScriptEngine = class;
   TSEVM = class
@@ -221,11 +230,12 @@ type
     IsDone: Boolean;
     IsYielded: Boolean;
     Stack: array of TSEValue;
-    Frame: array of Integer;
+    Frame: array of TSEFrame;
     CodePtr: Integer;
     StackPtr: PSEValue;
-    FramePtr: Integer;
-    StackWorkingSize: Integer; // not count memory need for local variables
+    FramePtr: PSEFrame;
+    StackSize: Integer;
+    FrameSize: Integer;
     Parent: TScriptEngine;
     Binary: TSEBinary;
     WaitTime: LongWord;
@@ -322,7 +332,7 @@ type
     Kind: TSEIdentKind;
     Addr: Integer;
     IsUsed: Boolean;
-    ArgCount: Integer;
+    IsLocal: Boolean;
     Ln: Integer;
     Col: Integer;
     Name: String;
@@ -353,8 +363,9 @@ type
     VM: TSEVM;
     IncludeList: TStrings;
     TokenList: TSETokenList;
+    LocalVarCount,
     GlobalVarCount: Integer;
-    LocalVarList: TSEIdentList;
+    VarList: TSEIdentList;
     FuncNativeList: TSEFuncNativeList;
     FuncScriptList: TSEFuncScriptList;
     FuncImportList: TSEFuncImportList;
@@ -378,7 +389,7 @@ type
     procedure Reset;
     function Exec: TSEValue;
     procedure RegisterFunc(const Name: String; const Func: TSEFunc; const ArgCount: Integer);
-    procedure RegisterScriptFunc(const Name: String; const Addr, StackAddr, ArgCount: Integer);
+    function RegisterScriptFunc(const Name: String; const Addr, ArgCount: Integer): PSEFuncScriptInfo;
     procedure RegisterImportFunc(const Name, ActualName, LibName: String; const Args: TSEAtomKindArray; const Return: TSEAtomKind);
     function Backup: TSECache;
     procedure Restore(const Cache: TSECache);
@@ -670,7 +681,8 @@ end;
 
 class function TBuiltInFunction.SEBufferCreate(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  Result.Kind := sevkString;
+  GC.AllocString(@Result, '');
+  Result.Kind := sevkSingle;
   SetLength(Result.VarString^, Round(Args[0].VarNumber));
   Result.VarNumber := QWord(Result.VarString^);
 end;
@@ -1200,7 +1212,7 @@ var
 begin
   GC.AllocMap(@Result);
   R := TRegExpr.Create(Args[1].VarString^);
-  if R.Exec(Args[0]) then
+  if R.Exec(Args[0].VarString^) then
   repeat
     for I := 1 to R.SubExprMatchCount do
     begin
@@ -2077,7 +2089,7 @@ begin
   begin
     VM := VMList[I];
     P := @VM.Stack[0];
-    while QWord(P) <= QWord(VM.StackPtr + 1)  do
+    while QWord(P) <= QWord(VM.StackPtr)  do
     begin
       Mark(P);
       Inc(P);
@@ -2131,7 +2143,8 @@ begin
   Self.IsPaused := False;
   Self.IsDone := True;
   Self.WaitTime := 0;
-  Self.StackWorkingSize := 256;
+  Self.StackSize := 65536;
+  Self.FrameSize := 1024;
   if VMList = nil then
     VMList := TSEVMList.Create;
   if GC = nil then
@@ -2159,10 +2172,10 @@ begin
   Self.IsDone := False;
   Self.Parent.IsDone := False;
   Self.WaitTime := 0;
-  SetLength(Self.Stack, Self.Parent.GlobalVarCount + 64 + StackWorkingSize);
-  SetLength(Self.Frame, 64);
+  SetLength(Self.Stack, Self.StackSize);
+  SetLength(Self.Frame, Self.FrameSize);
   FillChar(Self.Stack[0], Length(Self.Stack) * SizeOf(TSEValue), 0);
-  Self.FramePtr := 0;
+  Self.FramePtr := @Self.Frame[0];
   Self.StackPtr := @Self.Stack[0];
   Self.StackPtr := Self.StackPtr + Self.Parent.GlobalVarCount + 64;
 end;
@@ -2205,14 +2218,44 @@ var
     Result := StackPtrLocal;
   end;
 
-  procedure Assign(const I: Integer; const Value: PSEValue); inline;
+  procedure AssignGlobal(const I: Pointer; const Value: PSEValue); inline;
   begin
-    Self.Stack[I] := Value^;
+    Self.Stack[Integer(I)] := Value^;
   end;
 
-  function Get(const I: Integer): PSEValue; inline;
+  procedure AssignLocal(const I: Pointer; const Value: PSEValue); inline;
   begin
-    Exit(@Self.Stack[I]);
+    (Self.FramePtr^.Stack + Integer(I))^ := Value^;
+  end;
+
+  function GetGlobal(const I: Pointer): PSEValue; inline;
+  begin
+    Exit(@Self.Stack[Integer(I)]);
+  end;
+
+  function GetLocal(const I: Pointer): PSEValue; inline;
+  begin
+    Exit(Self.FramePtr^.Stack + Integer(I));
+  end;
+
+  function GetGlobalInt(const I: Integer): PSEValue; inline;
+  begin
+    Exit(@Self.Stack[Integer(I)]);
+  end;
+
+  function GetLocalInt(const I: Integer): PSEValue; inline;
+  begin
+    Exit(Self.FramePtr^.Stack + Integer(I));
+  end;
+
+  procedure AssignGlobalInt(const I: Integer; const Value: PSEValue); inline;
+  begin
+    Self.Stack[Integer(I)] := Value^;
+  end;
+
+  procedure AssignLocalInt(const I: Integer; const Value: PSEValue); inline;
+  begin
+    (Self.FramePtr^.Stack + Integer(I))^ := Value^;
   end;
 
 label
@@ -2353,21 +2396,26 @@ begin
             Push(BinaryLocal.Ptr(CodePtrLocal + 1)^);
             Inc(CodePtrLocal, 2);
           end;
-        opPushLocalVar:
+        opPushGlobalVar:
           begin
-            Push(Get(BinaryLocal.Ptr(CodePtrLocal + 1)^)^);
+            Push(GetGlobal(BinaryLocal.Ptr(CodePtrLocal + 1)^)^);
             Inc(CodePtrLocal, 2);
           end;
-        opPushLocalArray:
+        opPushLocalVar:
+          begin
+            Push(GetLocal(BinaryLocal.Ptr(CodePtrLocal + 1)^)^);
+            Inc(CodePtrLocal, 2);
+          end;
+        opPushGlobalArray:
           begin
             A := BinaryLocal.Ptr(CodePtrLocal + 1);
-            B := Get(A^);
+            B := GetGlobalInt(A^);
             case B^.Kind of
               sevkString:
                 {$ifdef SE_STRING_UTF8}
                   Push(UTF8Copy(B^.VarString^, Integer(Pop^) + 1, 1));
                 {$else}
-                  Push(B^.VarString[Integer(Pop^) + 1]);
+                  Push(B^.VarString^[Integer(Pop^) + 1]);
                 {$endif}
               sevkMap:
                 Push(SEMapGet(B^, Pop^));
@@ -2379,7 +2427,28 @@ begin
             end;
             Inc(CodePtrLocal, 2);
           end;
-        opPushLocalArrayPop:
+        opPushLocalArray:
+          begin
+            A := BinaryLocal.Ptr(CodePtrLocal + 1);
+            B := GetLocalInt(A^);
+            case B^.Kind of
+              sevkString:
+                {$ifdef SE_STRING_UTF8}
+                  Push(UTF8Copy(B^.VarString^, Integer(Pop^) + 1, 1));
+                {$else}
+                  Push(B^.VarString^[Integer(Pop^) + 1]);
+                {$endif}
+              sevkMap:
+                Push(SEMapGet(B^, Pop^));
+              else
+                begin
+                  Pop;
+                  Push(0);
+                end;
+            end;
+            Inc(CodePtrLocal, 2);
+          end;
+        opPushArrayPop:
           begin
             A := Pop;
             B := Pop;
@@ -2388,7 +2457,7 @@ begin
                 {$ifdef SE_STRING_UTF8}
                   Push(UTF8Copy(B^.VarString^, Integer(A^) + 1, 1));
                 {$else}
-                  Push(B^.VarString[Integer(A^) + 1]);
+                  Push(B^.VarString^[Integer(A^) + 1]);
                 {$endif}
               sevkMap:
                 Push(SEMapGet(B^, A^));
@@ -2454,16 +2523,14 @@ begin
         opCallScript:
           begin
             GC.CheckForGC;
-            Self.Frame[Self.FramePtr] := CodePtrLocal + 3;
-            Inc(Self.FramePtr);
-            FuncScriptInfo := Self.Parent.FuncScriptList.Ptr(BinaryLocal.Ptr(CodePtrLocal + 1)^);
             ArgCount := BinaryLocal.Ptr(CodePtrLocal + 2)^;
-            J := FuncScriptInfo^.StackAddr + ArgCount;
-            for I := ArgCount - 1 downto 0 do
-            begin
-              Self.Stack[J] := Pop^;
-              Dec(J);
-            end;
+            FuncScriptInfo := Self.Parent.FuncScriptList.Ptr(BinaryLocal.Ptr(CodePtrLocal + 1)^);
+            Inc(Self.FramePtr);
+            if Self.FramePtr >= @Self.Frame[Self.FrameSize] then
+              raise Exception.Create('Too much recursion');
+            Self.FramePtr^.Stack := StackPtrLocal - ArgCount;
+            StackPtrLocal := StackPtrLocal + FuncScriptInfo^.VarCount;
+            Self.FramePtr^.Code := CodePtrLocal + 3;
             CodePtrLocal := FuncScriptInfo^.Addr;
           end;
         opCallImport:
@@ -2550,7 +2617,7 @@ begin
                     A := Pop;
                     if A^.Kind = sevkString then
                     begin
-                      ImportBufferString[I] := A^.VarString + #0;
+                      ImportBufferString[I] := A^.VarString^ + #0;
                       PChar((@ImportBufferData[I * 8])^) := PChar(ImportBufferString[I]);
                     end else
                       QWord((@ImportBufferData[I * 8])^) := Round(A^.VarNumber);
@@ -2818,20 +2885,26 @@ begin
           end;
         opPopFrame:
           begin
+            CodePtrLocal := Self.FramePtr^.Code;
+            StackPtrLocal := Self.FramePtr^.Stack;
             Dec(Self.FramePtr);
-            CodePtrLocal := Self.Frame[Self.FramePtr];
           end;
-        opAssignLocal:
+        opAssignGlobalVar:
           begin
-            Assign(BinaryLocal.Ptr(CodePtrLocal + 1)^, Pop);
+            AssignGlobal(BinaryLocal.Ptr(CodePtrLocal + 1)^, Pop);
             Inc(CodePtrLocal, 2);
           end;
-        opAssignLocalArray:
+        opAssignLocalVar:
+          begin
+            AssignLocal(BinaryLocal.Ptr(CodePtrLocal + 1)^, Pop);
+            Inc(CodePtrLocal, 2);
+          end;
+        opAssignGlobalArray:
           begin
             A := BinaryLocal.Ptr(CodePtrLocal + 1);
             B := Pop;
             C := Pop;
-            V := @Self.Stack[Integer(A^)];
+            V := GetGlobalInt(Integer(A^));
             case B^.Kind of
               sevkString:
                 begin
@@ -2845,13 +2918,13 @@ begin
                       UTF8Insert(S, S1, Integer(C^) + 1);
                       GC.AllocString(V, S1);
                     {$else}
-                      V^.VarString[Integer(C^)] := B^.VarString[0];
+                      V^.VarString^[Integer(C^) + 1] := B^.VarString^[1];
                     {$endif}
                     // Self.Stack[A] := S;
                   end else
                   begin
                     SEMapSet(V^, C^, B^);
-                    Self.Stack[Integer(A^)] := V^;
+                    AssignGlobalInt(Integer(A^), V);
                   end;
                 end;
               sevkSingle:
@@ -2865,19 +2938,75 @@ begin
                       UTF8Insert(S, S1, Integer(C^) + 1);
                       GC.AllocString(V, S1);
                     {$else}
-                      V^.VarString[Integer(C^)] := Char(Round(B^.VarNumber));
+                      V^.VarString^[Integer(C^) + 1] := Char(Round(B^.VarNumber));
                     {$endif}
                     // Self.Stack[A] := S;
                   end else
                   begin
                     SEMapSet(V^, C^, B^);
-                    Self.Stack[Integer(A^)] := V^;
+                    AssignGlobalInt(Integer(A^), V);
                   end;
                 end;
               else
                 begin
                   SEMapSet(V^, C^, B^);
-                  Self.Stack[Integer(A^)] := V^;
+                  AssignGlobalInt(Integer(A^), V);
+                end;
+            end;
+            Inc(CodePtrLocal, 2);
+          end;
+        opAssignLocalArray:
+          begin
+            A := BinaryLocal.Ptr(CodePtrLocal + 1);
+            B := Pop;
+            C := Pop;
+            V := GetLocalInt(Integer(A^));
+            case B^.Kind of
+              sevkString:
+                begin
+                  if V^.Kind = sevkString then
+                  begin
+                    {$ifdef SE_STRING_UTF8}
+                      S1 := V^.VarString^;
+                      S2 := B^.VarString^;
+                      UTF8Delete(S1, Integer(C^) + 1, 1);
+                      S := UTF8Copy(S2, 1, 1);
+                      UTF8Insert(S, S1, Integer(C^) + 1);
+                      GC.AllocString(V, S1);
+                    {$else}
+                      V^.VarString^[Integer(C^) + 1] := B^.VarString^[1];
+                    {$endif}
+                    // Self.Stack[A] := S;
+                  end else
+                  begin
+                    SEMapSet(V^, C^, B^);
+                    AssignLocalInt(Integer(A^), V);
+                  end;
+                end;
+              sevkSingle:
+                begin
+                  if V^.Kind = sevkString then
+                  begin
+                    {$ifdef SE_STRING_UTF8}
+                      S1 := V^.VarString^;
+                      UTF8Delete(S1, Integer(C^) + 1, 1);
+                      S := Char(Round(B^.VarNumber));
+                      UTF8Insert(S, S1, Integer(C^) + 1);
+                      GC.AllocString(V, S1);
+                    {$else}
+                      V^.VarString^[Integer(C^) + 1] := Char(Round(B^.VarNumber));
+                    {$endif}
+                    // Self.Stack[A] := S;
+                  end else
+                  begin
+                    SEMapSet(V^, C^, B^);
+                    AssignLocalInt(Integer(A^), V);
+                  end;
+                end;
+              else
+                begin
+                  SEMapSet(V^, C^, B^);
+                    AssignLocalInt(Integer(A^), V);
                 end;
             end;
             Inc(CodePtrLocal, 2);
@@ -2936,7 +3065,7 @@ begin
   inherited;
   Self.VM := TSEVM.Create;
   Self.TokenList := TSETokenList.Create;
-  Self.LocalVarList := TSEIdentList.Create;
+  Self.VarList := TSEIdentList.Create;
   Self.FuncNativeList := TSEFuncNativeList.Create;
   Self.FuncScriptList := TSEFuncScriptList.Create;
   Self.FuncImportList := TSEFuncImportList.Create;
@@ -2946,7 +3075,7 @@ begin
   Self.IncludeList := TStringList.Create;
   Self.CurrentFileList := TStringList.Create;
   Self.VM.Parent := Self;
-  {Self.RegisterFunc('buffer_create', @TBuiltInFunction(nil).SEBufferCreate, 1);
+  Self.RegisterFunc('buffer_create', @TBuiltInFunction(nil).SEBufferCreate, 1);
   Self.RegisterFunc('buffer_length', @TBuiltInFunction(nil).SEBufferLength, 1);
   Self.RegisterFunc('buffer_u8_get', @TBuiltInFunction(nil).SEBufferGetU8, 1);
   Self.RegisterFunc('buffer_u16_get', @TBuiltInFunction(nil).SEBufferGetU16, 1);
@@ -2968,7 +3097,7 @@ begin
   Self.RegisterFunc('buffer_f64_set', @TBuiltInFunction(nil).SEBufferSetF64, 2);
   Self.RegisterFunc('string_to_buffer', @TBuiltInFunction(nil).SEStringToBuffer, 1);
   Self.RegisterFunc('buffer_to_string', @TBuiltInFunction(nil).SEBufferToString, 1);
-  Self.RegisterFunc('wbuffer_to_string', @TBuiltInFunction(nil).SEWBufferToString, 1);}
+  Self.RegisterFunc('wbuffer_to_string', @TBuiltInFunction(nil).SEWBufferToString, 1);
   Self.RegisterFunc('typeof', @TBuiltInFunction(nil).SETypeOf, 1);
   Self.RegisterFunc('get', @TBuiltInFunction(nil).SEGet, 1);
   Self.RegisterFunc('set', @TBuiltInFunction(nil).SESet, 2);
@@ -3037,7 +3166,7 @@ destructor TScriptEngine.Destroy;
 begin
   FreeAndNil(Self.VM);
   FreeAndNil(Self.TokenList);
-  FreeAndNil(Self.LocalVarList);
+  FreeAndNil(Self.VarList);
   FreeAndNil(Self.FuncNativeList);
   FreeAndNil(Self.FuncScriptList);
   FreeAndNil(Self.FuncImportList);
@@ -3342,52 +3471,56 @@ begin
             C := PeekAtNextChar;
           end;
 
-          if Token.Value <> 'include' then
-            Error('Expected "include"');
+          case Token.Value of
+            'include':
+              begin
+                C := PeekAtNextChar;
+                while C = ' ' do
+                begin
+                  NextChar;
+                  C := PeekAtNextChar;
+                end;
 
-          C := PeekAtNextChar;
-          while C = ' ' do
-          begin
-            NextChar;
-            C := PeekAtNextChar;
-          end;
+                C := NextChar;
+                if not (C in ['''', '"']) then
+                  Error('Expected "''"');
 
-          C := NextChar;
-          if not (C in ['''', '"']) then
-            Error('Expected "''"');
+                Token.Value := '';
+                C := PeekAtNextChar;
+                while (C <> '''') and (C <> '"') and (C <> #10) and (C <> #0) do
+                begin
+                  Token.Value := Token.Value + NextChar;
+                  C := PeekAtNextChar;
+                end;
 
-          Token.Value := '';
-          C := PeekAtNextChar;
-          while (C <> '''') and (C <> '"') and (C <> #10) and (C <> #0) do
-          begin
-            Token.Value := Token.Value + NextChar;
-            C := PeekAtNextChar;
-          end;
+                C := NextChar;
+                if not (C in ['''', '"']) then
+                  Error('Expected "''"');
 
-          C := NextChar;
-          if not (C in ['''', '"']) then
-            Error('Expected "''"');
-
-          Token.Value := Trim(Token.Value);
-          if not FileExists(Token.Value) then
-          begin
-            Error(Format('"%s" not found', [Token.Value]));
-          end;
-          if Self.IncludeList.IndexOf(Token.Value) < 0 then
-          begin
-            BackupSource := Source;
-            SL := TStringList.Create;
-            try
-              Self.CurrentFileList.Add(Token.Value);
-              SL.LoadFromFile(Token.Value);
-              FSource := SL.Text;
-              Self.Lex(True);
-              Self.CurrentFileList.Pop;
-            finally
-              SL.Free;
-            end;
-            FSource := BackupSource;
-            Self.IncludeList.Add(Token.Value);
+                Token.Value := Trim(Token.Value);
+                if not FileExists(Token.Value) then
+                begin
+                  Error(Format('"%s" not found', [Token.Value]));
+                end;
+                if Self.IncludeList.IndexOf(Token.Value) < 0 then
+                begin
+                  BackupSource := Source;
+                  SL := TStringList.Create;
+                  try
+                    Self.CurrentFileList.Add(Token.Value);
+                    SL.LoadFromFile(Token.Value);
+                    FSource := SL.Text;
+                    Self.Lex(True);
+                    Self.CurrentFileList.Pop;
+                  finally
+                    SL.Free;
+                  end;
+                  FSource := BackupSource;
+                  Self.IncludeList.Add(Token.Value);
+                end;
+              end
+            else
+              Error('Unknown preprocessor "' + Token.Value + '"');
           end;
           continue;
         end;
@@ -3562,9 +3695,9 @@ var
   var
     I: Integer;
   begin
-    for I := Self.LocalVarList.Count - 1 downto 0 do
+    for I := Self.VarList.Count - 1 downto 0 do
     begin
-      Result := Self.LocalVarList.Ptr(I);
+      Result := Self.VarList.Ptr(I);
       if Result^.Name = Name then
         Exit(Result);
     end;
@@ -3637,9 +3770,18 @@ var
     Result.Kind := Kind;
     Result.Ln := Token.Ln;
     Result.Col := Token.Col;
-    Result.Addr := Self.GlobalVarCount;
     Result.Name := Token.Value;
-    Inc(Self.GlobalVarCount);
+    Result.IsLocal := Self.FuncTraversal > 0;
+    if Result.IsLocal then
+    begin
+      Result.Addr := Self.LocalVarCount;
+      Inc(Self.LocalVarCount);
+    end else
+    begin
+      Result.Addr := Self.GlobalVarCount;
+      Inc(Self.GlobalVarCount);
+    end;
+    Self.VarList.Add(Result);
   end;
 
   function Emit(const Data: array of TSEValue): Integer; inline;
@@ -3651,6 +3793,38 @@ var
       Self.VM.Binary.Add(Data[I]);
     end;
     Exit(Self.VM.Binary.Count);
+  end;
+
+  function EmitPushVar(const Ident: TSEIdent): Integer; inline;
+  begin
+    if Ident.IsLocal then
+      Emit([Pointer(opPushLocalVar), Pointer(Ident.Addr)])
+    else
+      Emit([Pointer(opPushGlobalVar), Pointer(Ident.Addr)]);
+  end;
+
+  function EmitPushArray(const Ident: TSEIdent): Integer; inline;
+  begin
+    if Ident.IsLocal then
+      Emit([Pointer(opPushLocalArray), Ident.Addr])
+    else
+      Emit([Pointer(opPushGlobalArray), Ident.Addr]);
+  end;
+
+  function EmitAssignVar(const Ident: TSEIdent): Integer; inline;
+  begin
+    if Ident.IsLocal then
+      Emit([Pointer(opAssignLocalVar), Pointer(Ident.Addr)])
+    else
+      Emit([Pointer(opAssignGlobalVar), Pointer(Ident.Addr)]);
+  end;
+
+  function EmitAssignArray(const Ident: TSEIdent): Integer; inline;
+  begin
+    if Ident.IsLocal then
+      Emit([Pointer(opAssignLocalArray), Ident.Addr])
+    else
+      Emit([Pointer(opAssignGlobalArray), Ident.Addr]);
   end;
 
   procedure Patch(const Addr: Integer; const Data: TSEValue); inline;
@@ -3684,7 +3858,7 @@ var
 
     procedure EmitExpr(const Data: array of TSEValue); inline;
     begin
-      ExprStack.Add(Pointer(0));
+      // ExprStack.Add(Pointer(0));
       Emit(Data);
     end;
 
@@ -3715,7 +3889,7 @@ var
             NextToken;
             ParseExpr;
             NextTokenExpected([tkSquareBracketClose]);
-            EmitExpr([Pointer(opPushLocalArrayPop)]);
+            EmitExpr([Pointer(opPushArrayPop)]);
             Tail;
           end;
         tkDot:
@@ -3723,7 +3897,7 @@ var
             NextToken;
             Token := NextTokenExpected([tkIdent]);
             EmitExpr([Pointer(opPushConst), Token.Value]);
-            EmitExpr([Pointer(opPushLocalArrayPop)]);
+            EmitExpr([Pointer(opPushArrayPop)]);
             Tail;
           end;
       end;
@@ -3774,7 +3948,7 @@ var
                         NextToken;
                         ParseExpr;
                         NextTokenExpected([tkSquareBracketClose]);
-                        EmitExpr([Pointer(opPushLocalArray), Ident^.Addr]);
+                        EmitPushArray(Ident^);
                         Tail;
                       end;
                     tkDot:
@@ -3782,11 +3956,11 @@ var
                         NextToken;
                         Token2 := NextTokenExpected([tkIdent]);
                         EmitExpr([Pointer(opPushConst), Token2.Value]);
-                        EmitExpr([Pointer(opPushLocalArray), Ident^.Addr]);
+                        EmitPushArray(Ident^);
                         Tail;
                       end;
                     else
-                      EmitExpr([Pointer(opPushLocalVar), Ident^.Addr]);
+                      EmitPushVar(Ident^);
                   end;
                 end;
               tkConst:
@@ -3925,22 +4099,15 @@ var
       end;
     end;
   begin
-    begin
-      ExprStack := TList.Create;
-      try
-        Logic;
-        ValidateExpr;
-      finally
-        FreeAndNil(ExprStack);
-      end;
-    end;
+    Logic;
+    // ValidateExpr;
   end;
 
   procedure ParseFuncCall(const Name: String);
   var
-    FuncNativeInfo: PSEFuncNativeInfo;
-    FuncScriptInfo: PSEFuncScriptInfo;
-    FuncImportInfo: PSEFuncImportInfo;
+    FuncNativeInfo: PSEFuncNativeInfo = nil;
+    FuncScriptInfo: PSEFuncScriptInfo = nil;
+    FuncImportInfo: PSEFuncImportInfo = nil;
     I, Ind: Integer;
     DefinedArgCount: Integer;
     ArgCount: Integer = 0;
@@ -3961,6 +4128,8 @@ var
           DefinedArgCount := Length(FuncImportInfo^.Args);
       end;
     end;
+    if FuncScriptInfo <> nil then // Allocate stack for result
+      Emit([Pointer(opPushConst), 0]);
     if DefinedArgCount > 0 then
     begin
       NextTokenExpected([tkBracketOpen]);
@@ -4001,12 +4170,14 @@ var
   procedure ParseFuncDecl;
   var
     Token: TSEToken;
+    ResultIdent: TSEIdent;
     Name: String;
     ArgCount: Integer = 0;
-    I,
+    I, Ind,
     JumpBlock,
-    Addr, StackAddr: Integer;
+    Addr: Integer;
     BreakList: TList;
+    Func: PSEFuncScriptInfo;
   begin
     BreakList := TList.Create;
     try
@@ -4016,11 +4187,9 @@ var
       if FindFunc(Name) <> nil then
         Error(Format('Duplicate function declaration "%s"', [Token.Value]), Token);
 
-      StackAddr := Self.GlobalVarCount;
-
       Token.Value := 'result';
       Token.Kind := tkIdent;
-      Self.LocalVarList.Add(CreateIdent(ikVariable, Token));
+      ResultIdent := CreateIdent(ikVariable, Token);
 
       if PeekAtNextToken.Kind = tkBracketOpen then
       begin
@@ -4029,7 +4198,7 @@ var
           if PeekAtNextToken.Kind = tkIdent then
           begin
             Token := NextTokenExpected([tkIdent]);
-            Self.LocalVarList.Add(CreateIdent(ikVariable, Token));
+            CreateIdent(ikVariable, Token);
             Inc(ArgCount);
           end;
           Token := NextTokenExpected([tkComma, tkBracketClose]);
@@ -4038,17 +4207,18 @@ var
 
       JumpBlock := Emit([Pointer(opJumpUnconditional), 0]);
       Addr := JumpBlock;
+      Func := RegisterScriptFunc(Name, Addr, ArgCount);
       ParseBlock;
 
       BreakList := BreakStack.Pop;
       for I := 0 to BreakList.Count - 1 do
         Patch(Integer(BreakList[I]), Self.VM.Binary.Count);
 
-      Emit([Pointer(opPushLocalVar), StackAddr]);
+      // EmitPushVar(ResultIdent);
       Emit([Pointer(opPopFrame)]);
       Patch(JumpBlock - 1, Self.VM.Binary.Count);
 
-      RegisterScriptFunc(Name, Addr, StackAddr, ArgCount);
+      Func^.VarCount := Self.LocalVarCount - ArgCount;
     finally
       BreakList.Free;
     end;
@@ -4202,15 +4372,12 @@ var
     ContinueList: TList;
     I: Integer;
     Token: TSEToken;
-    VarName,
-    VarHiddenKeyName,
+    VarIdent,
+    VarHiddenCountIdent,
+    VarHiddenArrayIdent: TSEIdent;
     VarHiddenCountName,
     VarHiddenArrayName: String;
-    Ind,
-    VarAddr,
-    VarHiddenCountAddr,
-    VarHiddenArrayAddr,
-    VarHiddenKeyAddr: Integer;
+    Ind: Integer;
   begin
     ContinueList := TList.Create;
     BreakList := TList.Create;
@@ -4219,22 +4386,24 @@ var
       BreakStack.Push(BreakList);
 
       Token := NextTokenExpected([tkVariable, tkIdent]);
+      // FIXME: tkVariable?
       if Token.Kind = tkIdent then
       begin
-        Self.LocalVarList.Add(CreateIdent(ikVariable, Token));
+        VarIdent := CreateIdent(ikVariable, Token);
+      end else
+      begin
+        VarIdent := FindVar(Token.Value)^;
       end;
-      VarName := Token.Value;
-      VarAddr := FindVar(VarName)^.Addr;
       Token := NextTokenExpected([tkEqual, tkIn, tkComma]);
 
       if Token.Kind = tkEqual then
       begin
         ParseExpr;
-        Emit([Pointer(opAssignLocal), VarAddr]);
+        EmitAssignVar(VarIdent);
 
         Token := NextTokenExpected([tkTo, tkDownto]);
         StartBlock := Self.VM.Binary.Count;
-        Emit([Pointer(opPushLocalVar), VarAddr]);
+        EmitPushVar(VarIdent);
         ParseExpr;
         if Token.Kind = tkTo then
         begin
@@ -4251,7 +4420,7 @@ var
 
         ParseBlock;
 
-        Emit([Pointer(opPushLocalVar), VarAddr]);
+        EmitPushVar(VarIdent);
         if Token.Kind = tkTo then
         begin
           Emit([Pointer(opPushConst), 1]);
@@ -4262,7 +4431,7 @@ var
           Emit([Pointer(opPushConst), 1]);
           Emit([Pointer(opOperatorSub)]);
         end;
-        Emit([Pointer(opAssignLocal), VarAddr]);
+        EmitAssignVar(VarIdent);
         JumpBlock := Emit([Pointer(opJumpUnconditional), 0]);
         EndBLock := JumpBlock;
       end else
@@ -4273,39 +4442,37 @@ var
           VarHiddenCountName := Token.Value;
           NextTokenExpected([tkIn]);
         end else
-          VarHiddenCountName := '___c' + VarName;
-        VarHiddenArrayName := '___a' + VarName;
+          VarHiddenCountName := '___c' + VarIdent.Name;
+        VarHiddenArrayName := '___a' + VarIdent.Name;
         Token.Value := VarHiddenCountName;
-        Self.LocalVarList.Add(CreateIdent(ikVariable, Token));
+        VarHiddenCountIdent := CreateIdent(ikVariable, Token);
         Token.Value := VarHiddenArrayName;
-        Self.LocalVarList.Add(CreateIdent(ikVariable, Token));
-        VarHiddenCountAddr := FindVar(VarHiddenCountName)^.Addr;
-        VarHiddenArrayAddr := FindVar(VarHiddenArrayName)^.Addr;
+        VarHiddenArrayIdent := CreateIdent(ikVariable, Token);
 
         ParseExpr;
 
-        Emit([Pointer(opAssignLocal), VarHiddenArrayAddr]);
+        EmitAssignVar(VarHiddenArrayIdent);
         Emit([Pointer(opPushConst), 0]);
-        Emit([Pointer(opAssignLocal), VarHiddenCountAddr]);
+        EmitAssignVar(VarHiddenCountIdent);
 
         StartBlock := Self.VM.Binary.Count;
 
-        Emit([Pointer(opPushLocalVar), VarHiddenArrayAddr]);
+        EmitPushVar(VarHiddenArrayIdent);
         Emit([Pointer(opCallNative), FindFuncNative('length', Ind), 1]);
-        Emit([Pointer(opPushLocalVar), VarHiddenCountAddr]);
+        EmitPushVar(VarHiddenCountIdent);
         JumpEnd := Emit([Pointer(opJumpEqualOrLesser), 0]);
 
-        Emit([Pointer(opPushLocalVar), VarHiddenArrayAddr]);
-        Emit([Pointer(opPushLocalVar), VarHiddenCountAddr]);
-        Emit([Pointer(opPushLocalArrayPop)]);
-        Emit([Pointer(opAssignLocal), VarAddr]);
+        EmitPushVar(VarHiddenArrayIdent);
+        EmitPushVar(VarHiddenCountIdent);
+        Emit([Pointer(opPushArrayPop)]);
+        EmitAssignVar(VarIdent);
 
         ParseBlock;
 
-        Emit([Pointer(opPushLocalVar), VarHiddenCountAddr]);
+        EmitPushVar(VarHiddenCountIdent);
         Emit([Pointer(opPushConst), 1]);
         Emit([Pointer(opOperatorAdd)]);
-        Emit([Pointer(opAssignLocal), VarHiddenCountAddr]);
+        EmitAssignVar(VarHiddenCountIdent);
         JumpBlock := Emit([Pointer(opJumpUnconditional), 0]);
         EndBLock := JumpBlock;
       end;
@@ -4386,11 +4553,11 @@ var
 
   procedure ParseVarAssign(const Name: String);
   var
-    Addr: Integer;
+    Ident: PSEIdent;
     Token, Token2: TSEToken;
     IsArrayAssign: Boolean = False;
   begin
-    Addr := FindVar(Name)^.Addr;
+    Ident := FindVar(Name);
     case PeekAtNextToken.Kind of
       tkSquareBracketOpen:
         begin
@@ -4411,9 +4578,9 @@ var
     if Token.Kind = tkOpAssign then
     begin
       if IsArrayAssign then
-        Emit([Pointer(opPushLocalArray), Addr])
+        EmitPushArray(Ident^)
       else
-        Emit([Pointer(opPushLocalVar), Addr]);
+        EmitPushVar(Ident^);
     end;
     ParseExpr;
     if Token.Kind = tkOpAssign then
@@ -4430,9 +4597,9 @@ var
       end;
     end;
     if IsArrayAssign then
-      Emit([Pointer(opAssignLocalArray), Addr])
+      EmitAssignArray(Ident^)
     else
-      Emit([Pointer(opAssignLocal), Addr]);
+      EmitAssignVar(Ident^);
   end;
 
   procedure ParseBlock;
@@ -4491,11 +4658,14 @@ var
       tkFunctionDecl:
         begin
           Inc(FuncTraversal);
+          if FuncTraversal > 1 then
+            Error('Nested functions are not supported', Token);
+          Self.LocalVarCount := -1;
           NextToken;
-          Self.ScopeStack.Push(Self.LocalVarList.Count);
+          Self.ScopeStack.Push(Self.VarList.Count);
           ParseFuncDecl;
           I := Self.ScopeStack.Pop;
-          Self.LocalVarList.DeleteRange(I, Self.LocalVarList.Count - I);
+          Self.VarList.DeleteRange(I, Self.VarList.Count - I);
           Dec(FuncTraversal);
         end;
       tkYield:
@@ -4505,7 +4675,7 @@ var
         end;
       tkBegin:
         begin
-          Self.ScopeStack.Push(Self.LocalVarList.Count);
+          Self.ScopeStack.Push(Self.VarList.Count);
           NextToken;
           Token := PeekAtNextToken;
           while Token.Kind <> tkEnd do
@@ -4516,7 +4686,7 @@ var
             Token := PeekAtNextToken;
           end;
           I := Self.ScopeStack.Pop;
-          Self.LocalVarList.DeleteRange(I, Self.LocalVarList.Count - I);
+          Self.VarList.DeleteRange(I, Self.VarList.Count - I);
           NextToken;
         end;
       tkIdent:
@@ -4525,7 +4695,7 @@ var
             tkUnknown:
               begin
                 NextToken;
-                Self.LocalVarList.Add(CreateIdent(ikVariable, Token));
+                CreateIdent(ikVariable, Token);
                 ParseVarAssign(Token.Value);
               end;
             tkVariable:
@@ -4583,14 +4753,15 @@ begin
   Self.IsDone := False;
   Self.IsParsed := False;
   Self.IsLex := False;
-  Self.LocalVarList.Clear;
+  Self.VarList.Clear;
   Self.TokenList.Clear;
   Self.IncludeList.Clear;
   Self.GlobalVarCount := 1;
   Ident.Kind := ikVariable;
   Ident.Addr := 0;
   Ident.Name := 'result';
-  Self.LocalVarList.Add(Ident);
+  Ident.IsLocal := False;
+  Self.VarList.Add(Ident);
   ErrorLn := -1;
   ErrorCol := -1;
   FuncTraversal := 0;
@@ -4616,15 +4787,15 @@ begin
   Self.FuncNativeList.Add(FuncNativeInfo);
 end;
 
-procedure TScriptEngine.RegisterScriptFunc(const Name: String; const Addr, StackAddr, ArgCount: Integer);
+function TScriptEngine.RegisterScriptFunc(const Name: String; const Addr, ArgCount: Integer): PSEFuncScriptInfo;
 var
   FuncScriptInfo: TSEFuncScriptInfo;
 begin
   FuncScriptInfo.ArgCount := ArgCount;
   FuncScriptInfo.Addr := Addr;
-  FuncScriptInfo.StackAddr := StackAddr;
   FuncScriptInfo.Name := Name;
   Self.FuncScriptList.Add(FuncScriptInfo);
+  Result := Self.FuncScriptList.Ptr(Self.FuncScriptList.Count - 1);
 end;
 
 procedure TScriptEngine.RegisterImportFunc(const Name, ActualName, LibName: String; const Args: TSEAtomKindArray; const Return: TSEAtomKind);
