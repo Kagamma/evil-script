@@ -332,7 +332,8 @@ type
     tkDownto,
     tkReturn,
     tkAtom,
-    tkImport
+    tkImport,
+    tkDo
   );
 TSETokenKinds = set of TSETokenKind;
 
@@ -342,7 +343,7 @@ const TokenNames: array[TSETokenKind] of String = (
   ',', 'if', 'identity', 'function', 'fn', 'variable', 'const',
   'unknown', 'else', 'while', 'break', 'continue', 'pause', 'yield',
   '[', ']', 'and', 'or', 'xor', 'not', 'for', 'in', 'to', 'downto', 'return',
-  'atom', 'import'
+  'atom', 'import', 'do'
 );
 
 type
@@ -547,6 +548,8 @@ type
     class function SEStringLowerCase(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEStringFindRegex(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEStringTrim(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEStringTrimLeft(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEStringTrimRight(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEOS(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEEaseInQuad(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEEaseOutQuad(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -1072,6 +1075,10 @@ var
 begin
   GC.AllocMap(@Result);
   V := Args[0];
+  if Length(Args) = 3 then
+    TSEValueMap(Result.VarMap).List.Capacity := Round(Args[1].VarNumber * (1 / Args[2].VarNumber)) // Set capacity beforehand
+  else
+    TSEValueMap(Result.VarMap).List.Capacity := Round(Args[1].VarNumber); // Set capacity beforehand
   while EpsilonRound(V) <= Args[1].VarNumber do
   begin
     SEMapSet(Result, I, V);
@@ -1258,6 +1265,16 @@ end;
 class function TBuiltInFunction.SEStringTrim(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
   Result := Trim(Args[0]);
+end;
+
+class function TBuiltInFunction.SEStringTrimLeft(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+begin
+  Result := TrimLeft(Args[0]);
+end;
+
+class function TBuiltInFunction.SEStringTrimRight(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+begin
+  Result := TrimRight(Args[0]);
 end;
 
 class function TBuiltInFunction.SEOS(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -3301,6 +3318,8 @@ begin
   Self.RegisterFunc('string_find_regex', @TBuiltInFunction(nil).SEStringFindRegex, 2);
   Self.RegisterFunc('string_concat', @TBuiltInFunction(nil).SEStringConcat, 3);
   Self.RegisterFunc('string_trim', @TBuiltInFunction(nil).SEStringTrim, 1);
+  Self.RegisterFunc('string_trim_left', @TBuiltInFunction(nil).SEStringTrimLeft, 1);
+  Self.RegisterFunc('string_trim_right', @TBuiltInFunction(nil).SEStringTrimRight, 1);
   Self.RegisterFunc('lerp', @TBuiltInFunction(nil).SELerp, 3);
   Self.RegisterFunc('slerp', @TBuiltInFunction(nil).SESLerp, 3);
   Self.RegisterFunc('write', @TBuiltInFunction(nil).SEWrite, -1);
@@ -3755,6 +3774,8 @@ begin
               Token.Kind := tkIn;
             'to':
               Token.Kind := tkTo;
+            'do':
+              Token.Kind := tkDo;
             'downto':
               Token.Kind := tkDownto;
             'while':
@@ -3793,6 +3814,7 @@ var
   Token: TSEToken;
   ContinueStack: TSEListStack;
   BreakStack: TSEListStack;
+  ReturnStack: TSEListStack;
 
   procedure Error(const S: String; const Token: TSEToken);
   begin
@@ -4364,12 +4386,12 @@ var
     I, Ind,
     JumpBlock,
     Addr: Integer;
-    BreakList: TList;
+    ReturnList: TList;
     Func: PSEFuncScriptInfo;
   begin
-    BreakList := TList.Create;
+    ReturnList := TList.Create;
     try
-      BreakStack.Push(BreakList);
+      ReturnStack.Push(ReturnList);
       Token := NextTokenExpected([tkIdent]);
       Name := Token.Value;
       if FindFunc(Name) <> nil then
@@ -4398,9 +4420,9 @@ var
       Func := RegisterScriptFunc(Name, Addr, ArgCount);
       ParseBlock;
 
-      BreakList := BreakStack.Pop;
-      for I := 0 to BreakList.Count - 1 do
-        Patch(Integer(BreakList[I]), Self.VM.Binary.Count);
+      ReturnList := ReturnStack.Pop;
+      for I := 0 to ReturnList.Count - 1 do
+        Patch(Integer(ReturnList[I]), Self.VM.Binary.Count);
 
       // EmitPushVar(ResultIdent);
       Emit([Pointer(opPopFrame)]);
@@ -4408,7 +4430,7 @@ var
 
       Func^.VarCount := Self.LocalVarCount - ArgCount;
     finally
-      BreakList.Free;
+      ReturnList.Free;
     end;
   end;
 
@@ -4534,6 +4556,43 @@ var
       Emit([Pointer(opPushConst), False]);
       JumpEnd := Emit([Pointer(opJumpEqual), 0]);
       ParseBlock;
+      JumpBlock := Emit([Pointer(opJumpUnconditional), 0]);
+      EndBlock := Self.VM.Binary.Count;
+      ContinueList := ContinueStack.Pop;
+      BreakList := BreakStack.Pop;
+      for I := 0 to ContinueList.Count - 1 do
+        Patch(Integer(ContinueList[I]), StartBlock);
+      for I := 0 to BreakList.Count - 1 do
+        Patch(Integer(BreakList[I]), EndBlock);
+      Patch(JumpBlock - 1, StartBlock);
+      Patch(JumpEnd - 1, EndBlock);
+    finally
+      ContinueList.Free;
+      BreakList.Free;
+    end;
+  end;
+
+  procedure ParseDoWhile;
+  var
+    StartBlock,
+    EndBlock,
+    JumpBlock,
+    JumpEnd: Integer;
+    BreakList,
+    ContinueList: TList;
+    I: Integer;
+  begin
+    ContinueList := TList.Create;
+    BreakList := TList.Create;
+    try
+      ContinueStack.Push(ContinueList);
+      BreakStack.Push(BreakList);
+      StartBlock := Self.VM.Binary.Count;
+      ParseBlock;
+      NextTokenExpected([tkWhile]);
+      ParseExpr;
+      Emit([Pointer(opPushConst), False]);
+      JumpEnd := Emit([Pointer(opJumpEqual), 0]);
       JumpBlock := Emit([Pointer(opJumpUnconditional), 0]);
       EndBlock := Self.VM.Binary.Count;
       ContinueList := ContinueStack.Pop;
@@ -4766,7 +4825,8 @@ var
     if Token.Kind = tkOpAssign then
     begin
       if IsArrayAssign then
-        EmitPushArray(Ident^)
+        // EmitPushArray(Ident^)
+        Error('Assignment operator does not support array/map at the moment', Token)
       else
         EmitPushVar(Ident^);
     end;
@@ -4809,6 +4869,11 @@ var
           NextToken;
           ParseFor;
         end;
+      tkDo:
+        begin
+          NextToken;
+          ParseDoWhile;
+        end;
       tkWhile:
         begin
           NextToken;
@@ -4840,7 +4905,7 @@ var
           NextToken;
           if FuncTraversal = 0 then
             Error('Not in a function', Token);
-          List := BreakStack.Peek;
+          List := ReturnStack.Peek;
           List.Add(Pointer(Emit([Pointer(opJumpUnconditional), 0]) - 1));
         end;
       tkFunctionDecl:
@@ -4916,6 +4981,7 @@ var
 begin
   ContinueStack := TSEListStack.Create;
   BreakStack := TSEListStack.Create;
+  ReturnStack := TSEListStack.Create;
   try
     repeat
       ParseBlock;
@@ -4924,6 +4990,7 @@ begin
   finally
     FreeAndNil(ContinueStack);
     FreeAndNil(BreakStack);
+    FreeAndNil(ReturnStack);
   end;
 end;
 
@@ -5103,4 +5170,3 @@ finalization
   ScriptCacheMap.Free;
 
 end.
-
