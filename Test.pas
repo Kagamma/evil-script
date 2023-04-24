@@ -14,7 +14,7 @@ const
   CustomFunctionTest = 'writeln(''5.2 + 2.8 = '', add(5.2, 2.8))';
   YieldTest = 'i = 0 while i < 3 { i = i + 1 yield }';
   PauseTest = 'i = 0 while i < 3 { writeln(''Only run 1 time'') pause i = i + 1 }';
-  FibTest = 'fn fib(n) { if n < 2 result = n else result = fib(n-1) + fib(n-2) } fib(36)';
+  FibTest = 'fn fib(n) { if n < 2 result = n else result = fib(n-1) + fib(n-2) } writeln(fib(36))';
   ResultTest = 'result = 5';
 
 type
