@@ -598,6 +598,16 @@ begin
   Result := FloatToStr(X, FS);
 end;
 
+function StringIndexOf(S, P: String): Integer; inline;
+begin
+  {$ifdef SE_STRING_UTF8}
+  Result := UTF8Pos(P, S);
+  Dec(Result);
+  {$else}
+  Result := S.IndexOf(P);
+  {$endif}
+end;
+
 function SESize(constref Value: TSEValue): Cardinal; inline;
 begin
   case Value.Kind of
@@ -1133,7 +1143,7 @@ begin
   A := SplitString(Args[0], #10);
   for V in A do
     for I := 0 to SESize(Args[1]) - 1 do
-      if V.IndexOf(SEMapGet(Args[1], I).VarString^) >= 0 then
+      if StringIndexOf(V, SEMapGet(Args[1], I).VarString^) >= 0 then
       begin
         if Result = '' then
           Result := V
@@ -1155,7 +1165,7 @@ end;
 
 class function TBuiltInFunction.SEStringFind(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  Result := Args[0].VarString^.IndexOf(Args[1]);
+  Result := StringIndexOf(Args[0].VarString^, Args[1]);
 end;
 
 class function TBuiltInFunction.SEStringDelete(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
