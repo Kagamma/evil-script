@@ -4354,7 +4354,8 @@ var
     begin
       case PeekAtNextToken.Kind of
         tkSquareBracketOpen:
-          begin
+          begin 
+            PushConstCount := 0;
             NextToken;
             ParseExpr;
             NextTokenExpected([tkSquareBracketClose]);
@@ -4363,6 +4364,7 @@ var
           end;
         tkDot:
           begin
+            PushConstCount := 0;
             NextToken;
             Token := NextTokenExpected([tkIdent]);
             EmitExpr([Pointer(opPushConst), Token.Value]);
@@ -4422,6 +4424,7 @@ var
                     case PeekAtNextToken.Kind of
                       tkSquareBracketOpen:
                         begin
+                          PushConstCount := 0;
                           NextToken;
                           ParseExpr;
                           NextTokenExpected([tkSquareBracketClose]);
@@ -4430,6 +4433,7 @@ var
                         end;
                       tkDot:
                         begin
+                          PushConstCount := 0;
                           NextToken;
                           Token2 := NextTokenExpected([tkIdent]);
                           EmitExpr([Pointer(opPushConst), Token2.Value]);
@@ -4461,6 +4465,7 @@ var
                         FuncValue.VarFuncIndx := QWord(P);
                     end;
                     FuncValue.Kind := sevkFunction;
+                    PushConstCount := 0;
                     EmitExpr([Pointer(opPushConst), FuncValue]);
                   end else
                   begin
