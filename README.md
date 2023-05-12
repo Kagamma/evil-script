@@ -5,3 +5,8 @@ Simple C-like scripting engine written in Free Pascal
 
 #### How to use
 - See Test.pas
+
+### About compiler
+- The compiler itself is a one-pass compiler. It follows Niklaus Wirth’s design, completely skips AST generation and generates binary directly.
+- Due to the lack of AST, only constant folding and unused variable optimizations are implemented.
+- The performance of its virtual machine should be on par with CPython.

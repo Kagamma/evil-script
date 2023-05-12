@@ -45,8 +45,8 @@ type
     opOperatorMod,
     opOperatorPow,
     opOperatorNegative,
-    opOperatorSmaller,
-    opOperatorSmallerOrEqual,
+    opOperatorLesser,
+    opOperatorLesserOrEqual,
     opOperatorGreater,
     opOperatorGreaterOrEqual,
     opOperatorEqual,
@@ -55,6 +55,7 @@ type
     opOperatorOr,
     opOperatorXor,
     opOperatorNot,
+    opCallRef,
     opCallNative,
     opCallScript,
     opCallImport,
@@ -71,7 +72,8 @@ type
     sevkMap,
     sevkBuffer,
     sevkPointer,
-    sevkBoolean
+    sevkBoolean,
+    sevkFunction
   );
   PSECommonString = ^String;
   TSEBuffer = record
@@ -79,6 +81,8 @@ type
     Ptr: Pointer;
   end;
   PSEBuffer = ^TSEBuffer;
+
+  TSEFuncKind = (sefkNative, sefkScript, sefkImport);
 
   {$mode delphi}
   PSEValue = ^TSEValue;
@@ -112,6 +116,11 @@ type
       sevkBoolean:
         (
           VarBoolean: Boolean;
+        );
+      sevkFunction:
+        (
+          VarFuncKind: TSEFuncKind;
+          VarFuncIndx: QWord;
         );
   end;
   {$mode objfpc}
@@ -182,8 +191,6 @@ type
   TSEVM = class;
   TSEVMList = specialize TList<TSEVM>;
   TSEFunc = function(const VM: TSEVM; const Args: array of TSEValue): TSEValue of object;
-
-  TSEFuncKind = (sefkNative, sefkScript, sefkImport);
 
   TSEFuncNativeInfo = record
     Name: String;
@@ -422,6 +429,7 @@ type
     property Source: String read FSource write SetSource;
   end;
 
+function SEValueToText(const Value: TSEValue; const IsRoot: Boolean = True): String;
 function SESize(constref Value: TSEValue): Cardinal; inline;
 function SEMapGet(constref V: TSEValue; constref I: Integer): TSEValue; inline; overload;
 function SEMapGet(constref V: TSEValue; constref S: String): TSEValue; inline; overload;
@@ -605,6 +613,60 @@ begin
   {$else}
   Result := S.IndexOf(P);
   {$endif}
+end;
+
+function SEValueToText(const Value: TSEValue; const IsRoot: Boolean = True): String;
+var
+  Key, S: String;
+  IsValidArray: Boolean;
+  I: Integer = 0;
+begin
+  case Value.Kind of
+    sevkString:
+      begin
+        if IsRoot then
+          Result := Value.VarString^
+        else
+          Result := '"' + Value.VarString^ + '"';
+      end;
+    sevkNumber:
+      Result := PointFloatToStr(Value.VarNumber);
+    sevkBoolean:
+      Result := BoolToStr(Boolean(Round(Value.VarNumber)), 'true', 'false');
+    sevkMap:
+      begin
+        Result := '[';
+        IsValidArray := SEMapIsValidArray(Value);
+        if IsValidArray then
+        begin
+          for I := 0 to TSEValueMap(Value.VarMap).List.Count - 1 do
+          begin
+            if I > 0 then
+              Result := Result + ', ';
+            Result := Result + SEValueToText(SEMapGet(Value, I), False);
+          end;
+        end else
+        begin
+          for Key in TSEValueMap(Value.VarMap).Keys do
+          begin
+            if I > 0 then
+              Result := Result + ', ';
+            Result := Result + '"' + Key + '": ' + SEValueToText(SEMapGet(Value, Key), False);
+            Inc(I);
+          end;
+        end;
+        Result := Result + ']'
+      end;
+    sevkFunction:
+      begin
+        WriteStr(S, Value.VarFuncKind);
+        Result := 'fn@' + S + ':' + IntToStr(Value.VarFuncIndx);
+      end;
+    sevkNull:
+      Result := 'null';
+    else
+      Result := Value;
+  end;
 end;
 
 function SESize(constref Value: TSEValue): Cardinal; inline;
@@ -881,6 +943,8 @@ begin
       Result := 'pointer';
     sevkBuffer:
       Result := 'buffer';
+    sevkFunction:
+      Result := 'function';
   end;
 end;
 
@@ -890,12 +954,7 @@ var
 begin
   for I := 0 to Length(Args) - 1 do
   begin
-    case Args[I].Kind of
-      sevkNumber, sevkBoolean:
-        Write(Args[I].VarNumber);
-      sevkString:
-        Write(Args[I].VarString^);
-    end;
+    Write(SEValueToText(Args[I]));
   end;
 end;
 
@@ -1027,7 +1086,7 @@ var
   I: Integer = 0;
 begin
   GC.AllocMap(@Result);
-  if SEMapIsValidArray(Args[0]) then
+  if not SEMapIsValidArray(Args[0]) then
   begin
     for Key in TSEValueMap(Args[0].VarMap).Keys do
     begin
@@ -1608,6 +1667,8 @@ begin
       R := V1.VarNumber = V2.VarNumber;
     sevkString:
       R := V1.VarString^ = V2.VarString^;
+    sevkFunction:
+      R := (V1.VarFuncKind = V2.VarFuncKind) and (V1.VarFuncIndx = V2.VarFuncIndx);
     sevkNull:
       R := True;
   end else
@@ -1625,6 +1686,8 @@ begin
       R := V1.VarNumber <> V2.VarNumber;
     sevkString:
       R := V1.VarString^ <> V2.VarString^;
+    sevkFunction:
+      R := (V1.VarFuncKind <> V2.VarFuncKind) or (V1.VarFuncIndx <> V2.VarFuncIndx);
     sevkNull:
       R := False;
   end else
@@ -1662,6 +1725,8 @@ begin
       Result := V1.VarNumber = V2.VarNumber;
     sevkString:
       Result := V1.VarString^ <> V2.VarString^;
+    sevkFunction:
+      Result := (V1.VarFuncKind = V2.VarFuncKind) and (V1.VarFuncIndx = V2.VarFuncIndx);
     sevkNull:
       Result := True;
   end else
@@ -1679,6 +1744,8 @@ begin
       Result := V1.VarNumber <> V2.VarNumber;
     sevkString:
       Result := V1.VarString^ <> V2.VarString^;
+    sevkFunction:
+      Result := (V1.VarFuncKind <> V2.VarFuncKind) or (V1.VarFuncIndx <> V2.VarFuncIndx);
     sevkNull:
       Result := False;
   end else
@@ -1947,6 +2014,8 @@ begin
       R := Boolean(Round(V1.VarNumber)) = Boolean(Round(V2.VarNumber));
     sevkString:
       R := V1.VarString^ = V2.VarString^;
+    sevkFunction:
+      R := (V1.VarFuncKind = V2.VarFuncKind) and (V1.VarFuncIndx = V2.VarFuncIndx);
     sevkNull:
       R := True;
   end else
@@ -1962,6 +2031,8 @@ begin
       R := Boolean(Round(V1.VarNumber)) <> Boolean(Round(V2.VarNumber));
     sevkString:
       R := V1.VarString^ <> V2.VarString^;
+    sevkFunction:
+      R := (V1.VarFuncKind <> V2.VarFuncKind) or (V1.VarFuncIndx <> V2.VarFuncIndx);
     sevkNull:
       R := False;
   end else
@@ -2344,8 +2415,9 @@ end;
 
 procedure TSEVM.Exec;
 var
-  A, B, C: PSEValue;
-  V: PSEValue;
+  A, B, C, V,
+  OA, OB, OC, OV: PSEValue;
+  AA: array[0..15] of PSEValue;
   TV: TSEValue;
   S, S1, S2: String;
   WS, WS1, WS2: WideString;
@@ -2423,7 +2495,8 @@ var
 label
   Loop, FinishLoop, LoopMMX, LoopMMXAlloc, AllocMMX6, AllocMMX5, AllocMMX4, AllocMMX3, AllocMMX2, AllocMMX1,
   AllocMMX0, LoopMMXFinishAlloc, LoopReg, LoopRegAlloc, AllocRDI, AllocRSI, AllocRDX, AllocRCX, AllocR8, AllocR9, LoopRegFinishAlloc,
-  LoopFinishAlloc;
+  LoopFinishAlloc,
+  CallScript, CallNative, CallImport;
 
 begin
   if Self.IsDone then
@@ -2494,7 +2567,7 @@ begin
             Inc(StackPtrLocal);
             Inc(CodePtrLocal);
           end;
-        opOperatorSmaller:
+        opOperatorLesser:
           begin
             B := Pop;
             A := Pop;
@@ -2502,7 +2575,7 @@ begin
             Inc(StackPtrLocal);
             Inc(CodePtrLocal);
           end;
-        opOperatorSmallerOrEqual:
+        opOperatorLesserOrEqual:
           begin
             B := Pop;
             A := Pop;
@@ -2672,8 +2745,30 @@ begin
             else
               Inc(CodePtrLocal, 2);
           end;
+        opCallRef:
+          begin
+            A := Pop; // Ref
+            if A^.Kind <> sevkFunction then
+              raise Exception.Create('Not a function reference');
+            BinaryLocal.Ptr(CodePtrLocal + 1)^ := Pointer(A^.VarFuncIndx);
+            case A^.VarFuncKind of
+              sefkScript:
+                begin
+                  goto CallScript;
+                end;
+              sefkImport:
+                begin
+                  goto CallImport;
+                end;
+              sefkNative:
+                begin
+                  goto CallNative;
+                end;
+            end;
+          end;
         opCallNative:
           begin
+          CallNative:
             GC.CheckForGC;
             FuncNativeInfo := PSEFuncNativeInfo(Pointer(BinaryLocal.Ptr(CodePtrLocal + 1)^));
             ArgCount := BinaryLocal.Ptr(CodePtrLocal + 2)^;
@@ -2692,6 +2787,7 @@ begin
           end;
         opCallScript:
           begin
+          CallScript:
             GC.CheckForGC;
             ArgCount := BinaryLocal.Ptr(CodePtrLocal + 2)^;
             FuncScriptInfo := Self.Parent.FuncScriptList.Ptr(BinaryLocal.Ptr(CodePtrLocal + 1)^);
@@ -2705,6 +2801,7 @@ begin
           end;
         opCallImport:
           begin
+          CallImport:
             GC.CheckForGC;
             FuncImportInfo := Self.Parent.FuncImportList.Ptr(BinaryLocal.Ptr(CodePtrLocal + 1)^);
             FuncImport := FuncImportInfo^.Func;
@@ -3057,7 +3154,7 @@ begin
                 end;
             end;
             Push(TV);
-            Inc(CodePtrLocal, 2);
+            Inc(CodePtrLocal, 3);
           end;
         opPopFrame:
           begin
@@ -3078,9 +3175,25 @@ begin
         opAssignGlobalArray:
           begin
             A := BinaryLocal.Ptr(CodePtrLocal + 1);
-            B := Pop;
-            C := Pop;
             V := GetGlobalInt(Integer(A^));
+            B := Pop;
+            ArgCount := BinaryLocal.Ptr(CodePtrLocal + 2)^;
+            if ArgCount = 1 then
+              C := Pop
+            else
+            begin
+              for I := ArgCount - 1 downto 0 do
+                AA[I] := Pop;
+              C := AA[0];
+              for I := 1 to ArgCount - 1 do
+              begin
+                OC := C;
+                OV := V;
+                TV := SEMapGet(V^, C^);
+                V := @TV;
+                C := AA[I];
+              end;
+            end;
             case B^.Kind of
               sevkString:
                 begin
@@ -3097,10 +3210,13 @@ begin
                       V^.VarString^[Integer(C^) + 1] := B^.VarString^[1];
                     {$endif}
                     // Self.Stack[A] := S;
+                    if ArgCount >= 2 then
+                      SEMapSet(OV^, OC^, V^);
                   end else
                   begin
                     SEMapSet(V^, C^, B^);
-                    AssignGlobalInt(Integer(A^), V);
+                    if ArgCount = 1 then
+                      AssignGlobalInt(Integer(A^), V);
                   end;
                 end;
               sevkNumber, sevkBoolean:
@@ -3117,26 +3233,46 @@ begin
                       V^.VarString^[Integer(C^) + 1] := Char(Round(B^.VarNumber));
                     {$endif}
                     // Self.Stack[A] := S;
+                    if ArgCount >= 2 then
+                      SEMapSet(OV^, OC^, V^);
                   end else
                   begin
                     SEMapSet(V^, C^, B^);
-                    AssignGlobalInt(Integer(A^), V);
+                    if ArgCount = 1 then
+                      AssignGlobalInt(Integer(A^), V);
                   end;
                 end;
               else
                 begin
                   SEMapSet(V^, C^, B^);
-                  AssignGlobalInt(Integer(A^), V);
+                  if ArgCount = 1 then
+                    AssignGlobalInt(Integer(A^), V);
                 end;
             end;
-            Inc(CodePtrLocal, 2);
+            Inc(CodePtrLocal, 3);
           end;
         opAssignLocalArray:
           begin
             A := BinaryLocal.Ptr(CodePtrLocal + 1);
-            B := Pop;
-            C := Pop;
             V := GetLocalInt(Integer(A^));
+            B := Pop;
+            ArgCount := BinaryLocal.Ptr(CodePtrLocal + 2)^;
+            if ArgCount = 1 then
+              C := Pop
+            else
+            begin
+              for I := ArgCount - 1 downto 0 do
+                AA[I] := Pop;
+              C := AA[0];
+              for I := 1 to ArgCount - 1 do
+              begin
+                OC := C;
+                OV := V;
+                TV := SEMapGet(V^, C^);
+                V := @TV;
+                C := AA[I];
+              end;
+            end;
             case B^.Kind of
               sevkString:
                 begin
@@ -3153,10 +3289,13 @@ begin
                       V^.VarString^[Integer(C^) + 1] := B^.VarString^[1];
                     {$endif}
                     // Self.Stack[A] := S;
+                    if ArgCount >= 2 then
+                      SEMapSet(OV^, OC^, V^);
                   end else
                   begin
                     SEMapSet(V^, C^, B^);
-                    AssignLocalInt(Integer(A^), V);
+                    if ArgCount = 1 then
+                      AssignLocalInt(Integer(A^), V);
                   end;
                 end;
               sevkNumber, sevkBoolean:
@@ -3173,19 +3312,23 @@ begin
                       V^.VarString^[Integer(C^) + 1] := Char(Round(B^.VarNumber));
                     {$endif}
                     // Self.Stack[A] := S;
+                    if ArgCount >= 2 then
+                      SEMapSet(OV^, OC^, V^);
                   end else
                   begin
                     SEMapSet(V^, C^, B^);
-                    AssignLocalInt(Integer(A^), V);
+                    if ArgCount = 1 then
+                      AssignLocalInt(Integer(A^), V);
                   end;
                 end;
               else
                 begin
                   SEMapSet(V^, C^, B^);
+                  if ArgCount = 1 then
                     AssignLocalInt(Integer(A^), V);
                 end;
             end;
-            Inc(CodePtrLocal, 2);
+            Inc(CodePtrLocal, 3);
           end;
         opPause:
           begin
@@ -3821,7 +3964,7 @@ var
       raise Exception.CreateFmt('(%s) [%d,%d] %s', [Token.BelongedFileName, Token.Ln, Token.Col, S]);
   end;
 
-  function FindFunc(const Name: String): Pointer; inline;
+  function FindFunc(const Name: String): Pointer; inline; overload;
   var
     I: Integer;
   begin
@@ -3892,6 +4035,23 @@ var
       end;
     end;
     Exit(nil);
+  end;
+
+  function FindFunc(const Name: String; var Kind: TSEFuncKind; var Ind: Integer): Pointer; inline; overload;
+  begin
+    Result := FindFuncScript(Name, Ind);
+    if Result = nil then
+    begin
+      Result := FindFuncNative(Name, Ind);
+      if Result = nil then
+      begin
+        Result := FindFuncImport(Name, Ind);
+        if Result <> nil then
+          Kind := sefkImport;
+      end else
+        Kind := sefkNative;
+    end else
+      Kind := sefkScript;
   end;
 
   function FindVar(const Name: String): PSEIdent; inline;
@@ -4022,12 +4182,12 @@ var
       Emit([Pointer(opAssignGlobalVar), Pointer(Ident.Addr)]);
   end;
 
-  function EmitAssignArray(const Ident: TSEIdent): Integer; inline;
+  function EmitAssignArray(const Ident: TSEIdent; const ArgCount: Integer): Integer; inline;
   begin
     if Ident.IsLocal then
-      Emit([Pointer(opAssignLocalArray), Ident.Addr])
+      Emit([Pointer(opAssignLocalArray), Ident.Addr, ArgCount])
     else
-      Emit([Pointer(opAssignGlobalArray), Ident.Addr]);
+      Emit([Pointer(opAssignGlobalArray), Ident.Addr, ArgCount]);
   end;
 
   procedure Patch(const Addr: Integer; const Data: TSEValue); inline;
@@ -4047,6 +4207,7 @@ var
   end;
 
   procedure ParseFuncCall(const Name: String); forward;
+  procedure ParseFuncRefCall(const Name: String); forward;
   procedure ParseBlock; forward;
   procedure ParseArrayAssign; forward;
 
@@ -4054,21 +4215,126 @@ var
   type
     TProc = TSENestedProc;
   var
-    ExprStack: TList;
-    IsFuncCalled: Boolean = False;
+    PushConstCount: Integer = 0;
 
     procedure Logic; forward;
 
     procedure EmitExpr(const Data: array of TSEValue); inline;
-    begin
-      // ExprStack.Add(Pointer(0));
-      Emit(Data);
-    end;
+    var
+      Op: TSEOpcode;
+      V1, V2, V: TSEValue;
 
-    procedure ValidateExpr;
+      procedure Pop2; inline;
+      begin
+        V2 := Self.VM.Binary[Self.VM.Binary.Count - 1];
+        V1 := Self.VM.Binary[Self.VM.Binary.Count - 3];
+        Self.VM.Binary.DeleteRange(Self.VM.Binary.Count - 4, 4);
+        Dec(PushConstCount);
+      end;
+
     begin
-      //if (ExprStack.Count = 0) and not IsFuncCalled then
-      //  Error('Illegal expression', Self.TokenList[Pos]);
+      Op := TSEOpcode(Integer(Data[0].VarPointer));
+      if Op = opPushConst then
+      begin
+        Emit(Data);
+        Inc(PushConstCount)
+      end
+      // Constant folding optimization
+      else
+      if PushConstCount >= 2 then
+      begin
+        case Op of
+          opOperatorAdd:
+            begin
+              Pop2;
+              SEValueAdd(V, V1, V2);
+              Emit([Pointer(opPushConst), V]);
+            end;
+          opOperatorSub:
+            begin
+              Pop2;
+              SEValueSub(V, V1, V2);
+              Emit([Pointer(opPushConst), V]);
+            end;
+          opOperatorMul:
+            begin
+              Pop2;
+              SEValueMul(V, V1, V2);
+              Emit([Pointer(opPushConst), V]);
+            end;
+          opOperatorDiv:
+            begin
+              Pop2;
+              SEValueDiv(V, V1, V2);
+              Emit([Pointer(opPushConst), V]);
+            end;
+          opOperatorMod:
+            begin
+              Pop2;
+              Emit([Pointer(opPushConst), V1 - V2 * Int(TSENumber(V1 / V2))]);
+            end;
+          opOperatorAnd:
+            begin
+              Pop2;
+              Emit([Pointer(opPushConst), Integer(V1) and Integer(V2)]);
+            end;
+          opOperatorOr:
+            begin
+              Pop2;
+              Emit([Pointer(opPushConst), Integer(V1) or Integer(V2)]);
+            end;
+          opOperatorXor:
+            begin
+              Pop2;
+              Emit([Pointer(opPushConst), Integer(V1) xor Integer(V2)]);
+            end;
+          opOperatorGreater:
+            begin
+              Pop2;
+              SEValueGreater(V, V1, V2);
+              Emit([Pointer(opPushConst), V]);
+            end;
+          opOperatorGreaterOrEqual:
+            begin
+              Pop2;
+              SEValueGreaterOrEqual(V, V1, V2);
+              Emit([Pointer(opPushConst), V]);
+            end;
+          opOperatorLesser:
+            begin
+              Pop2;
+              SEValueLesser(V, V1, V2);
+              Emit([Pointer(opPushConst), V]);
+            end;
+          opOperatorLesserOrEqual:
+            begin
+              Pop2;
+              SEValueLesserOrEqual(V, V1, V2);
+              Emit([Pointer(opPushConst), V]);
+            end;
+          opOperatorEqual:
+            begin
+              Pop2;
+              SEValueEqual(V, V1, V2);
+              Emit([Pointer(opPushConst), V]);
+            end;
+          opOperatorNotEqual:
+            begin
+              Pop2;
+              SEValueNotEqual(V, V1, V2);
+              Emit([Pointer(opPushConst), V]);
+            end;
+          else
+            begin
+              Emit(Data);
+              PushConstCount := 0;
+            end;
+        end;
+      end else
+      begin
+        Emit(Data);
+        PushConstCount := 0;
+      end;
     end;
 
     procedure BinaryOp(const Op: TSEOpcode; const Func: TProc; const IsString: Boolean = False); inline;
@@ -4110,6 +4376,9 @@ var
     var
       Token, Token2: TSEToken;
       Ident: PSEIdent;
+      FuncValue: TSEValue;
+      Ind: Integer;
+      P: Pointer;
     begin
       Token := PeekAtNextTokenExpected([
         tkBracketOpen, tkBracketClose, tkSquareBracketOpen, tkDot, tkNumber, tkEOF,
@@ -4143,27 +4412,33 @@ var
               tkVariable:
                 begin
                   NextToken;
-                  Ident := FindVar(Token.Value);
-                  Ident^.IsUsed := True;
-                  case PeekAtNextToken.Kind of
-                    tkSquareBracketOpen:
-                      begin
-                        NextToken;
-                        ParseExpr;
-                        NextTokenExpected([tkSquareBracketClose]);
-                        EmitPushArray(Ident^);
-                        Tail;
-                      end;
-                    tkDot:
-                      begin
-                        NextToken;
-                        Token2 := NextTokenExpected([tkIdent]);
-                        EmitExpr([Pointer(opPushConst), Token2.Value]);
-                        EmitPushArray(Ident^);
-                        Tail;
-                      end;
-                    else
-                      EmitPushVar(Ident^);
+                  if PeekAtNextToken.Kind = tkBracketOpen then // Likely function ref
+                  begin
+                    ParseFuncRefCall(Token.Value);
+                  end else
+                  begin
+                    Ident := FindVar(Token.Value);
+                    Ident^.IsUsed := True;
+                    case PeekAtNextToken.Kind of
+                      tkSquareBracketOpen:
+                        begin
+                          NextToken;
+                          ParseExpr;
+                          NextTokenExpected([tkSquareBracketClose]);
+                          EmitPushArray(Ident^);
+                          Tail;
+                        end;
+                      tkDot:
+                        begin
+                          NextToken;
+                          Token2 := NextTokenExpected([tkIdent]);
+                          EmitExpr([Pointer(opPushConst), Token2.Value]);
+                          EmitPushArray(Ident^);
+                          Tail;
+                        end;
+                      else
+                        EmitPushVar(Ident^);
+                    end;
                   end;
                 end;
               tkConst:
@@ -4174,8 +4449,23 @@ var
               tkFunction:
                 begin
                   NextToken;
-                  IsFuncCalled := True;
-                  ParseFuncCall(Token.Value);
+                  if PeekAtNextToken.Kind <> tkBracketOpen then // Likely function ref
+                  begin
+                    P := FindFunc(Token.Value, FuncValue.VarFuncKind, Ind);
+                    if P = nil then
+                      Error(Format('Function "%s" not found', [Token.Value]), Token);
+                    case FuncValue.VarFuncKind of
+                      sefkScript, sefkImport:
+                        FuncValue.VarFuncIndx := Ind;
+                      sefkNative:
+                        FuncValue.VarFuncIndx := QWord(P);
+                    end;
+                    FuncValue.Kind := sevkFunction;
+                    EmitExpr([Pointer(opPushConst), FuncValue]);
+                  end else
+                  begin
+                    ParseFuncCall(Token.Value);
+                  end;
                   Tail;
                 end;
               else
@@ -4289,9 +4579,9 @@ var
           tkGreaterOrEqual:
             BinaryOp(opOperatorGreaterOrEqual, @Expr, True);
           tkSmaller:
-            BinaryOp(opOperatorSmaller, @Expr, True);
+            BinaryOp(opOperatorLesser, @Expr, True);
           tkSmallerOrEqual:
-            BinaryOp(opOperatorSmallerOrEqual, @Expr, True);
+            BinaryOp(opOperatorLesserOrEqual, @Expr, True);
           tkAnd:
             BinaryOp(opOperatorAnd, @Expr, True);
           tkOr:
@@ -4305,7 +4595,22 @@ var
     end;
   begin
     Logic;
-    // ValidateExpr;
+  end;
+
+  procedure ParseFuncRefCall(const Name: String);
+  var
+    Token: TSEToken;
+    ArgCount: Integer = 0;
+  begin
+    NextTokenExpected([tkBracketOpen]);
+    repeat
+      ParseExpr;
+      Token := NextTokenExpected([tkComma, tkBracketClose]);
+      Inc(ArgCount);
+    until Token.Kind = tkBracketClose;
+    // We now push func def to stack
+    EmitPushVar(FindVar(Name)^);
+    Emit([Pointer(opCallRef), 0, ArgCount]);
   end;
 
   procedure ParseFuncCall(const Name: String);
@@ -4366,7 +4671,7 @@ var
     if FuncScriptInfo <> nil then
       Emit([Pointer(opCallScript), Ind, ArgCount])
     else
-      Emit([Pointer(opCallImport), Ind]);
+      Emit([Pointer(opCallImport), Ind, 0]);
   end;
 
   procedure ParseFuncDecl;
@@ -4476,19 +4781,16 @@ var
       if FindFunc(Name) <> nil then
         Error(Format('Duplicate function declaration "%s"', [Token.Value]), Token);
 
-      if PeekAtNextToken.Kind = tkBracketOpen then
-      begin
-        NextTokenExpected([tkBracketOpen]);
-        repeat
-          if PeekAtNextToken.Kind = tkAtom then
-          begin
-            Token := NextTokenExpected([tkAtom]);
-            SetLength(Args, Length(Args) + 1);
-            Args[Length(Args) - 1] := GetAtom(Token, True);
-          end;
-          Token := NextTokenExpected([tkComma, tkBracketClose]);
-        until Token.Kind = tkBracketClose;
-      end;
+      NextTokenExpected([tkBracketOpen]);
+      repeat
+        if PeekAtNextToken.Kind = tkAtom then
+        begin
+          Token := NextTokenExpected([tkAtom]);
+          SetLength(Args, Length(Args) + 1);
+          Args[Length(Args) - 1] := GetAtom(Token, True);
+        end;
+        Token := NextTokenExpected([tkComma, tkBracketClose]);
+      until Token.Kind = tkBracketClose;
       NextTokenExpected([tkColon]);
       Token := NextTokenExpected([tkAtom]);
       Return := GetAtom(Token);
@@ -4791,29 +5093,32 @@ var
   var
     Ident: PSEIdent;
     Token, Token2: TSEToken;
-    IsArrayAssign: Boolean = False;
+    ArgCount: Integer = 0;
   begin
     Ident := FindVar(Name);
-    case PeekAtNextToken.Kind of
-      tkSquareBracketOpen:
-        begin
-          IsArrayAssign := True;
-          NextToken;
-          ParseExpr;
-          NextTokenExpected([tkSquareBracketClose]);
-        end;
-      tkDot:
-        begin
-          IsArrayAssign := True;
-          NextToken;
-          Token2 := NextTokenExpected([tkIdent]);
-          Emit([Pointer(opPushConst), Token2.Value]);
-        end;
+    while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
+    begin
+      case PeekAtNextToken.Kind of
+        tkSquareBracketOpen:
+          begin
+            NextToken;
+            ParseExpr;
+            NextTokenExpected([tkSquareBracketClose]);
+          end;
+        tkDot:
+          begin
+            NextToken;
+            Token2 := NextTokenExpected([tkIdent]);
+            Emit([Pointer(opPushConst), Token2.Value]);
+          end;
+      end;
+      Inc(ArgCount);
     end;
+
     Token := NextTokenExpected([tkEqual, tkOpAssign]);
     if Token.Kind = tkOpAssign then
     begin
-      if IsArrayAssign then
+      if ArgCount > 0 then
         // EmitPushArray(Ident^)
         Error('Assignment operator does not support array/map at the moment', Token)
       else
@@ -4833,8 +5138,8 @@ var
           Emit([Pointer(opOperatorDiv)]);
       end;
     end;
-    if IsArrayAssign then
-      EmitAssignArray(Ident^)
+    if ArgCount > 0 then
+      EmitAssignArray(Ident^, ArgCount)
     else
       EmitAssignVar(Ident^);
   end;
@@ -4943,7 +5248,11 @@ var
             tkVariable:
               begin
                 NextToken;
-                ParseVarAssign(Token.Value);
+                if PeekAtNextToken.Kind = tkBracketOpen then // Likely function ref
+                begin
+                  ParseFuncRefCall(Token.Value);
+                end else
+                  ParseVarAssign(Token.Value);
               end;
             tkFunction:
               begin
