@@ -1,4 +1,4 @@
-unit ScriptEngine;
+unit Mcdowell.EvilC;
 
 {$mode objfpc}
 {$ifdef CPUX86_64}
@@ -4224,10 +4224,15 @@ var
       Op: TSEOpcode;
       V1, V2, V: TSEValue;
 
-      procedure Pop2; inline;
+      function SameKind: Boolean; inline;
       begin
         V2 := Self.VM.Binary[Self.VM.Binary.Count - 1];
         V1 := Self.VM.Binary[Self.VM.Binary.Count - 3];
+        Result := V1.Kind = V2.Kind;
+      end;
+
+      procedure Pop2; inline;
+      begin
         Self.VM.Binary.DeleteRange(Self.VM.Binary.Count - 4, 4);
         Dec(PushConstCount);
       end;
@@ -4241,7 +4246,7 @@ var
       end
       // Constant folding optimization
       else
-      if PushConstCount >= 2 then
+      if (PushConstCount >= 2) and SameKind then
       begin
         case Op of
           opOperatorAdd:
@@ -4354,7 +4359,7 @@ var
     begin
       case PeekAtNextToken.Kind of
         tkSquareBracketOpen:
-          begin 
+          begin
             PushConstCount := 0;
             NextToken;
             ParseExpr;
