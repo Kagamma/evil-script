@@ -1,4 +1,4 @@
-unit Mcdowell.EvilC;
+unit ScriptEngine;
 
 {$mode objfpc}
 {$ifdef CPUX86_64}
