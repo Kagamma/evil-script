@@ -11,7 +11,7 @@ const
   StringTest = 's = ''This is a string!'' writeln(s)';
   PerformanceTest = 'i = 0 while i < 999 { i = i + 1 j = 0 while j < 999 { j = j + 1 k = i * j  } }';
   ArrayTest = 'a = [] i = 0 while i < 2 { a[i] = 1 + i * 2 i = i + 1 } a[2] = ''text'' writeln(a[0], '' '', a[1], '' '', a[2])';
-  CustomFunctionTest = 'writeln(''5.2 + 2.8 = '', add(5.2, 2.8))';
+  CustomFunctionTest = 'writeln(hello(''Satania''))';
   YieldTest = 'i = 0 while i < 3 { i = i + 1 yield }';
   FibTest = 'fn fib(n) { if n < 2 result = n else result = fib(n-1) + fib(n-2) } writeln(fib(36))';
   ResultTest = 'result = 5';
@@ -19,12 +19,12 @@ const
 type
   TCustomFunctions = class
   public
-    class function Add(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function Hello(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
   end;
 
-class function TCustomFunctions.Add(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+class function TCustomFunctions.Hello(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  Exit(Args[0].VarNumber + Args[1].VarNumber);
+  Exit('Hello, ' + Args[0]);
 end;
 
 var
@@ -72,7 +72,7 @@ end;
 procedure CustomFunctionTestRun;
 begin
   Writeln('--- CustomFunctionTestRun ---');
-  SE.RegisterFunc('add', @TCustomFunctions(nil).Add, 2);
+  SE.RegisterFunc('hello', @TCustomFunctions(nil).Hello, 1);
   SE.Source := CustomFunctionTest;
   SE.Exec;
 end;
