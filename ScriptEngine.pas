@@ -4289,6 +4289,8 @@ var
   procedure ParseExpr;
   type
     TProc = TSENestedProc;
+  var
+    PushConstCount: Integer = 0;
 
     procedure Logic; forward;
 
@@ -4296,7 +4298,6 @@ var
     var
       Op: TSEOpcode;
       V1, V2, V: TSEValue;
-      OpInfo,
       OpInfoPrev1,
       OpInfoPrev2: PSEOpcodeInfo;
 
@@ -4383,6 +4384,7 @@ var
                 Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 2);
                 Emit([Pointer(Integer(Op)), A.VarPointer, B.VarPointer, Pointer(0)]);
                 Result := True;
+                PushConstCount := 0;
               end else
               begin
                 OpInfoPrev1 := PeekAtPrevOpExpected([opPushLocalVar]);
@@ -4396,6 +4398,7 @@ var
                   Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 2);
                   Emit([Pointer(Integer(Op)), A.VarPointer, B.VarPointer, Pointer(1)]);
                   Result := True;
+                  PushConstCount := 0;
                 end;
               end;
             end;
@@ -4405,25 +4408,22 @@ var
       function ConstantFoldingOptimization: Boolean; inline;
         function SameKind: Boolean; inline;
         begin
-          try
-            V2 := Self.VM.Binary[Self.VM.Binary.Count - 1];
-            V1 := Self.VM.Binary[Self.VM.Binary.Count - 3];
-            Result := V1.Kind = V2.Kind;
-          except
-            on E: Exception do
-              Result := False;
-          end;
+          V2 := Self.VM.Binary[Self.VM.Binary.Count - 1];
+          V1 := Self.VM.Binary[Self.VM.Binary.Count - 3];
+          Result := V1.Kind = V2.Kind;
         end;
 
         procedure Pop2; inline;
         begin
           Self.VM.Binary.DeleteRange(Self.VM.Binary.Count - 4, 4);
           Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 2);
+          Dec(PushConstCount);
         end;
       begin
+        Result := False;
+        if PushConstCount < 2 then Exit;
         OpInfoPrev1 := PeekAtPrevOpExpected([opPushConst]);
         OpInfoPrev2 := PeekAtPrevOpExpected2([opPushConst]);
-        Result := False;
         if (OpInfoPrev1 <> nil) and (OpInfoPrev1 <> nil) and SameKind then
         begin
           Result := True;
@@ -4510,6 +4510,7 @@ var
               end;
             else
               begin
+                PushConstCount := 0;
                 Result := False;
               end;
           end;
@@ -4518,6 +4519,11 @@ var
 
     begin
       Op := TSEOpcode(Integer(Data[0].VarPointer));
+      if Op = opPushConst then
+      begin
+        Emit(Data);
+        Inc(PushConstCount)
+      end else
       if PeepholeOptimization then
       else
       if ConstantFoldingOptimization then
@@ -4543,6 +4549,7 @@ var
       case PeekAtNextToken.Kind of
         tkSquareBracketOpen:
           begin
+            PushConstCount := 0;
             NextToken;
             ParseExpr;
             NextTokenExpected([tkSquareBracketClose]);
@@ -4551,6 +4558,7 @@ var
           end;
         tkDot:
           begin
+            PushConstCount := 0;
             NextToken;
             Token := NextTokenExpected([tkIdent]);
             EmitExpr([Pointer(opPushConst), Token.Value]);
@@ -4610,6 +4618,7 @@ var
                     case PeekAtNextToken.Kind of
                       tkSquareBracketOpen:
                         begin
+                          PushConstCount := 0;
                           NextToken;
                           ParseExpr;
                           NextTokenExpected([tkSquareBracketClose]);
@@ -4618,6 +4627,7 @@ var
                         end;
                       tkDot:
                         begin
+                          PushConstCount := 0;
                           NextToken;
                           Token2 := NextTokenExpected([tkIdent]);
                           EmitExpr([Pointer(opPushConst), Token2.Value]);
@@ -4649,6 +4659,7 @@ var
                         FuncValue.VarFuncIndx := QWord(P);
                     end;
                     FuncValue.Kind := sevkFunction;
+                    PushConstCount := 0;
                     EmitExpr([Pointer(opPushConst), FuncValue]);
                   end else
                   begin
