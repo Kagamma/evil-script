@@ -38,6 +38,12 @@ type
     opJumpUnconditional,
     opJumpEqualOrGreater,
     opJumpEqualOrLesser,
+
+    opOperatorAdd2,
+    opOperatorSub2,
+    opOperatorMul2,
+    opOperatorDiv2,
+
     opOperatorAdd,
     opOperatorSub,
     opOperatorMul,
@@ -55,13 +61,28 @@ type
     opOperatorOr,
     opOperatorXor,
     opOperatorNot,
+
     opCallRef,
     opCallNative,
     opCallScript,
     opCallImport,
     opPause,
+    opNop,
+    opNopRange,
     opYield
   );
+  TSEOpcodes = set of TSEOpcode;
+  TSEOpcodeInfo = record
+    Op: TSEOpcode;
+    Pos: Integer;
+    Size: Integer;
+  end;
+  PSEOpcodeInfo = ^TSEOpcodeInfo;
+  TSEOpcodeInfoListAncestor = specialize TList<TSEOpcodeInfo>;
+  TSEOpcodeInfoList = class(TSEOpcodeInfoListAncestor)
+  public
+    function Ptr(const P: Integer): PSEOpcodeInfo;
+  end;
 
   TSENestedProc = procedure is nested;
 
@@ -394,6 +415,7 @@ type
     VM: TSEVM;
     IncludeList: TStrings;
     TokenList: TSETokenList;
+    OpcodeInfoList: TSEOpcodeInfoList;
     LocalVarCount,
     GlobalVarCount: Integer;
     VarList: TSEIdentList;
@@ -417,6 +439,7 @@ type
     function IsYielded: Boolean;
     procedure Lex(const IsIncluded: Boolean = False);
     procedure Parse;
+    procedure Optimize;
     procedure Reset;
     function Exec: TSEValue;
     procedure RegisterFunc(const Name: String; const Func: TSEFunc; const ArgCount: Integer);
@@ -1508,6 +1531,11 @@ end;
 class function TBuiltInFunction.SEGCCollect(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
   GC.GC;
+end;
+
+function TSEOpcodeInfoList.Ptr(const P: Integer): PSEOpcodeInfo; inline;
+begin
+  Result := @FItems[P];
 end;
 
 function TSEFuncNativeList.Ptr(const P: Integer): PSEFuncNativeInfo; inline;
@@ -2634,6 +2662,68 @@ begin
             Inc(StackPtrLocal);
             Inc(CodePtrLocal);
           end;
+
+        opOperatorAdd2:
+          begin
+            if BinaryLocal.Ptr(CodePtrLocal + 3)^.VarPointer = Pointer(0) then
+            begin
+              A := GetGlobal(BinaryLocal.Ptr(CodePtrLocal + 1)^);
+              B := GetGlobal(BinaryLocal.Ptr(CodePtrLocal + 2)^);
+            end else
+            begin
+              A := GetLocal(BinaryLocal.Ptr(CodePtrLocal + 1)^);
+              B := GetLocal(BinaryLocal.Ptr(CodePtrLocal + 2)^);
+            end;
+            SEValueAdd(StackPtrLocal^, A^, B^);
+            Inc(StackPtrLocal);
+            Inc(CodePtrLocal, 5);
+          end;
+        opOperatorSub2:
+          begin
+            if BinaryLocal.Ptr(CodePtrLocal + 3)^.VarPointer = Pointer(0) then
+            begin
+              A := GetGlobal(BinaryLocal.Ptr(CodePtrLocal + 1)^);
+              B := GetGlobal(BinaryLocal.Ptr(CodePtrLocal + 2)^);
+            end else
+            begin
+              A := GetLocal(BinaryLocal.Ptr(CodePtrLocal + 1)^);
+              B := GetLocal(BinaryLocal.Ptr(CodePtrLocal + 2)^);
+            end;
+            SEValueSub(StackPtrLocal^, A^, B^);
+            Inc(StackPtrLocal);
+            Inc(CodePtrLocal, 5);
+          end;
+        opOperatorMul2:
+          begin
+            if BinaryLocal.Ptr(CodePtrLocal + 3)^.VarPointer = Pointer(0) then
+            begin
+              A := GetGlobal(BinaryLocal.Ptr(CodePtrLocal + 1)^);
+              B := GetGlobal(BinaryLocal.Ptr(CodePtrLocal + 2)^);
+            end else
+            begin
+              A := GetLocal(BinaryLocal.Ptr(CodePtrLocal + 1)^);
+              B := GetLocal(BinaryLocal.Ptr(CodePtrLocal + 2)^);
+            end;
+            SEValueMul(StackPtrLocal^, A^, B^);
+            Inc(StackPtrLocal);
+            Inc(CodePtrLocal, 5);
+          end;
+        opOperatorDiv2:
+          begin
+            if BinaryLocal.Ptr(CodePtrLocal + 3)^.VarPointer = Pointer(0) then
+            begin
+              A := GetGlobal(BinaryLocal.Ptr(CodePtrLocal + 1)^);
+              B := GetGlobal(BinaryLocal.Ptr(CodePtrLocal + 2)^);
+            end else
+            begin
+              A := GetLocal(BinaryLocal.Ptr(CodePtrLocal + 1)^);
+              B := GetLocal(BinaryLocal.Ptr(CodePtrLocal + 2)^);
+            end;
+            SEValueDiv(StackPtrLocal^, A^, B^);
+            Inc(StackPtrLocal);
+            Inc(CodePtrLocal, 5);
+          end;
+
         opPushConst:
           begin
             Push(BinaryLocal.Ptr(CodePtrLocal + 1)^);
@@ -3346,6 +3436,15 @@ begin
             Self.StackPtr := StackPtrLocal;
             Exit;
           end;
+        opNop:
+          begin
+            Inc(CodePtrLocal);
+            Continue;
+          end;
+        opNopRange:
+          begin
+            Inc(CodePtrLocal, Integer(BinaryLocal.Ptr(CodePtrLocal + 1)^.VarPointer));
+          end;
         opOperatorPow:
           begin
             B := Pop;
@@ -3384,6 +3483,7 @@ begin
   inherited;
   Self.VM := TSEVM.Create;
   Self.TokenList := TSETokenList.Create;
+  Self.OpcodeInfoList := TSEOpcodeInfoList.Create;
   Self.VarList := TSEIdentList.Create;
   Self.FuncNativeList := TSEFuncNativeList.Create;
   Self.FuncScriptList := TSEFuncScriptList.Create;
@@ -3489,6 +3589,7 @@ destructor TScriptEngine.Destroy;
 begin
   FreeAndNil(Self.VM);
   FreeAndNil(Self.TokenList);
+  FreeAndNil(Self.OpcodeInfoList);
   FreeAndNil(Self.VarList);
   FreeAndNil(Self.FuncNativeList);
   FreeAndNil(Self.FuncScriptList);
@@ -4150,7 +4251,12 @@ var
   function Emit(const Data: array of TSEValue): Integer; inline;
   var
     I: Integer;
+    OpcodeInfo: TSEOpcodeInfo;
   begin
+    OpcodeInfo.Op := TSEOpcode(Integer(Data[0].VarPointer));
+    OpcodeInfo.Pos := Self.VM.Binary.Count;
+    OpcodeInfo.Size := Length(Data);
+    Self.OpcodeInfoList.Add(OpcodeInfo);
     for I := Low(Data) to High(Data) do
     begin
       Self.VM.Binary.Add(Data[I]);
@@ -4234,6 +4340,7 @@ var
       procedure Pop2; inline;
       begin
         Self.VM.Binary.DeleteRange(Self.VM.Binary.Count - 4, 4);
+        Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 2);
         Dec(PushConstCount);
       end;
 
@@ -5302,6 +5409,156 @@ begin
   end;
 end;
 
+procedure TScriptEngine.Optimize;
+var
+  OpInfo,
+  OpInfoPrev1,
+  OpInfoPrev2: PSEOpcodeInfo;
+  Pos: Integer = -1;
+
+  function NextOp: PSEOpcodeInfo; inline;
+  begin
+    Inc(Pos);
+    if Pos < Self.OpcodeInfoList.Count then
+      Result := Self.OpcodeInfoList.Ptr(Pos)
+    else
+      Result := nil;
+  end;
+
+  function PeekAtPrevOp: PSEOpcodeInfo; inline;
+  var
+    I: Integer;
+  begin
+    I := Pos - 1;
+    if I >= 0 then
+      Result := Self.OpcodeInfoList.Ptr(I)
+    else
+      Result := nil;
+  end;
+
+  function PeekAtPrevOp2: PSEOpcodeInfo; inline;
+  var
+    I: Integer;
+  begin
+    I := Pos - 2;
+    if I >= 0 then
+      Result := Self.OpcodeInfoList.Ptr(I)
+    else
+      Result := nil;
+  end;
+
+  function PeekAtPrevOpExpected(const Expected: TSEOpcodes): PSEOpcodeInfo; inline;
+  var
+    Op: TSEOpcode;
+  begin
+    Result := PeekAtPrevOp;
+    if Result <> nil then
+      for Op in Expected do
+        if Op = Result^.Op then
+          Exit;
+    Result := nil;
+  end;
+
+  function PeekAtPrevOpExpected2(const Expected: TSEOpcodes): PSEOpcodeInfo; inline;
+  var
+    Op: TSEOpcode;
+  begin
+    Result := PeekAtPrevOp2;
+    if Result <> nil then
+      for Op in Expected do
+        if Op = Result^.Op then
+          Exit;
+    Result := nil;
+  end;
+
+  procedure PatchNop(const POpInfo: PSEOpcodeInfo); inline;
+  var
+    I: Integer;
+  begin
+    for I := POpInfo^.Pos to POpInfo^.Pos + POpInfo^.Size - 1 do
+    begin
+      Self.VM.Binary[I] := Pointer(opNop);
+    end;
+  end;
+
+  procedure PatchNopRange(const Pos, Size: Integer); inline;
+  var
+    I: Integer;
+  begin
+    Self.VM.Binary[Pos] := Pointer(opNopRange);
+    Self.VM.Binary[Pos + 1] := Pointer(Size);
+  end;
+
+  function Patch(const Pos: Integer; const Data: array of TSEValue): Integer; inline;
+  var
+    I: Integer;
+  begin
+    for I := Low(Data) to High(Data) do
+    begin
+      Self.VM.Binary[Pos + I] := Data[I];
+    end;
+    Exit(Pos + I + 1);
+  end;
+
+  function OpToOp2(const Op: TSEOpcode): TSEOpcode; inline;
+  begin
+    case Op of
+      opOperatorAdd:
+        Result := opOperatorAdd2;
+      opOperatorSub:
+        Result := opOperatorSub2;
+      opOperatorMul:
+        Result := opOperatorMul2;
+      opOperatorDiv:
+        Result := opOperatorDiv2;
+    end;
+  end;
+
+  procedure PeepholeOptimize; inline;
+  var
+    A, B: TSEValue;
+    I: Integer;
+    Op: TSEOpcode;
+  begin
+    case OpInfo^.Op of
+      opOperatorAdd,
+      opOperatorSub,
+      opOperatorMul,
+      opOperatorDiv:
+        begin
+          OpInfoPrev1 := PeekAtPrevOpExpected([opPushGlobalVar]);
+          OpInfoPrev2 := PeekAtPrevOpExpected2([opPushGlobalVar]);
+          if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
+          begin
+            B := Self.VM.Binary[OpInfoPrev1^.Pos + 1];
+            A := Self.VM.Binary[OpInfoPrev2^.Pos + 1];
+            Op := OpToOp2(OpInfo^.Op);
+            Patch(OpInfoPrev2^.Pos, [Pointer(Integer(Op)), A.VarPointer, B.VarPointer, Pointer(0), Pointer(0)]);
+          end else
+          begin
+            OpInfoPrev1 := PeekAtPrevOpExpected([opPushLocalVar]);
+            OpInfoPrev2 := PeekAtPrevOpExpected2([opPushLocalVar]);
+            if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
+            begin
+              B := Self.VM.Binary[OpInfoPrev1^.Pos + 1];
+              A := Self.VM.Binary[OpInfoPrev2^.Pos + 1];
+              Op := OpToOp2(OpInfo^.Op);
+              Patch(OpInfoPrev2^.Pos, [Pointer(Integer(Op)), A.VarPointer, B.VarPointer, Pointer(1), Pointer(0)]);
+            end;
+          end;
+        end;
+    end;
+  end;
+
+begin
+  OpInfo := NextOp;
+  while OpInfo <> nil do
+  begin
+    PeepholeOptimize;
+    OpInfo := NextOp;
+  end;
+end;
+
 procedure TScriptEngine.Reset;
 var
   Ident: TSEIdent;
@@ -5318,6 +5575,7 @@ begin
   Self.IsLex := False;
   Self.VarList.Clear;
   Self.TokenList.Clear;
+  Self.OpcodeInfoList.Clear;
   Self.IncludeList.Clear;
   Self.GlobalVarCount := 1;
   Ident.Kind := ikVariable;
@@ -5335,7 +5593,10 @@ begin
   if not Self.IsLex then
     Self.Lex;
   if not Self.IsParsed then
+  begin
     Self.Parse;
+    Self.Optimize;
+  end;
   Self.VM.Exec;
   Exit(Self.VM.Stack[0])
 end;
