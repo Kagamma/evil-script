@@ -66,9 +66,7 @@ type
     opCallNative,
     opCallScript,
     opCallImport,
-    opPause,
     opNop,
-    opNopRange,
     opYield
   );
   TSEOpcodes = set of TSEOpcode;
@@ -346,7 +344,6 @@ type
     tkWhile,
     tkBreak,
     tkContinue,
-    tkPause,
     tkYield,
     tkSquareBracketOpen,
     tkSquareBracketClose,
@@ -369,7 +366,7 @@ const TokenNames: array[TSETokenKind] of String = (
   'EOF', '.', '+', '-', '*', 'div', 'mod', '^', 'operator assign', '=', '!=', '<',
   '>', '<=', '>=', '{', '}', ':', '(', ')', 'neg', 'number', 'string',
   ',', 'if', 'identity', 'function', 'fn', 'variable', 'const',
-  'unknown', 'else', 'while', 'break', 'continue', 'pause', 'yield',
+  'unknown', 'else', 'while', 'break', 'continue', 'yield',
   '[', ']', 'and', 'or', 'xor', 'not', 'for', 'in', 'to', 'downto', 'return',
   'atom', 'import', 'do'
 );
@@ -3419,14 +3416,6 @@ begin
             end;
             Inc(CodePtrLocal, 3);
           end;
-        opPause:
-          begin
-            Self.IsPaused := True;
-            Inc(CodePtrLocal);
-            Self.CodePtr := CodePtrLocal;
-            Self.StackPtr := StackPtrLocal;
-            Exit;
-          end;
         opYield:
           begin
             Self.IsYielded := True;
@@ -3439,10 +3428,6 @@ begin
           begin
             Inc(CodePtrLocal);
             Continue;
-          end;
-        opNopRange:
-          begin
-            Inc(CodePtrLocal, Integer(BinaryLocal.Ptr(CodePtrLocal + 1)^.VarPointer));
           end;
         opOperatorPow:
           begin
@@ -4022,8 +4007,6 @@ begin
               Token.Kind := tkContinue;
             'break':
               Token.Kind := tkBreak;
-            'pause':
-              Token.Kind := tkPause;
             'yield':
               Token.Kind := tkYield;
             'return':
@@ -5412,11 +5395,6 @@ var
             Error('Not in loop but "continue" found', Token);
           List := ContinueStack.Peek;
           List.Add(Pointer(Emit([Pointer(opJumpUnconditional), 0]) - 1));
-        end;
-      tkPause:
-        begin
-          NextToken;
-          Emit([Pointer(opPause)]);
         end;
       tkReturn:
         begin

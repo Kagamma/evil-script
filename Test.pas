@@ -9,11 +9,10 @@ const
   HelloWorld = 'writeln(''Hello, World!'')';
   IfTest = 'i = 5.1 if i = 5.1 writeln(''True'') else writeln(''Something is wrong!'')';
   StringTest = 's = ''This is a string!'' writeln(s)';
-  PerformanceTest = 'i = 0 while i < 999 { i = i + 1 j = 0 while j < 999 { j = j + 1 k = i * j } }';
+  PerformanceTest = 'i = 0 while i < 999 { i = i + 1 j = 0 while j < 999 { j = j + 1 k = i * j  } }';
   ArrayTest = 'a = [] i = 0 while i < 2 { a[i] = 1 + i * 2 i = i + 1 } a[2] = ''text'' writeln(a[0], '' '', a[1], '' '', a[2])';
   CustomFunctionTest = 'writeln(''5.2 + 2.8 = '', add(5.2, 2.8))';
   YieldTest = 'i = 0 while i < 3 { i = i + 1 yield }';
-  PauseTest = 'i = 0 while i < 3 { writeln(''Only run 1 time'') pause i = i + 1 }';
   FibTest = 'fn fib(n) { if n < 2 result = n else result = fib(n-1) + fib(n-2) } writeln(fib(36))';
   ResultTest = 'result = 5';
 
@@ -89,13 +88,6 @@ begin
   until SE.IsDone;
 end;
 
-procedure PauseTestRun;
-begin
-  Writeln('--- PauseTestRun ---');
-  SE.Source := PauseTest;
-  SE.Exec;
-end;
-
 procedure FibTestRun;
 var
   S: Integer;
@@ -124,7 +116,6 @@ begin
   ArrayTestRun;
   CustomFunctionTestRun;
   YieldTestRun;
-  PauseTestRun;
   FibTestRun;
   ResultTestRun;
   SE.Free;
