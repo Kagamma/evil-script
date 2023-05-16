@@ -65,7 +65,8 @@ type
     opCallNative,
     opCallScript,
     opCallImport,
-    opYield
+    opYield,
+    opHlt
   );
   TSEOpcodes = set of TSEOpcode;
   TSEOpcodeInfo = record
@@ -2517,13 +2518,6 @@ var
 
 {$ifdef CPUX86_64}
   {$define DispatchGoto :=
-    if CodePtrLocal > BinaryLocalCountMinusOne then
-    begin
-      Self.CodePtr := CodePtrLocal;
-      Self.IsDone := True;
-      Self.Parent.IsDone := True;
-      Exit;
-    end;
     if Self.IsPaused or Self.IsWaited then
     begin
       Self.CodePtr := CodePtrLocal;
@@ -2537,13 +2531,6 @@ var
   }
 {$else}
   {$define DispatchGoto :=
-    if CodePtrLocal > BinaryLocalCountMinusOne then
-    begin
-      Self.CodePtr := CodePtrLocal;
-      Self.IsDone := True;
-      Self.Parent.IsDone := True;
-      Exit;
-    end;
     if Self.IsPaused or Self.IsWaited then
     begin
       Self.CodePtr := CodePtrLocal;
@@ -2606,7 +2593,8 @@ label
   labelCallNative,
   labelCallScript,
   labelCallImport,
-  labelYield;
+  labelYield,
+  labelHlt;
 
 var
   DispatchTable: array[TSEOpcode] of Pointer = (
@@ -2654,7 +2642,8 @@ var
     @labelCallNative,
     @labelCallScript,
     @labelCallImport,
-    @labelYield
+    @labelYield,
+    @labelHlt
   );
 
 begin
@@ -3582,6 +3571,13 @@ begin
           Push(Power(A^.VarNumber, B^.VarNumber));
           Inc(CodePtrLocal);
           DispatchGoto;
+        end;
+      labelHlt:
+        begin
+          Self.CodePtr := CodePtrLocal;
+          Self.IsDone := True;
+          Self.Parent.IsDone := True;
+          Exit;
         end;
     end;
   except
@@ -5685,6 +5681,7 @@ begin
     repeat
       ParseBlock;
     until PeekAtNextToken.Kind = tkEOF;
+    Emit([Pointer(opHlt)]);
     Self.IsParsed := True;
   finally
     FreeAndNil(ContinueStack);
