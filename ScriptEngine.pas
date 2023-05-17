@@ -2799,7 +2799,7 @@ begin
           B := Pop;
           A := Pop;
           Push(Integer(A^) or Integer(B^));
-          Inc(CodePtrLocal); 
+          Inc(CodePtrLocal);
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelOperatorXor{$else}opOperatorXor{$endif}:
@@ -2991,9 +2991,28 @@ begin
         end;
       {$ifdef SE_COMPUTED_GOTO}labelCallRef{$else}opCallRef{$endif}:
         begin
-          A := Pop; // Ref
-          if A^.Kind <> sevkFunction then
-            raise Exception.Create('Not a function reference');
+          A := Pop; // Ref or map
+          case A^.Kind of
+            sevkFunction:
+              begin
+                // Do nothing
+              end;
+            sevkMap:
+              begin
+                ArgCount := Integer(BinaryLocal.Ptr(CodePtrLocal + 1)^.VarPointer);
+                if ArgCount = 0 then
+                  raise Exception.Create('Not a function reference');
+                for I := ArgCount - 1 downto 0 do
+                  AA[I] := Pop;
+                for I := 0 to ArgCount - 1 do
+                begin
+                  TV := SEMapGet(A^, AA[I]^);
+                  A := @TV;
+                end;
+              end;
+            else
+              raise Exception.Create('Not a function reference');
+          end;
           BinaryLocal.Ptr(CodePtrLocal + 1)^ := Pointer(A^.VarFuncIndx);
           case A^.VarFuncKind of
             sefkScript:
@@ -4444,6 +4463,17 @@ var
     Self.VarList.Add(Result);
   end;
 
+  procedure Rewind(const StartAddr, Count: Integer); inline;
+  var
+    I: Integer;
+  begin
+    for I := 0 to Count - 1 do
+    begin
+      Self.VM.Binary.Add(Self.VM.Binary[StartAddr + I]);
+    end;
+    Self.VM.Binary.DeleteRange(StartAddr, Count);
+  end;
+
   function Emit(const Data: array of TSEValue): Integer; inline;
   var
     I: Integer;
@@ -4463,33 +4493,33 @@ var
   function EmitPushVar(const Ident: TSEIdent): Integer; inline;
   begin
     if Ident.IsLocal then
-      Emit([Pointer(opPushLocalVar), Pointer(Ident.Addr)])
+      Result := Emit([Pointer(opPushLocalVar), Pointer(Ident.Addr)])
     else
-      Emit([Pointer(opPushGlobalVar), Pointer(Ident.Addr)]);
+      Result := Emit([Pointer(opPushGlobalVar), Pointer(Ident.Addr)]);
   end;
 
   function EmitPushArray(const Ident: TSEIdent): Integer; inline;
   begin
     if Ident.IsLocal then
-      Emit([Pointer(opPushLocalArray), Ident.Addr])
+      Result := Emit([Pointer(opPushLocalArray), Ident.Addr])
     else
-      Emit([Pointer(opPushGlobalArray), Ident.Addr]);
+      Result := Emit([Pointer(opPushGlobalArray), Ident.Addr]);
   end;
 
   function EmitAssignVar(const Ident: TSEIdent): Integer; inline;
   begin
     if Ident.IsLocal then
-      Emit([Pointer(opAssignLocalVar), Pointer(Ident.Addr)])
+      Result := Emit([Pointer(opAssignLocalVar), Pointer(Ident.Addr)])
     else
-      Emit([Pointer(opAssignGlobalVar), Pointer(Ident.Addr)]);
+      Result := Emit([Pointer(opAssignGlobalVar), Pointer(Ident.Addr)]);
   end;
 
   function EmitAssignArray(const Ident: TSEIdent; const ArgCount: Integer): Integer; inline;
   begin
     if Ident.IsLocal then
-      Emit([Pointer(opAssignLocalArray), Ident.Addr, ArgCount])
+      Result := Emit([Pointer(opAssignLocalArray), Ident.Addr, ArgCount])
     else
-      Emit([Pointer(opAssignGlobalArray), Ident.Addr, ArgCount]);
+      Result := Emit([Pointer(opAssignGlobalArray), Ident.Addr, ArgCount]);
   end;
 
   procedure Patch(const Addr: Integer; const Data: TSEValue); inline;
@@ -4497,15 +4527,15 @@ var
     Self.VM.Binary[Addr] := Data;
   end;
 
-  function PatchMulti(const Pos: Integer; const Data: array of TSEValue): Integer; inline;
+  function PatchRange(const Addr: Integer; const Data: array of TSEValue): Integer; inline;
   var
     I: Integer;
   begin
     for I := Low(Data) to High(Data) do
     begin
-      Self.VM.Binary[Pos + I] := Data[I];
+      Self.VM.Binary[Addr + I] := Data[I];
     end;
-    Exit(Pos + I + 1);
+    Exit(Addr + I + 1);
   end;
 
   function IdentifyIdent(const Ident: String): TSETokenKind; inline;
@@ -4520,7 +4550,8 @@ var
   end;
 
   procedure ParseFuncCall(const Name: String); forward;
-  procedure ParseFuncRefCall(const Name: String); forward;
+  procedure ParseFuncRefCallByRewind(const RewindStartAdd: Integer); forward;
+  procedure ParseFuncRefCallByName(const Name: String); forward;
   procedure ParseBlock; forward;
   procedure ParseArrayAssign; forward;
 
@@ -4529,6 +4560,7 @@ var
     TProc = TSENestedProc;
   var
     PushConstCount: Integer = 0;
+    IsTailed: Boolean = False;
 
     procedure Logic; forward;
 
@@ -4659,7 +4691,7 @@ var
         end;
       begin
         Result := False;
-        if PushConstCount < 2 then Exit;
+        if (PushConstCount < 2) or (IsTailed) then Exit;
         OpInfoPrev1 := PeekAtPrevOpExpected([opPushConst]);
         OpInfoPrev2 := PeekAtPrevOpExpected2([opPushConst]);
         if (OpInfoPrev1 <> nil) and (OpInfoPrev1 <> nil) and SameKind then
@@ -4813,6 +4845,7 @@ var
       FuncValue: TSEValue;
       Ind: Integer;
       P: Pointer;
+      RewindStartAddr: Integer;
     begin
       Token := PeekAtNextTokenExpected([
         tkBracketOpen, tkBracketClose, tkSquareBracketOpen, tkDot, tkNumber, tkEOF,
@@ -4848,29 +4881,40 @@ var
                   NextToken;
                   if PeekAtNextToken.Kind = tkBracketOpen then // Likely function ref
                   begin
-                    ParseFuncRefCall(Token.Value);
+                    ParseFuncRefCallByName(Token.Value);
                   end else
                   begin
                     Ident := FindVar(Token.Value);
                     Ident^.IsUsed := True;
+                    RewindStartAddr := Self.VM.Binary.Count;
                     case PeekAtNextToken.Kind of
                       tkSquareBracketOpen:
                         begin
                           PushConstCount := 0;
+                          IsTailed := True;
                           NextToken;
                           ParseExpr;
                           NextTokenExpected([tkSquareBracketClose]);
                           EmitPushArray(Ident^);
                           Tail;
+                          if PeekAtNextToken.Kind = tkBracketOpen then // Likely function ref
+                          begin
+                            ParseFuncRefCallByRewind(RewindStartAddr);
+                          end;
                         end;
                       tkDot:
                         begin
                           PushConstCount := 0;
+                          IsTailed := True;
                           NextToken;
                           Token2 := NextTokenExpected([tkIdent]);
                           EmitExpr([Pointer(opPushConst), Token2.Value]);
                           EmitPushArray(Ident^);
                           Tail;
+                          if PeekAtNextToken.Kind = tkBracketOpen then // Likely function ref
+                          begin
+                            ParseFuncRefCallByRewind(RewindStartAddr);
+                          end;
                         end;
                       else
                         EmitPushVar(Ident^);
@@ -5034,7 +5078,44 @@ var
     Logic;
   end;
 
-  procedure ParseFuncRefCall(const Name: String);
+  procedure ParseFuncRefCallByMapRewind(const Ident: TSEIdent; const DeepCount, RewindStartAdd: Integer);
+  var
+    Token: TSEToken;
+    ArgCount: Integer = 0;
+    RewindCount: Integer;
+  begin
+    RewindCount := Self.VM.Binary.Count - RewindStartAdd;
+    NextTokenExpected([tkBracketOpen]);
+    repeat
+      ParseExpr;
+      Token := NextTokenExpected([tkComma, tkBracketClose]);
+      Inc(ArgCount);
+    until Token.Kind = tkBracketClose;
+    // Push map to stack
+    Rewind(RewindStartAdd, RewindCount);
+    EmitPushVar(Ident);
+    Emit([Pointer(opCallRef), Pointer(DeepCount), ArgCount]);
+  end;
+
+  procedure ParseFuncRefCallByRewind(const RewindStartAdd: Integer);
+  var
+    Token: TSEToken;
+    ArgCount: Integer = 0;
+    RewindCount: Integer;
+  begin
+    RewindCount := Self.VM.Binary.Count - RewindStartAdd;
+    NextTokenExpected([tkBracketOpen]);
+    repeat
+      ParseExpr;
+      Token := NextTokenExpected([tkComma, tkBracketClose]);
+      Inc(ArgCount);
+    until Token.Kind = tkBracketClose;
+    // Func def already exists in stack, rewind to access it
+    Rewind(RewindStartAdd, RewindCount);
+    Emit([Pointer(opCallRef), Pointer(0), ArgCount]);
+  end;
+
+  procedure ParseFuncRefCallByName(const Name: String);
   var
     Token: TSEToken;
     ArgCount: Integer = 0;
@@ -5047,7 +5128,7 @@ var
     until Token.Kind = tkBracketClose;
     // We now push func def to stack
     EmitPushVar(FindVar(Name)^);
-    Emit([Pointer(opCallRef), 0, ArgCount]);
+    Emit([Pointer(opCallRef), Pointer(0), ArgCount]);
   end;
 
   procedure ParseFuncCall(const Name: String);
@@ -5531,8 +5612,10 @@ var
     Ident: PSEIdent;
     Token, Token2: TSEToken;
     ArgCount: Integer = 0;
+    RewindStartAddr: Integer;
   begin
     Ident := FindVar(Name);
+    RewindStartAddr := Self.VM.Binary.Count;
     while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
     begin
       case PeekAtNextToken.Kind of
@@ -5552,33 +5635,44 @@ var
       Inc(ArgCount);
     end;
 
-    Token := NextTokenExpected([tkEqual, tkOpAssign]);
-    if Token.Kind = tkOpAssign then
-    begin
-      if ArgCount > 0 then
-        // EmitPushArray(Ident^)
-        Error('Assignment operator does not support array/map at the moment', Token)
-      else
-        EmitPushVar(Ident^);
+    Token := PeekAtNextTokenExpected([tkEqual, tkOpAssign, tkBracketOpen]);
+    case Token.Kind of
+      tkEqual,
+      tkOpAssign:
+        begin
+          NextToken;
+          if Token.Kind = tkOpAssign then
+          begin
+            if ArgCount > 0 then
+              // EmitPushArray(Ident^)
+              Error('Assignment operator does not support array/map at the moment', Token)
+            else
+              EmitPushVar(Ident^);
+          end;
+          ParseExpr;
+          if Token.Kind = tkOpAssign then
+          begin
+            case Token.Value of
+              '+':
+                Emit([Pointer(opOperatorAdd)]);
+              '-':
+                Emit([Pointer(opOperatorSub)]);
+              '*':
+                Emit([Pointer(opOperatorMul)]);
+              '/':
+                Emit([Pointer(opOperatorDiv)]);
+            end;
+          end;
+          if ArgCount > 0 then
+            EmitAssignArray(Ident^, ArgCount)
+          else
+            EmitAssignVar(Ident^);
+        end;
+      tkBracketOpen:
+        begin
+          ParseFuncRefCallByMapRewind(Ident^, ArgCount, RewindStartAddr);
+        end;
     end;
-    ParseExpr;
-    if Token.Kind = tkOpAssign then
-    begin
-      case Token.Value of
-        '+':
-          Emit([Pointer(opOperatorAdd)]);
-        '-':
-          Emit([Pointer(opOperatorSub)]);
-        '*':
-          Emit([Pointer(opOperatorMul)]);
-        '/':
-          Emit([Pointer(opOperatorDiv)]);
-      end;
-    end;
-    if ArgCount > 0 then
-      EmitAssignArray(Ident^, ArgCount)
-    else
-      EmitAssignVar(Ident^);
   end;
 
   procedure ParseBlock;
@@ -5685,7 +5779,7 @@ var
                 NextToken;
                 if PeekAtNextToken.Kind = tkBracketOpen then // Likely function ref
                 begin
-                  ParseFuncRefCall(Token.Value);
+                  ParseFuncRefCallByName(Token.Value);
                 end else
                   ParseVarAssign(Token.Value);
               end;
