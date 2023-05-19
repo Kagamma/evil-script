@@ -26,8 +26,6 @@ type
     opPushConst,
     opPushGlobalVar,
     opPushLocalVar,
-    opPushLocalArray,
-    opPushGlobalArray,
     opPushArrayPop,
     opPopConst,
     opPopFrame,
@@ -2575,8 +2573,6 @@ label
   labelPushConst,
   labelPushGlobalVar,
   labelPushLocalVar,
-  labelPushLocalArray,
-  labelPushGlobalArray,
   labelPushArrayPop,
   labelPopConst,
   labelPopFrame,
@@ -2626,8 +2622,6 @@ var
     @labelPushConst,
     @labelPushGlobalVar,
     @labelPushLocalVar,
-    @labelPushLocalArray,
-    @labelPushGlobalArray,
     @labelPushArrayPop,
     @labelPopConst,
     @labelPopFrame,
@@ -2885,50 +2879,6 @@ begin
       {$ifdef SE_COMPUTED_GOTO}labelPushLocalVar{$else}opPushLocalVar{$endif}:
         begin
           Push(GetLocal(BinaryLocal.Ptr(CodePtrLocal + 1)^)^);
-          Inc(CodePtrLocal, 2);
-          DispatchGoto;
-        end;
-      {$ifdef SE_COMPUTED_GOTO}labelPushGlobalArray{$else}opPushGlobalArray{$endif}:
-        begin
-          A := BinaryLocal.Ptr(CodePtrLocal + 1);
-          B := GetGlobalInt(A^);
-          case B^.Kind of
-            sevkString:
-              {$ifdef SE_STRING_UTF8}
-                Push(UTF8Copy(B^.VarString^, Integer(Pop^) + 1, 1));
-              {$else}
-                Push(B^.VarString^[Integer(Pop^) + 1]);
-              {$endif}
-            sevkMap:
-              Push(SEMapGet(B^, Pop^));
-            else
-              begin
-                Pop;
-                Push(0);
-              end;
-          end;
-          Inc(CodePtrLocal, 2);
-          DispatchGoto;
-        end;
-      {$ifdef SE_COMPUTED_GOTO}labelPushLocalArray{$else}opPushLocalArray{$endif}:
-        begin
-          A := BinaryLocal.Ptr(CodePtrLocal + 1);
-          B := GetLocalInt(A^);
-          case B^.Kind of
-            sevkString:
-              {$ifdef SE_STRING_UTF8}
-                Push(UTF8Copy(B^.VarString^, Integer(Pop^) + 1, 1));
-              {$else}
-                Push(B^.VarString^[Integer(Pop^) + 1]);
-              {$endif}
-            sevkMap:
-              Push(SEMapGet(B^, Pop^));
-            else
-              begin
-                Pop;
-                Push(0);
-              end;
-          end;
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
@@ -4507,14 +4457,6 @@ var
       Result := Emit([Pointer(opPushGlobalVar), Pointer(Ident.Addr)]);
   end;
 
-  function EmitPushArray(const Ident: TSEIdent): Integer; inline;
-  begin
-    if Ident.IsLocal then
-      Result := Emit([Pointer(opPushLocalArray), Ident.Addr])
-    else
-      Result := Emit([Pointer(opPushGlobalArray), Ident.Addr]);
-  end;
-
   function EmitAssignVar(const Ident: TSEIdent): Integer; inline;
   begin
     if Ident.IsLocal then
@@ -4829,6 +4771,7 @@ var
         tkSquareBracketOpen:
           begin
             PushConstCount := 0;
+            IsTailed := True;
             NextToken;
             ParseExpr;
             NextTokenExpected([tkSquareBracketClose]);
@@ -4838,6 +4781,7 @@ var
         tkDot:
           begin
             PushConstCount := 0;
+            IsTailed := True;
             NextToken;
             Token := NextTokenExpected([tkIdent]);
             EmitExpr([Pointer(opPushConst), Token.Value]);
@@ -4902,13 +4846,16 @@ var
                           PushConstCount := 0;
                           IsTailed := True;
                           NextToken;
+                          EmitPushVar(Ident^);
                           ParseExpr;
+                          Emit([Pointer(opPushArrayPop)]);
                           NextTokenExpected([tkSquareBracketClose]);
-                          EmitPushArray(Ident^);
                           Tail;
-                          if PeekAtNextToken.Kind = tkBracketOpen then // Likely function ref
+                          while PeekAtNextToken.Kind = tkBracketOpen do // Likely function ref
                           begin
                             ParseFuncRefCallByRewind(RewindStartAddr);
+                            RewindStartAddr := Self.VM.Binary.Count;
+                            Tail;
                           end;
                         end;
                       tkDot:
@@ -4917,12 +4864,15 @@ var
                           IsTailed := True;
                           NextToken;
                           Token2 := NextTokenExpected([tkIdent]);
+                          EmitPushVar(Ident^);
                           EmitExpr([Pointer(opPushConst), Token2.Value]);
-                          EmitPushArray(Ident^);
+                          Emit([Pointer(opPushArrayPop)]);
                           Tail;
-                          if PeekAtNextToken.Kind = tkBracketOpen then // Likely function ref
+                          while PeekAtNextToken.Kind = tkBracketOpen do // Likely function ref
                           begin
                             ParseFuncRefCallByRewind(RewindStartAddr);
+                            RewindStartAddr := Self.VM.Binary.Count;
+                            Tail;
                           end;
                         end;
                       else
@@ -4956,7 +4906,14 @@ var
                   begin
                     ParseFuncCall(Token.Value);
                   end;
+                  RewindStartAddr := Self.VM.Binary.Count;
                   Tail;
+                  while PeekAtNextToken.Kind = tkBracketOpen do // Likely function ref
+                  begin
+                    ParseFuncRefCallByRewind(RewindStartAddr);
+                    RewindStartAddr := Self.VM.Binary.Count;
+                    Tail;
+                  end;
                 end;
               else
                 Error(Format('Unknown identify "%s"', [Token.Value]), Token);
@@ -5681,6 +5638,41 @@ var
     Emit([Pointer(opCallNative), Pointer(FuncNativeInfo), Pointer(ArgCount)]);
   end;
 
+  function ParseAssignTail(const RewindStartAddr: Integer): Boolean;
+  var
+    Token: TSEToken;
+  begin
+    Result := False;
+    while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
+    begin
+      Result := True;
+      while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
+      begin
+        case PeekAtNextToken.Kind of
+          tkSquareBracketOpen:
+            begin
+              NextToken;
+              ParseExpr;
+              NextTokenExpected([tkSquareBracketClose]);
+              Emit([Pointer(opPushArrayPop)]);
+            end;
+          tkDot:
+            begin
+              NextToken;
+              Token := NextTokenExpected([tkIdent]);
+              Emit([Pointer(opPushConst), Token.Value]);
+              Emit([Pointer(opPushArrayPop)]);
+            end;
+        end;
+      end;
+      if PeekAtNextToken.Kind = tkBracketOpen then
+      begin
+        ParseFuncRefCallByRewind(RewindStartAddr);
+      end;
+    end;
+    Emit([Pointer(opPopConst)]);
+  end;
+
   procedure ParseVarAssign(const Name: String);
   var
     Ident: PSEIdent;
@@ -5745,6 +5737,7 @@ var
       tkBracketOpen:
         begin
           ParseFuncRefCallByMapRewind(Ident^, ArgCount, RewindStartAddr);
+          ParseAssignTail(RewindStartAddr);
         end;
     end;
   end;
@@ -5754,7 +5747,7 @@ var
     Token: TSEToken;
     Ident: TSEIdent;
     List: TList;
-    I: Integer;
+    I, RewindStartAddr: Integer;
   begin
     Token := PeekAtNextToken;
     case Token.Kind of
@@ -5875,15 +5868,18 @@ var
                 NextToken;
                 if PeekAtNextToken.Kind = tkBracketOpen then // Likely function ref
                 begin
+                  RewindStartAddr := Self.VM.Binary.Count;
                   ParseFuncRefCallByName(Token.Value);
+                  ParseAssignTail(RewindStartAddr);
                 end else
                   ParseVarAssign(Token.Value);
               end;
             tkFunction:
               begin
                 NextToken;
+                RewindStartAddr := Self.VM.Binary.Count;
                 ParseFuncCall(Token.Value);
-                Emit([Pointer(opPopConst)]);
+                ParseAssignTail(RewindStartAddr);
               end;
             else
               Error('Invalid statement', Token);
