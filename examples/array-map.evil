@@ -1,0 +1,12 @@
+a = [0, 1, 'A string', 5, ['This is', 'another array'], 56]
+writeln(a)
+
+m = [
+  name: 'Satania',
+  age: 16,
+  race: 'Demon',
+  gender: 'Female',
+  description: 'This is a map',
+  friends: ['Gabriel White Tenma', 'Vignette April Tsukinose']
+]
+writeln(m)

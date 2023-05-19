@@ -1,0 +1,37 @@
+a = 5
+switch a {
+  case 4:
+  case 5:
+    writeln('4,5')
+    break
+  case 6:
+    writeln('6')
+    break
+  default:
+    writeln('default')
+}
+
+a = 5
+switch true {
+  case (a = 4) | (a = 5):
+    writeln('4,5')
+    break
+  case (a = 6):
+    writeln('6')
+    break
+  default:
+    writeln('default')
+}
+
+s = 'alpha'
+switch s {
+  case 'alpha':
+    writeln('alpha')
+    break
+  case 'beta':
+    writeln('beta')
+    break
+  case 'gamma':
+    writeln('gamma')
+}
+

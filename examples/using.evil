@@ -1,0 +1,3 @@
+using 'examples/libtest.evil'
+
+writeln(test_using('Satania'))

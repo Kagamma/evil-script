@@ -1,0 +1,39 @@
+write('for i = 0 to 4: ')
+for i = 0 to 4 {
+  write(' ${i}')
+}
+write('\n')
+
+write('for i = 0 to 4: ')
+for i = 4 downto 0 {
+  write(' ${i}')
+}
+write('\n')
+
+write('for value in array: ')
+for value in [1, 2, 5, 7, 9] {
+  write(' ${value}')
+}
+write('\n')
+
+write('for value, index in array: ')
+for value, index in [1, 2, 5, 7, 9] {
+  write(' ${index}:${value}')
+}
+write('\n')
+
+write('while i < 5: ')
+i = 0
+while i < 5 {
+  write(' ${i}')
+  i += 1
+}
+write('\n')
+
+write('do while i < 5: ')
+i = 0
+do {
+  write(' ${i}')
+  i += 1
+} while i < 5
+write('\n')

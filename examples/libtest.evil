@@ -1,0 +1,5 @@
+// This lib is used by using.evil
+
+fn test_using(name) {
+  result = 'Hello, ${name}!'
+}

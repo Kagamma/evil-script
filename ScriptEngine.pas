@@ -97,7 +97,7 @@ type
   );
   PSECommonString = ^String;
   TSEBuffer = record
-    Base: String;
+    Base: RawByteString;
     Ptr: Pointer;
   end;
   PSEBuffer = ^TSEBuffer;
@@ -335,6 +335,9 @@ type
     tkString,
     tkComma,
     tkIf,
+    tkSwitch,
+    tkCase,
+    tkDefault,
     tkIdent,
     tkFunction,
     tkFunctionDecl,
@@ -366,7 +369,7 @@ TSETokenKinds = set of TSETokenKind;
 const TokenNames: array[TSETokenKind] of String = (
   'EOF', '.', '+', '-', '*', 'div', 'mod', '^', 'operator assign', '=', '!=', '<',
   '>', '<=', '>=', '{', '}', ':', '(', ')', 'neg', 'number', 'string',
-  ',', 'if', 'identity', 'function', 'fn', 'variable', 'const',
+  ',', 'if', 'switch', 'case', 'default', 'identity', 'function', 'fn', 'variable', 'const',
   'unknown', 'else', 'while', 'break', 'continue', 'yield',
   '[', ']', 'and', 'or', 'xor', 'not', 'for', 'in', 'to', 'downto', 'return',
   'atom', 'import', 'do'
@@ -1754,7 +1757,7 @@ begin
     sevkNumber, sevkBoolean:
       Result := V1.VarNumber = V2.VarNumber;
     sevkString:
-      Result := V1.VarString^ <> V2.VarString^;
+      Result := V1.VarString^ = V2.VarString^;
     sevkFunction:
       Result := (V1.VarFuncKind = V2.VarFuncKind) and (V1.VarFuncIndx = V2.VarFuncIndx);
     sevkNull:
@@ -3474,7 +3477,7 @@ begin
                     UTF8Delete(S1, Integer(C^) + 1, 1);
                     S := UTF8Copy(S2, 1, 1);
                     UTF8Insert(S, S1, Integer(C^) + 1);
-                    GC.AllocString(V, S1);
+                    V^.VarString^ := S1;
                   {$else}
                     V^.VarString^[Integer(C^) + 1] := B^.VarString^[1];
                   {$endif}
@@ -3497,7 +3500,7 @@ begin
                     UTF8Delete(S1, Integer(C^) + 1, 1);
                     S := Char(Round(B^.VarNumber));
                     UTF8Insert(S, S1, Integer(C^) + 1);
-                    GC.AllocString(V, S1);
+                    V^.VarString^ := S1;
                   {$else}
                     V^.VarString^[Integer(C^) + 1] := Char(Round(B^.VarNumber));
                   {$endif}
@@ -3554,7 +3557,7 @@ begin
                     UTF8Delete(S1, Integer(C^) + 1, 1);
                     S := UTF8Copy(S2, 1, 1);
                     UTF8Insert(S, S1, Integer(C^) + 1);
-                    GC.AllocString(V, S1);
+                    V^.VarString^ := S1;
                   {$else}
                     V^.VarString^[Integer(C^) + 1] := B^.VarString^[1];
                   {$endif}
@@ -3577,7 +3580,7 @@ begin
                     UTF8Delete(S1, Integer(C^) + 1, 1);
                     S := Char(Round(B^.VarNumber));
                     UTF8Insert(S, S1, Integer(C^) + 1);
-                    GC.AllocString(V, S1);
+                    V^.VarString^ := S1;
                   {$else}
                     V^.VarString^[Integer(C^) + 1] := Char(Round(B^.VarNumber));
                   {$endif}
@@ -4235,6 +4238,12 @@ begin
               Token.Kind := tkDownto;
             'while':
               Token.Kind := tkWhile;
+            'switch':
+              Token.Kind := tkSwitch;
+            'case':
+              Token.Kind := tkCase;
+            'default':
+              Token.Kind := tkDefault;
             'continue':
               Token.Kind := tkContinue;
             'break':
@@ -4552,7 +4561,7 @@ var
   procedure ParseFuncCall(const Name: String); forward;
   procedure ParseFuncRefCallByRewind(const RewindStartAdd: Integer); forward;
   procedure ParseFuncRefCallByName(const Name: String); forward;
-  procedure ParseBlock; forward;
+  procedure ParseBlock(const IsCase: Boolean = False); forward;
   procedure ParseArrayAssign; forward;
 
   procedure ParseExpr;
@@ -5575,6 +5584,70 @@ var
     Patch(JumpEnd - 1, EndBlock2);
   end;
 
+  procedure ParseSwitch;
+  var
+    Token: TSEToken;
+    VarHiddenIdent: TSEIdent;
+    BreakList: TList;
+    JumpBlock1,
+    JumpBlock2,
+    StartCaseBlock,
+    EndCaseBlock,
+    JumpNextBlock,
+    EndBlock: Integer;
+  begin
+    Token.Kind := tkIdent;
+    Token.Value := '___s' + IntToStr(Random($FFFFFFFF));
+    VarHiddenIdent := CreateIdent(ikVariable, Token);
+
+    ParseExpr;
+    EmitAssignVar(VarHiddenIdent);
+
+    NextTokenExpected([tkBegin]);
+    BreakList := TList.Create;
+    JumpNextBlock := -1;
+    try
+      BreakStack.Push(BreakList);
+
+      while PeekAtNextToken.Kind in [tkCase, tkDefault] do
+      begin
+        Token := NextToken;
+        if Token.Kind = tkCase then
+        begin
+          ParseExpr;
+          EmitPushVar(VarHiddenIdent);
+          JumpBlock1 := Emit([Pointer(opJumpEqual), 0]);
+          JumpBlock2 := Emit([Pointer(opJumpUnconditional), 0]);
+        end;
+        StartCaseBlock := Self.VM.Binary.Count;
+        if JumpNextBlock <> -1 then
+        begin
+          Patch(JumpNextBlock - 1, StartCaseBlock);
+          JumpNextBlock := -1;
+        end;
+        PeekAtNextTokenExpected([tkColon]);
+        ParseBlock(True);
+        if Token.Kind = tkCase then
+        begin
+          JumpNextBlock := Emit([Pointer(opJumpUnconditional), 0]);
+          EndCaseBlock := Self.VM.Binary.Count;
+          Patch(JumpBlock1 - 1, StartCaseBlock);
+          Patch(JumpBlock2 - 1, EndCaseBlock);
+        end else
+          Break;
+      end;
+      NextTokenExpected([tkEnd]);
+      EndBlock := Self.VM.Binary.Count;
+
+      BreakList := BreakStack.Pop;
+
+      for I := 0 to BreakList.Count - 1 do
+        Patch(Integer(BreakList[I]), EndBlock);
+    finally
+      BreakList.Free;
+    end;
+  end;
+
   procedure ParseArrayAssign;
   var
     FuncNativeInfo: PSEFuncNativeInfo;
@@ -5675,7 +5748,7 @@ var
     end;
   end;
 
-  procedure ParseBlock;
+  procedure ParseBlock(const IsCase: Boolean = False);
   var
     Token: TSEToken;
     Ident: TSEIdent;
@@ -5703,6 +5776,11 @@ var
         begin
           NextToken;
           ParseWhile;
+        end;
+      tkSwitch:
+        begin
+          NextToken;
+          ParseSwitch;
         end;
       tkBreak:
         begin
@@ -5748,6 +5826,23 @@ var
         begin
           NextToken;
           Emit([Pointer(opYield)]);
+        end;
+      tkColon:
+        begin
+          if not IsCase then
+            Error('Invalid statement ' + TokenNames[Token.Kind], Token);
+          Self.ScopeStack.Push(Self.VarList.Count);
+          NextToken;
+          Token := PeekAtNextToken;
+          while not (Token.Kind in [tkEnd, tkCase, tkDefault]) do
+          begin
+            if Token.Kind = tkEOF then
+              Error('Expected end, got EOF instead', Token);
+            ParseBlock;
+            Token := PeekAtNextToken;
+          end;
+          I := Self.ScopeStack.Pop;
+          Self.VarList.DeleteRange(I, Self.VarList.Count - I);
         end;
       tkBegin:
         begin

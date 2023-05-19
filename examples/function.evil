@@ -1,0 +1,9 @@
+fn hello(name) {
+  result = 'Hello, ${name}!'
+}
+hello_ref = hello
+
+writeln(hello('Satania')) // Hello, Satania!
+writeln(hello_ref('Satania')) // Hello, Satania!
+writeln(hello) // Print function info
+writeln(hello_ref) // Print function info
