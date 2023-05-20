@@ -1,17 +1,17 @@
 // Demonstrate the use of function chaining and "this"
 
 fn calc_add(v) {
-  this.value = this.value + v
-  result = this
+  self.value = self.value + v
+  result = self
 }
 
 fn calc_sub(v) {
-  this.value = this.value - v
-  result = this
+  self.value = self.value - v
+  result = self
 }
 
 fn calc_value() {
-  result = this.value
+  result = self.value
 }
 
 fn calc_create(v) {

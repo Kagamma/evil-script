@@ -5261,7 +5261,7 @@ var
         Token := NextTokenExpected([tkComma, tkBracketClose]);
       until Token.Kind = tkBracketClose;
 
-      Token.Value := 'this';
+      Token.Value := 'self';
       Token.Kind := tkIdent;
       ThisIdent := CreateIdent(ikVariable, Token, True);
 

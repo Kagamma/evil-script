@@ -1,5 +1,5 @@
 fn obj_hello() {
-  result = 'Hello, ' + this.name + '!'
+  result = 'Hello, ' + self.name + '!'
 }
 
 obj = [
