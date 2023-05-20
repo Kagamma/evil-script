@@ -5753,7 +5753,7 @@ var
     Emit([Pointer(opPopConst)]);
   end;
 
-  procedure ParseVarAssign(const Name: String);
+  procedure ParseVarAssign(const Name: String; const IsNew: Boolean = False);
   var
     Ident: PSEIdent;
     Token, Token2: TSEToken;
@@ -5764,6 +5764,8 @@ var
     RewindStartAddr := Self.VM.Binary.Count;
     while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
     begin
+      if IsNew then
+        Error(Format('Variable "%s" is definitely not an array / a map', [Name]), PeekAtNextToken);
       case PeekAtNextToken.Kind of
         tkSquareBracketOpen:
           begin
@@ -5816,6 +5818,8 @@ var
         end;
       tkBracketOpen:
         begin
+          if IsNew then
+            Error(Format('Variable "%s" is definitely not a function', [Name]), PeekAtNextToken);
           ParseFuncRefCallByMapRewind(Ident^, ArgCount, RewindStartAddr, Ident);
           ParseAssignTail;
         end;
@@ -5941,7 +5945,7 @@ var
               begin
                 NextToken;
                 CreateIdent(ikVariable, Token);
-                ParseVarAssign(Token.Value);
+                ParseVarAssign(Token.Value, True);
               end;
             tkVariable:
               begin
