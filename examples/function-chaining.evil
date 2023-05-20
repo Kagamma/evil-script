@@ -1,27 +1,27 @@
-calc_storage = null
+calc_this = null
 
-fn calc_add(a) {
-  calc_storage.data[0] = calc_storage.data[0] + a
-  result = calc_storage
+fn calc_add(v) {
+  calc_this.data[0] = calc_this.data[0] + v
+  result = calc_this
 }
 
-fn calc_sub(a) {
-  calc_storage.data[0] = calc_storage.data[0] - a
-  result = calc_storage
+fn calc_sub(v) {
+  calc_this.data[0] = calc_this.data[0] - v
+  result = calc_this
 }
 
 fn calc_value() {
-  result = calc_storage.data[0]
+  result = calc_this.data[0]
 }
 
-fn calc(data) {
-  calc_storage = [
-    data: data,
+fn calc(v) {
+  calc_this = [
+    data: [v],
     add: calc_add,
     sub: calc_sub,
     value: calc_value
   ]
-  result = calc_storage
+  result = calc_this
 }
 
-writeln(calc([0]).add(20).sub(5).value()) // 15
+writeln(calc(0).add(20).sub(5).value()) // 15
