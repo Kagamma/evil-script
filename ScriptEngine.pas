@@ -424,6 +424,7 @@ type
     FuncImportList: TSEFuncImportList;
     ConstMap: TSEConstMap;
     ScopeStack: TSEScopeStack;
+    ScopeFunc: TSEScopeStack;
     LineOfCodeList: TIntegerList;
     IsLex,
     IsParsed: Boolean;
@@ -3621,6 +3622,7 @@ begin
   Self.FuncImportList := TSEFuncImportList.Create;
   Self.ConstMap := TSEConstMap.Create;
   Self.ScopeStack := TSEScopeStack.Create;
+  Self.ScopeFunc := TSEScopeStack.Create;
   Self.LineOfCodeList := TIntegerList.Create;
   Self.IncludeList := TStringList.Create;
   Self.IncludePathList := TStringList.Create;
@@ -3728,6 +3730,7 @@ begin
   FreeAndNil(Self.FuncImportList);
   FreeAndNil(Self.ConstMap);
   FreeAndNil(Self.ScopeStack);
+  FreeAndNil(Self.ScopeFunc);
   FreeAndNil(Self.LineOfCodeList);
   FreeAndNil(Self.IncludeList);
   FreeAndNil(Self.IncludePathList);
@@ -4510,6 +4513,7 @@ var
   procedure ParseFuncRefCallByName(const Name: String); forward;
   procedure ParseBlock(const IsCase: Boolean = False); forward;
   procedure ParseArrayAssign; forward;
+  procedure ParseFuncAnonDecl; forward;
 
   procedure ParseExpr;
   type
@@ -4840,7 +4844,7 @@ var
     begin
       Token := PeekAtNextTokenExpected([
         tkBracketOpen, tkBracketClose, tkSquareBracketOpen, tkDot, tkNumber, tkEOF,
-        tkNegative, tkNot, tkString, tkIdent]);
+        tkNegative, tkNot, tkString, tkIdent, tkFunctionDecl]);
       case Token.Kind of
         tkBracketOpen:
           begin
@@ -4863,6 +4867,13 @@ var
           begin
             NextToken;
             EmitExpr([Pointer(opPushConst), Token.Value]);
+          end;
+        tkFunctionDecl:
+          begin
+            PushConstCount := 0;
+            IsTailed := True;
+            NextToken;
+            ParseFuncAnonDecl;
           end;
         tkIdent:
           begin
@@ -5225,7 +5236,7 @@ var
       Emit([Pointer(opCallImport), Pointer(Ind), Pointer(0)]);
   end;
 
-  procedure ParseFuncDecl;
+  function ParseFuncDecl(const IsAnon: Boolean = False): TSEToken;
   var
     Token: TSEToken;
     ResultIdent,
@@ -5241,10 +5252,19 @@ var
     ReturnList := TList.Create;
     try
       ReturnStack.Push(ReturnList);
-      Token := NextTokenExpected([tkIdent]);
-      Name := Token.Value;
-      if FindFunc(Name) <> nil then
-        Error(Format('Duplicate function declaration "%s"', [Token.Value]), Token);
+      if not IsAnon then
+      begin
+        Token := NextTokenExpected([tkIdent]);
+        Name := Token.Value;
+        if FindFunc(Name) <> nil then
+          Error(Format('Duplicate function declaration "%s"', [Token.Value]), Token);
+      end else
+      begin
+        Token.Kind := tkIdent;
+        Token.Value := '___fn' + IntToHex(Random($FFFFFFFF), 8) + IntToHex(Random($FFFFFFFF), 8);
+        Name := Token.Value;
+      end;
+      Result := Token;
 
       Token.Value := 'result';
       Token.Kind := tkIdent;
@@ -5282,6 +5302,41 @@ var
     finally
       ReturnList.Free;
     end;
+  end;
+
+  procedure ParseFuncAnonDecl;
+  var
+    I, J: Integer;
+    FuncValue: TSEValue;
+    Ind: Integer;
+    P: Pointer;
+  begin
+    Inc(FuncTraversal);
+    Self.LocalVarCount := -1;
+    Self.ScopeStack.Push(Self.VarList.Count);
+    Self.ScopeFunc.Push(Self.FuncScriptList.Count + 1);
+    Token := ParseFuncDecl(True);
+    I := Self.ScopeStack.Pop;
+    Self.VarList.DeleteRange(I, Self.VarList.Count - I);
+    I := Self.ScopeFunc.Pop;
+    for J := I to Self.FuncScriptList.Count - 1 do
+    begin
+      if Self.FuncScriptList.Ptr(J)^.Name.IndexOf('___fn') <> 0 then
+        Self.FuncScriptList.Ptr(J)^.Name := '';
+    end;
+    Dec(FuncTraversal);
+    //
+    P := FindFunc(Token.Value, FuncValue.VarFuncKind, Ind);
+    if P = nil then
+      Error(Format('Function "%s" not found', [Token.Value]), Token);
+    case FuncValue.VarFuncKind of
+      sefkScript, sefkImport:
+        FuncValue.VarFuncIndx := Ind;
+      sefkNative:
+        FuncValue.VarFuncIndx := QWord(P);
+    end;
+    FuncValue.Kind := sevkFunction;
+    Emit([Pointer(opPushConst), FuncValue]);
   end;
 
   procedure ParseFuncImport;
@@ -5765,7 +5820,7 @@ var
     while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
     begin
       if IsNew then
-        Error(Format('Variable "%s" is definitely not an array / a map', [Name]), PeekAtNextToken);
+        Error(Format('Variable "%s" is not an array / a map', [Name]), PeekAtNextToken);
       case PeekAtNextToken.Kind of
         tkSquareBracketOpen:
           begin
@@ -5819,7 +5874,7 @@ var
       tkBracketOpen:
         begin
           if IsNew then
-            Error(Format('Variable "%s" is definitely not a function', [Name]), PeekAtNextToken);
+            Error(Format('Variable "%s" is not a function', [Name]), PeekAtNextToken);
           ParseFuncRefCallByMapRewind(Ident^, ArgCount, RewindStartAddr, Ident);
           ParseAssignTail;
         end;
@@ -5831,7 +5886,7 @@ var
     Token: TSEToken;
     Ident: TSEIdent;
     List: TList;
-    I, RewindStartAddr: Integer;
+    I, J, RewindStartAddr: Integer;
   begin
     Token := PeekAtNextToken;
     case Token.Kind of
@@ -5890,14 +5945,19 @@ var
       tkFunctionDecl:
         begin
           Inc(FuncTraversal);
-          if FuncTraversal > 1 then
-            Error('Nested functions are not supported', Token);
           Self.LocalVarCount := -1;
           NextToken;
           Self.ScopeStack.Push(Self.VarList.Count);
+          Self.ScopeFunc.Push(Self.FuncScriptList.Count + 1);
           ParseFuncDecl;
           I := Self.ScopeStack.Pop;
           Self.VarList.DeleteRange(I, Self.VarList.Count - I);
+          I := Self.ScopeFunc.Pop;
+          for J := I to Self.FuncScriptList.Count - 1 do
+          begin
+            if Self.FuncScriptList.Ptr(J)^.Name.IndexOf('___fn') <> 0 then
+              Self.FuncScriptList.Ptr(J)^.Name := '';
+          end;
           Dec(FuncTraversal);
         end;
       tkYield:
@@ -6014,12 +6074,15 @@ begin
   Self.TokenList.Clear;
   Self.OpcodeInfoList.Clear;
   Self.IncludeList.Clear;
-  Self.GlobalVarCount := 1;
+  Self.ScopeFunc.Clear;
+  Self.ScopeStack.Clear;
+  Self.GlobalVarCount := 10;
+  Self.VarList.Count := Self.GlobalVarCount; // Safeguard
   Ident.Kind := ikVariable;
   Ident.Addr := 0;
   Ident.Name := 'result';
   Ident.IsLocal := False;
-  Self.VarList.Add(Ident);
+  Self.VarList[0] := Ident;
   ErrorLn := -1;
   ErrorCol := -1;
   FuncTraversal := 0;

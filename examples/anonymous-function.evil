@@ -1,0 +1,22 @@
+// Demonstrate the use of anonymous function
+
+fn array_create(v) {
+  fn filter(f) {
+    data = []
+    for item in self.data
+      if f(item)
+        data[length(data)] = item
+    self.data = data
+    result = self
+  }
+
+  result = [
+    data: v,
+    filter: filter
+  ]
+}
+
+a = array_create([1, 2, 4, 12, 3, 20])
+writeln(a.filter(fn(v) { result = v < 10 }).data) // Remove all numbers that are >= 10
+
+

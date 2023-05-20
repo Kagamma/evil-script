@@ -1,20 +1,20 @@
 // Demonstrate the use of function chaining and "self"
 
-fn calc_add(v) {
-  self.value = self.value + v
-  result = self
-}
-
-fn calc_sub(v) {
-  self.value = self.value - v
-  result = self
-}
-
 fn calc_create(v) {
+  fn add(v) {
+    self.value = self.value + v
+    result = self
+  }
+
+  fn sub(v) {
+    self.value = self.value - v
+    result = self
+  }
+
   result = [
     value: v,
-    add: calc_add,
-    sub: calc_sub
+    add: add,
+    sub: sub
   ]
 }
 
