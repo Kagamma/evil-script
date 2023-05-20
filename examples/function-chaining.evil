@@ -1,4 +1,4 @@
-// Demonstrate the use of function chaining and "this"
+// Demonstrate the use of function chaining and "self"
 
 fn calc_add(v) {
   self.value = self.value + v
@@ -8,10 +8,6 @@ fn calc_add(v) {
 fn calc_sub(v) {
   self.value = self.value - v
   result = self
-}
-
-fn calc_value() {
-  result = self.value
 }
 
 fn calc_create(v) {
