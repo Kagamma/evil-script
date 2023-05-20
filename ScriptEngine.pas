@@ -219,7 +219,7 @@ type
 
   TSEFuncScriptInfo = record
     Name: String;
-    Addr: Integer;
+    BinaryPos: Integer;
     ArgCount: Integer;
     VarCount: Integer;
   end;
@@ -266,6 +266,7 @@ type
   TSEFrame = record
     Code: Integer;
     Stack: PSEValue;
+    Binary: Integer;
   end;
   PSEFrame = ^TSEFrame;
 
@@ -279,11 +280,12 @@ type
     Frame: array of TSEFrame;
     CodePtr: Integer;
     StackPtr: PSEValue;
+    BinaryPtr: Integer;
     FramePtr: PSEFrame;
     StackSize: Integer;
     FrameSize: Integer;
     Parent: TScriptEngine;
-    Binary: TSEBinary;
+    Binaries: array of TSEBinary;
     WaitTime: LongWord;
 
     constructor Create;
@@ -291,10 +293,11 @@ type
     function IsWaited: Boolean;
     procedure Reset;
     procedure Exec;
+    procedure BinaryClear;
   end;
 
   TSECache = record
-    Binary: TSEBinary;
+    Binaries: array of TSEBinary;
     GlobalVarCount: Cardinal;
     LineOfCodeList: TIntegerList;
     FuncScriptList: TSEFuncScriptList;
@@ -431,6 +434,7 @@ type
     IsDone: Boolean;
     FuncTraversal: Integer;
     CurrentFileList: TStrings;
+    Binary: TSEBinary; // Current working binary
     constructor Create;
     destructor Destroy; override;
     procedure AddDefaultConsts;
@@ -443,7 +447,7 @@ type
     procedure Reset;
     function Exec: TSEValue;
     procedure RegisterFunc(const Name: String; const Func: TSEFunc; const ArgCount: Integer);
-    function RegisterScriptFunc(const Name: String; const Addr, ArgCount: Integer): PSEFuncScriptInfo;
+    function RegisterScriptFunc(const Name: String; const ArgCount: Integer): PSEFuncScriptInfo;
     procedure RegisterImportFunc(const Name, ActualName, LibName: String; const Args: TSEAtomKindArray; const Return: TSEAtomKind);
     function Backup: TSECache;
     procedure Restore(const Cache: TSECache);
@@ -2312,9 +2316,10 @@ var
   P: PSEValue;
   V: TSEValue;
   VM: TSEVM;
-  I, J: Integer;
+  I, J, K: Integer;
   Key: String;
   Cache: TSECache;
+  Binary: TSEBinary;
 begin
   for I := 1 to Self.FValueList.Count - 1 do
   begin
@@ -2331,10 +2336,14 @@ begin
       Mark(P);
       Inc(P);
     end;
-    for J := 0 to VM.Binary.Count - 1 do
+    for J := 0 to High(VM.Binaries) do
     begin
-      P := VM.Binary.Ptr(J);
-      Mark(P);
+      Binary := VM.Binaries[J];
+      for K := 0 to Binary.Count - 1 do
+      begin
+        P := Binary.Ptr(K);
+        Mark(P);
+      end;
     end;
     for Key in VM.Parent.ConstMap.Keys do
     begin
@@ -2344,10 +2353,14 @@ begin
   end;
   for Cache in ScriptCacheMap.Values do
   begin;
-    for J := 0 to Cache.Binary.Count - 1 do
+    for J := 0 to High(Cache.Binaries) do
     begin
-      P := Cache.Binary.Ptr(J);
-      Mark(P);
+      Binary := Cache.Binaries[J];
+      for K := 0 to Binary.Count - 1 do
+      begin
+        P := Binary.Ptr(K);
+        Mark(P);
+      end;
     end;
   end;
   for V in ScriptVarMap.Values do
@@ -2410,10 +2423,19 @@ begin
   Self.FValueList[PValue^.Ref] := Value;
 end;
 
+procedure TSEVM.BinaryClear;
+var
+  I: Integer;
+begin
+  for I := 0 to High(Self.Binaries) do
+    FreeAndNil(Self.Binaries[I]);
+  SetLength(Self.Binaries, 1);
+  Self.Binaries[0] := TSEBinary.Create;
+end;
+
 constructor TSEVM.Create;
 begin
   inherited;
-  Self.Binary := TSEBinary.Create;
   Self.CodePtr := 0;
   Self.IsPaused := False;
   Self.IsDone := True;
@@ -2425,11 +2447,16 @@ begin
   if GC = nil then
     GC := TSEGarbageCollector.Create;
   VMList.Add(Self);
+  SetLength(Self.Binaries, 1);
+  Self.Binaries[0] := TSEBinary.Create;
 end;
 
 destructor TSEVM.Destroy;
+var
+  I: Integer;
 begin
-  FreeAndNil(Self.Binary);
+  for I := 0 to High(Self.Binaries) do
+    FreeAndNil(Self.Binaries[I]);
   if VMList <> nil then
     VMList.Delete(VMList.IndexOf(Self));
   inherited;
@@ -2443,6 +2470,7 @@ end;
 procedure TSEVM.Reset;
 begin
   Self.CodePtr := 0;
+  Self.BinaryPtr := 0;
   Self.IsPaused := False;
   Self.IsDone := False;
   Self.Parent.IsDone := False;
@@ -2450,6 +2478,7 @@ begin
   SetLength(Self.Stack, Self.StackSize);
   SetLength(Self.Frame, Self.FrameSize);
   FillChar(Self.Stack[0], Length(Self.Stack) * SizeOf(TSEValue), 0);
+  FillChar(Self.Frame[0], Length(Self.Frame) * SizeOf(TSEFrame), 0);
   Self.FramePtr := @Self.Frame[0];
   Self.StackPtr := @Self.Stack[0];
   Self.StackPtr := Self.StackPtr + Self.Parent.GlobalVarCount + 64;
@@ -2470,6 +2499,7 @@ var
   Args: array of TSEValue;
   CodePtrLocal: Integer;
   StackPtrLocal: PSEValue;
+  BinaryPtrLocal: Integer;
   BinaryLocal: TSEBinary;
   MMXCount, RegCount: QWord;
   ImportBufferIndex: array [0..31] of QWord;
@@ -2540,6 +2570,7 @@ var
       begin
         Self.CodePtr := CodePtrLocal;
         Self.StackPtr := StackPtrLocal;
+        Self.BinaryPtr := BinaryPtrLocal;
         Exit;
       end;
       P := DispatchTable[TSEOpcode(Integer(BinaryLocal.Ptr(CodePtrLocal)^.VarPointer))];
@@ -2553,6 +2584,7 @@ var
       begin
         Self.CodePtr := CodePtrLocal;
         Self.StackPtr := StackPtrLocal;
+        Self.BinaryPtr := BinaryPtrLocal;
         Exit;
       end;
       P := DispatchTable[TSEOpcode(Integer(BinaryLocal.Ptr(CodePtrLocal)^.VarPointer))];
@@ -2675,7 +2707,8 @@ begin
     Exit;
   CodePtrLocal := Self.CodePtr;
   StackPtrLocal := Self.StackPtr;
-  BinaryLocal := Self.Binary;
+  BinaryPtrLocal := Self.BinaryPtr;
+  BinaryLocal := Self.Binaries[Self.BinaryPtr];
   BinaryLocalCountMinusOne := BinaryLocal.Count - 1;
   GC.CheckForGC;
 
@@ -3019,7 +3052,10 @@ begin
           Self.FramePtr^.Stack := StackPtrLocal - ArgCount;
           StackPtrLocal := StackPtrLocal + FuncScriptInfo^.VarCount;
           Self.FramePtr^.Code := CodePtrLocal + 3;
-          CodePtrLocal := FuncScriptInfo^.Addr;
+          Self.FramePtr^.Binary := BinaryPtrLocal;
+          CodePtrLocal := 0;
+          BinaryPtrLocal := FuncScriptInfo^.BinaryPos;
+          BinaryLocal := Self.Binaries[BinaryPtrLocal];
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelCallImport{$else}opCallImport{$endif}:
@@ -3384,6 +3420,8 @@ begin
         begin
           CodePtrLocal := Self.FramePtr^.Code;
           StackPtrLocal := Self.FramePtr^.Stack;
+          BinaryPtrLocal := Self.FramePtr^.Binary;
+          BinaryLocal := Self.Binaries[BinaryPtrLocal];
           Dec(Self.FramePtr);
           DispatchGoto;
         end;
@@ -3565,6 +3603,7 @@ begin
           Inc(CodePtrLocal);
           Self.CodePtr := CodePtrLocal;
           Self.StackPtr := StackPtrLocal;
+          Self.BinaryPtr := BinaryPtrLocal;
           Exit;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelOperatorPow{$else}opOperatorPow{$endif}:
@@ -3588,6 +3627,7 @@ begin
       begin
         Self.CodePtr := CodePtrLocal;
         Self.StackPtr := StackPtrLocal;
+        Self.BinaryPtr := BinaryPtrLocal;
         Exit;
       end;
       {$endif}
@@ -3606,6 +3646,8 @@ begin
     end;
   end;
   Self.CodePtr := CodePtrLocal;
+  Self.StackPtr := StackPtrLocal;
+  Self.BinaryPtr := BinaryPtrLocal;
   Self.IsDone := True;
   Self.Parent.IsDone := True;
 end;
@@ -4376,7 +4418,7 @@ var
       Pos := Pos - 1;
     Result := Self.TokenList[Pos];
     if Self.LineOfCodeList.Count + 1 < Result.Ln then
-      Self.LineOfCodeList.Add(Self.VM.Binary.Count);
+      Self.LineOfCodeList.Add({Self.VM.Binary.Count}0);
   end;
 
   function TokenTypeString(const Kinds: TSETokenKinds): String; inline;
@@ -4432,13 +4474,15 @@ var
 
   procedure Rewind(const StartAddr, Count: Integer); inline;
   var
-    I: Integer;
+    Addr, I, J: Integer;
+    FuncScript: PSEFuncScriptInfo;
   begin
     for I := 0 to Count - 1 do
     begin
-      Self.VM.Binary.Add(Self.VM.Binary[StartAddr + I]);
+      Addr := StartAddr + I;
+      Self.Binary.Add(Self.Binary[Addr]);
     end;
-    Self.VM.Binary.DeleteRange(StartAddr, Count);
+    Self.Binary.DeleteRange(StartAddr, Count);
   end;
 
   function Emit(const Data: array of TSEValue): Integer; inline;
@@ -4447,14 +4491,14 @@ var
     OpcodeInfo: TSEOpcodeInfo;
   begin
     OpcodeInfo.Op := TSEOpcode(Integer(Data[0].VarPointer));
-    OpcodeInfo.Pos := Self.VM.Binary.Count;
+    OpcodeInfo.Pos := Self.Binary.Count;
     OpcodeInfo.Size := Length(Data);
     Self.OpcodeInfoList.Add(OpcodeInfo);
     for I := Low(Data) to High(Data) do
     begin
-      Self.VM.Binary.Add(Data[I]);
+      Self.Binary.Add(Data[I]);
     end;
-    Exit(Self.VM.Binary.Count);
+    Exit(Self.Binary.Count);
   end;
 
   function EmitPushVar(const Ident: TSEIdent): Integer; inline;
@@ -4483,7 +4527,7 @@ var
 
   procedure Patch(const Addr: Integer; const Data: TSEValue); inline;
   begin
-    Self.VM.Binary[Addr] := Data;
+    Self.Binary[Addr] := Data;
   end;
 
   function PatchRange(const Addr: Integer; const Data: array of TSEValue): Integer; inline;
@@ -4492,7 +4536,7 @@ var
   begin
     for I := Low(Data) to High(Data) do
     begin
-      Self.VM.Binary[Addr + I] := Data[I];
+      Self.Binary[Addr + I] := Data[I];
     end;
     Exit(Addr + I + 1);
   end;
@@ -4607,10 +4651,10 @@ var
               OpInfoPrev2 := PeekAtPrevOpExpected2([opPushGlobalVar]);
               if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
               begin
-                B := Self.VM.Binary[OpInfoPrev1^.Pos + 1];
-                A := Self.VM.Binary[OpInfoPrev2^.Pos + 1];
+                B := Self.Binary[OpInfoPrev1^.Pos + 1];
+                A := Self.Binary[OpInfoPrev2^.Pos + 1];
                 Op := OpToOp2(Op);
-                Self.VM.Binary.DeleteRange(Self.VM.Binary.Count - 4, 4);
+                Self.Binary.DeleteRange(Self.Binary.Count - 4, 4);
                 Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 2);
                 Emit([Pointer(Integer(Op)), A.VarPointer, B.VarPointer, Pointer(0)]);
                 Result := True;
@@ -4621,10 +4665,10 @@ var
                 OpInfoPrev2 := PeekAtPrevOpExpected2([opPushLocalVar]);
                 if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
                 begin
-                  B := Self.VM.Binary[OpInfoPrev1^.Pos + 1];
-                  A := Self.VM.Binary[OpInfoPrev2^.Pos + 1];
+                  B := Self.Binary[OpInfoPrev1^.Pos + 1];
+                  A := Self.Binary[OpInfoPrev2^.Pos + 1];
                   Op := OpToOp2(Op);
-                  Self.VM.Binary.DeleteRange(Self.VM.Binary.Count - 4, 4);
+                  Self.Binary.DeleteRange(Self.Binary.Count - 4, 4);
                   Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 2);
                   Emit([Pointer(Integer(Op)), A.VarPointer, B.VarPointer, Pointer(1)]);
                   Result := True;
@@ -4638,14 +4682,14 @@ var
       function ConstantFoldingOptimization: Boolean; inline;
         function SameKind: Boolean; inline;
         begin
-          V2 := Self.VM.Binary[Self.VM.Binary.Count - 1];
-          V1 := Self.VM.Binary[Self.VM.Binary.Count - 3];
+          V2 := Self.Binary[Self.Binary.Count - 1];
+          V1 := Self.Binary[Self.Binary.Count - 3];
           Result := V1.Kind = V2.Kind;
         end;
 
         procedure Pop2; inline;
         begin
-          Self.VM.Binary.DeleteRange(Self.VM.Binary.Count - 4, 4);
+          Self.Binary.DeleteRange(Self.Binary.Count - 4, 4);
           Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 2);
           Dec(PushConstCount);
         end;
@@ -4833,7 +4877,7 @@ var
               end;
               IsFirst := False;
               EmitAssignVar(FuncRefIdent);
-              RewindStartAddr := Self.VM.Binary.Count;
+              RewindStartAddr := Self.Binary.Count;
             end;
             EmitPushVar(FuncRefIdent);
             Tail;
@@ -4888,7 +4932,7 @@ var
                   begin
                     Ident := FindVar(Token.Value);
                     Ident^.IsUsed := True;
-                    RewindStartAddr := Self.VM.Binary.Count;
+                    RewindStartAddr := Self.Binary.Count;
                     case PeekAtNextToken.Kind of
                       tkSquareBracketOpen:
                         begin
@@ -4951,7 +4995,7 @@ var
                     FuncRefToken.Kind := tkIdent;
                     FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True);
                     EmitAssignVar(FuncRefIdent);
-                    RewindStartAddr := Self.VM.Binary.Count;
+                    RewindStartAddr := Self.Binary.Count;
                     EmitPushVar(FuncRefIdent);
                     Tail;
                     FuncTail;
@@ -5093,11 +5137,11 @@ var
     RewindCount: Integer;
     ThisAddr: Integer;
   begin
-    RewindCount := Self.VM.Binary.Count - RewindStartAdd;
+    RewindCount := Self.Binary.Count - RewindStartAdd;
     NextTokenExpected([tkBracketOpen]);
     // Allocate stack for result
     Emit([Pointer(opPushConst), SENull]);
-    Token := PeekAtNextToken;  
+    Token := PeekAtNextToken;
     if Token.Kind = tkBracketClose then
       NextToken;
     while not (Token.Kind = tkBracketClose) do
@@ -5123,11 +5167,11 @@ var
     ArgCount: Integer = 1;
     RewindCount: Integer;
   begin
-    RewindCount := Self.VM.Binary.Count - RewindStartAdd;
+    RewindCount := Self.Binary.Count - RewindStartAdd;
     NextTokenExpected([tkBracketOpen]);
     // Allocate stack for result
     Emit([Pointer(opPushConst), SENull]);
-    Token := PeekAtNextToken;       
+    Token := PeekAtNextToken;
     if Token.Kind = tkBracketClose then
       NextToken;
     while not (Token.Kind = tkBracketClose) do
@@ -5248,6 +5292,7 @@ var
     Addr: Integer;
     ReturnList: TList;
     Func: PSEFuncScriptInfo;
+    ParentBinary: TSEBinary;
   begin
     ReturnList := TList.Create;
     try
@@ -5285,20 +5330,18 @@ var
       Token.Kind := tkIdent;
       ThisIdent := CreateIdent(ikVariable, Token, True);
 
-      JumpBlock := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
-      Addr := JumpBlock;
-      Func := RegisterScriptFunc(Name, Addr, ArgCount);
+      Func := RegisterScriptFunc(Name, ArgCount);
+      ParentBinary := Self.Binary;
+      Self.Binary := Self.VM.Binaries[Func^.BinaryPos];
       ParseBlock;
 
       ReturnList := ReturnStack.Pop;
       for I := 0 to ReturnList.Count - 1 do
-        Patch(Integer(ReturnList[I]), Pointer(Self.VM.Binary.Count));
-
-      // EmitPushVar(ResultIdent);
+        Patch(Integer(ReturnList[I]), Pointer(Self.Binary.Count));
       Emit([Pointer(opPopFrame)]);
-      Patch(JumpBlock - 1, Pointer(Self.VM.Binary.Count));
 
       Func^.VarCount := Self.LocalVarCount - ArgCount;
+      Self.Binary := ParentBinary;
     finally
       ReturnList.Free;
     end;
@@ -5453,13 +5496,13 @@ var
     try
       ContinueStack.Push(ContinueList);
       BreakStack.Push(BreakList);
-      StartBlock := Self.VM.Binary.Count;
+      StartBlock := Self.Binary.Count;
       ParseExpr;
       Emit([Pointer(opPushConst), False]);
       JumpEnd := Emit([Pointer(opJumpEqual), Pointer(0)]);
       ParseBlock;
       JumpBlock := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
-      EndBlock := Self.VM.Binary.Count;
+      EndBlock := Self.Binary.Count;
       ContinueList := ContinueStack.Pop;
       BreakList := BreakStack.Pop;
       for I := 0 to ContinueList.Count - 1 do
@@ -5489,14 +5532,14 @@ var
     try
       ContinueStack.Push(ContinueList);
       BreakStack.Push(BreakList);
-      StartBlock := Self.VM.Binary.Count;
+      StartBlock := Self.Binary.Count;
       ParseBlock;
       NextTokenExpected([tkWhile]);
       ParseExpr;
       Emit([Pointer(opPushConst), False]);
       JumpEnd := Emit([Pointer(opJumpEqual), Pointer(0)]);
       JumpBlock := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
-      EndBlock := Self.VM.Binary.Count;
+      EndBlock := Self.Binary.Count;
       ContinueList := ContinueStack.Pop;
       BreakList := BreakStack.Pop;
       for I := 0 to ContinueList.Count - 1 do
@@ -5551,7 +5594,7 @@ var
         EmitAssignVar(VarIdent);
 
         Token := NextTokenExpected([tkTo, tkDownto]);
-        StartBlock := Self.VM.Binary.Count;
+        StartBlock := Self.Binary.Count;
         EmitPushVar(VarIdent);
         ParseExpr;
         if Token.Kind = tkTo then
@@ -5604,7 +5647,7 @@ var
         Emit([Pointer(opPushConst), 0]);
         EmitAssignVar(VarHiddenCountIdent);
 
-        StartBlock := Self.VM.Binary.Count;
+        StartBlock := Self.Binary.Count;
 
         EmitPushVar(VarHiddenArrayIdent);
         Emit([Pointer(opCallNative), FindFuncNative('length', Ind), Pointer(1)]);
@@ -5653,16 +5696,16 @@ var
     Emit([Pointer(opPushConst), True]);
     JumpBlock1 := Emit([Pointer(opJumpEqual), Pointer(0)]);
     JumpBlock2 := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
-    StartBlock1 := Self.VM.Binary.Count;
+    StartBlock1 := Self.Binary.Count;
     ParseBlock;
     JumpEnd := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
-    StartBlock2 := Self.VM.Binary.Count;
+    StartBlock2 := Self.Binary.Count;
     if PeekAtNextToken.Kind = tkElse then
     begin
       NextToken;
       ParseBlock;
     end;
-    EndBlock2 := Self.VM.Binary.Count;
+    EndBlock2 := Self.Binary.Count;
     Patch(JumpBlock1 - 1, Pointer(StartBlock1));
     Patch(JumpBlock2 - 1, Pointer(StartBlock2));
     Patch(JumpEnd - 1, Pointer(EndBlock2));
@@ -5703,7 +5746,7 @@ var
           JumpBlock1 := Emit([Pointer(opJumpEqual), Pointer(0)]);
           JumpBlock2 := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
         end;
-        StartCaseBlock := Self.VM.Binary.Count;
+        StartCaseBlock := Self.Binary.Count;
         if JumpNextBlock <> -1 then
         begin
           Patch(JumpNextBlock - 1, Pointer(StartCaseBlock));
@@ -5714,14 +5757,14 @@ var
         if Token.Kind = tkCase then
         begin
           JumpNextBlock := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
-          EndCaseBlock := Self.VM.Binary.Count;
+          EndCaseBlock := Self.Binary.Count;
           Patch(JumpBlock1 - 1, Pointer(StartCaseBlock));
           Patch(JumpBlock2 - 1, Pointer(EndCaseBlock));
         end else
           Break;
       end;
       NextTokenExpected([tkEnd]);
-      EndBlock := Self.VM.Binary.Count;
+      EndBlock := Self.Binary.Count;
 
       BreakList := BreakStack.Pop;
 
@@ -5779,7 +5822,7 @@ var
         FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True);
       end;
       EmitAssignVar(FuncRefIdent);
-      RewindStartAddr := Self.VM.Binary.Count;
+      RewindStartAddr := Self.Binary.Count;
       EmitPushVar(FuncRefIdent);
       while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
       begin
@@ -5816,7 +5859,7 @@ var
     RewindStartAddr: Integer;
   begin
     Ident := FindVar(Name);
-    RewindStartAddr := Self.VM.Binary.Count;
+    RewindStartAddr := Self.Binary.Count;
     while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
     begin
       if IsNew then
@@ -6044,6 +6087,7 @@ begin
   BreakStack := TSEListStack.Create;
   ReturnStack := TSEListStack.Create;
   try
+    Self.Binary := Self.VM.Binaries[0];
     repeat
       ParseBlock;
     until PeekAtNextToken.Kind = tkEOF;
@@ -6059,12 +6103,14 @@ end;
 procedure TScriptEngine.Reset;
 var
   Ident: TSEIdent;
+  I: Integer;
 begin
   Self.FuncScriptList.Clear;
   Self.FuncImportList.Clear;
   Self.CurrentFileList.Clear;
   Self.VM.Reset;
-  Self.VM.Binary.Clear;
+
+  Self.VM.BinaryClear;
   Self.VM.IsDone := True;
   Self.Vm.IsPaused := False;
   Self.IsDone := False;
@@ -6110,12 +6156,14 @@ begin
   Self.FuncNativeList.Add(FuncNativeInfo);
 end;
 
-function TScriptEngine.RegisterScriptFunc(const Name: String; const Addr, ArgCount: Integer): PSEFuncScriptInfo;
+function TScriptEngine.RegisterScriptFunc(const Name: String; const ArgCount: Integer): PSEFuncScriptInfo;
 var
   FuncScriptInfo: TSEFuncScriptInfo;
 begin
+  SetLength(Self.VM.Binaries, Length(Self.VM.Binaries) + 1);
+  Self.VM.Binaries[Length(Self.VM.Binaries) - 1] := TSEBinary.Create;
   FuncScriptInfo.ArgCount := ArgCount;
-  FuncScriptInfo.Addr := Addr;
+  FuncScriptInfo.BinaryPos := Length(Self.VM.Binaries) - 1;
   FuncScriptInfo.Name := Name;
   Self.FuncScriptList.Add(FuncScriptInfo);
   Result := Self.FuncScriptList.Ptr(Self.FuncScriptList.Count - 1);
@@ -6145,15 +6193,22 @@ end;
 
 function TScriptEngine.Backup: TSECache;
 var
-  I: Integer;
+  I, J: Integer;
+  BackupBinary, SrcBinary: TSEBinary;
 begin
-  Result.Binary := TSEBinary.Create;
   Result.LineOfCodeList := TIntegerList.Create;
   Result.FuncScriptList := TSEFuncScriptList.Create;
   Result.FuncImportList := TSEFuncImportList.Create;
-  for I := 0 to Self.VM.Binary.Count - 1 do
+  SetLength(Result.Binaries, Length(Self.VM.Binaries));
+  for J := 0 to High(Self.VM.Binaries) do
   begin
-    Result.Binary.Add(Self.VM.Binary[I]);
+    BackupBinary := TSEBinary.Create;
+    Result.Binaries[J] := BackupBinary;
+    SrcBinary := Self.VM.Binaries[J];
+    for I := 0 to SrcBinary.Count - 1 do
+    begin
+      BackupBinary.Add(SrcBinary[I]);
+    end;
   end;
   for I := 0 to Self.LineOfCodeList.Count - 1 do
   begin
@@ -6172,14 +6227,22 @@ end;
 
 procedure TScriptEngine.Restore(const Cache: TSECache);
 var
-  I: Integer;
+  I, J: Integer;
+  BackupBinary, DstBinary: TSEBinary;
 begin
-  Self.VM.Binary.Clear;
+  Self.VM.BinaryClear;
   Self.LineOfCodeList.Clear;
   for I := 0 to Cache.LineOfCodeList.Count - 1 do
     Self.LineOfCodeList.Add(Cache.LineOfCodeList[I]);
-  for I := 0 to Cache.Binary.Count - 1 do
-    Self.VM.Binary.Add(Cache.Binary[I]);
+  SetLength(Self.VM.Binaries, Length(Cache.Binaries));
+  for I := 0 to High(Cache.Binaries) do
+  begin
+    BackupBinary := Cache.Binaries[I];
+    DstBinary := TSEBinary.Create;
+    Self.VM.Binaries[I] := DstBinary;
+    for J := 0 to BackupBinary.Count - 1 do
+      DstBinary.Add(BackupBinary[J]);
+  end;
   for I := 0 to Cache.FuncScriptList.Count - 1 do
     Self.FuncScriptList.Add(Cache.FuncScriptList[I]);
   for I := 0 to Cache.FuncImportList.Count - 1 do
@@ -6191,10 +6254,12 @@ end;
 procedure TSECacheMap.ClearSingle(const AName: String);
 var
   Cache: TSECache;
+  I: Integer;
 begin
   try
     Cache := Self[AName];
-    Cache.Binary.Free;
+    for I := 0 to High(Cache.Binaries) do
+      Cache.Binaries[I].Free;
     Cache.LineOfCodeList.Free;
     Cache.FuncScriptList.Free;
     Cache.FuncImportList.Free;
@@ -6207,11 +6272,13 @@ procedure TSECacheMap.Clear;
 var
   S: String;
   Cache: TSECache;
+  I: Integer;
 begin
   for S in Self.Keys do
   begin
     Cache := Self[S];
-    Cache.Binary.Free;
+    for I := 0 to High(Cache.Binaries) do
+      Cache.Binaries[I].Free;
     Cache.LineOfCodeList.Free;
     Cache.FuncScriptList.Free;
     Cache.FuncImportList.Free;
