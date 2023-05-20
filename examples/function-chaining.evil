@@ -1,27 +1,27 @@
-calc_this = null
+// Demonstrate the use of function chaining and "this"
 
 fn calc_add(v) {
-  calc_this.data[0] = calc_this.data[0] + v
-  result = calc_this
+  this.value = this.value + v
+  result = this
 }
 
 fn calc_sub(v) {
-  calc_this.data[0] = calc_this.data[0] - v
-  result = calc_this
+  this.value = this.value - v
+  result = this
 }
 
 fn calc_value() {
-  result = calc_this.data[0]
+  result = this.value
 }
 
-fn calc(v) {
-  calc_this = [
-    data: [v],
+fn calc_create(v) {
+  result = [
+    value: v,
     add: calc_add,
-    sub: calc_sub,
-    value: calc_value
+    sub: calc_sub
   ]
-  result = calc_this
 }
 
-writeln(calc(0).add(20).sub(5).value()) // 15
+calc = calc_create(0)
+writeln(calc.add(20).sub(5).value) // 15
+

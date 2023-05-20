@@ -1,0 +1,13 @@
+fn obj_hello() {
+  result = 'Hello, ' + this.name + '!'
+}
+
+obj = [
+  name: 'Satania',
+  hello: obj_hello
+]
+
+s = obj.hello() // obj will be passed to obj_hello() as this
+writeln(s)
+
+
