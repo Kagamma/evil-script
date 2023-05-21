@@ -7,7 +7,7 @@ obj = [
   hello: obj_hello
 ]
 
-s = obj.hello() // obj will be passed to obj_hello() as this
+s = obj.hello() // obj will be passed to obj_hello() as "self"
 writeln(s)
 
 
