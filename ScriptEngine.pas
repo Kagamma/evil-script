@@ -72,6 +72,7 @@ type
   TSEOpcodeInfo = record
     Op: TSEOpcode;
     Pos: Integer;
+    Binary: Pointer;
     Size: Integer;
   end;
   PSEOpcodeInfo = ^TSEOpcodeInfo;
@@ -3720,6 +3721,7 @@ begin
   Self.RegisterFunc('wait', @TBuiltInFunction(nil).SEWait, 1);
   Self.RegisterFunc('length', @TBuiltInFunction(nil).SELength, 1);
   Self.RegisterFunc('map_create', @TBuiltInFunction(nil).SEMapCreate, -1);
+  Self.RegisterFunc('___map_create', @TBuiltInFunction(nil).SEMapCreate, -1);
   Self.RegisterFunc('map_delete', @TBuiltInFunction(nil).SEMapDelete, 2);
   Self.RegisterFunc('map_keys_get', @TBuiltInFunction(nil).SEMapKeysGet, 1);
   Self.RegisterFunc('array_resize', @TBuiltInFunction(nil).SEArrayResize, 2);
@@ -4519,6 +4521,7 @@ var
     OpcodeInfo.Op := TSEOpcode(Integer(Data[0].VarPointer));
     OpcodeInfo.Pos := Self.Binary.Count;
     OpcodeInfo.Size := Length(Data);
+    OpcodeInfo.Binary := Self.Binary;
     Self.OpcodeInfoList.Add(OpcodeInfo);
     for I := Low(Data) to High(Data) do
     begin
@@ -4655,6 +4658,8 @@ var
               OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar]);
               if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
               begin
+                if (OpInfoPrev1^.Binary <> Pointer(Self.Binary)) or (OpInfoPrev2^.Binary <> Pointer(Self.Binary)) then
+                  Exit;
                 B := Self.Binary[OpInfoPrev1^.Pos + 1];
                 A := Self.Binary[OpInfoPrev2^.Pos + 1];
                 Op := OpToOp2(Op);
@@ -4669,6 +4674,8 @@ var
                 OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushLocalVar]);
                 if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
                 begin
+                  if (OpInfoPrev1^.Binary <> Pointer(Self.Binary)) or (OpInfoPrev2^.Binary <> Pointer(Self.Binary)) then
+                    Exit;
                   if Self.Binary[OpInfoPrev1^.Pos + 2].VarPointer <> Self.Binary[OpInfoPrev2^.Pos + 2].VarPointer then
                     Exit;
                   P := Self.Binary[OpInfoPrev1^.Pos + 2].VarPointer;
@@ -5290,13 +5297,9 @@ var
   function ParseFuncDecl(const IsAnon: Boolean = False): TSEToken;
   var
     Token: TSEToken;
-    ResultIdent,
-    ThisIdent: TSEIdent;
     Name: String;
     ArgCount: Integer = 0;
-    I, Ind,
-    JumpBlock,
-    Addr: Integer;
+    I: Integer;
     ReturnList: TList;
     Func: PSEFuncScriptInfo;
     ParentBinary: TSEBinary;
@@ -5320,7 +5323,7 @@ var
 
       Token.Value := 'result';
       Token.Kind := tkIdent;
-      ResultIdent := CreateIdent(ikVariable, Token, True);
+      CreateIdent(ikVariable, Token, True);
 
       NextTokenExpected([tkBracketOpen]);
       repeat
@@ -5335,7 +5338,7 @@ var
 
       Token.Value := 'self';
       Token.Kind := tkIdent;
-      ThisIdent := CreateIdent(ikVariable, Token, True);
+      CreateIdent(ikVariable, Token, True);
 
       Func := RegisterScriptFunc(Name, ArgCount);
       ParentBinary := Self.Binary;
@@ -5790,7 +5793,7 @@ var
     Token: TSEToken;
   begin
     I := 0;
-    FuncNativeInfo := FindFuncNative('map_create', Ind);
+    FuncNativeInfo := FindFuncNative('___map_create', Ind);
     repeat
       if PeekAtNextToken.Kind <> tkSquareBracketClose then
       begin
@@ -5863,10 +5866,14 @@ var
     Ident: PSEIdent;
     Token, Token2: TSEToken;
     ArgCount: Integer = 0;
-    RewindStartAddr: Integer;
+    I, J,
+    RewindStartAddr,
+    VarStartTokenPos,
+    VarEndTokenPos: Integer;
   begin
     Ident := FindVar(Name);
     RewindStartAddr := Self.Binary.Count;
+    VarStartTokenPos := Pos;
     while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
     begin
       if IsNew then
@@ -5893,13 +5900,20 @@ var
       tkEqual,
       tkOpAssign:
         begin
+          VarEndTokenPos := Pos;
           NextToken;
           if Token.Kind = tkOpAssign then
           begin
             if ArgCount > 0 then
-              // EmitPushArray(Ident^)
-              Error('Assignment operator does not support array/map at the moment', Token)
-            else
+            begin
+              J := Pos + 1;
+              for I := VarStartTokenPos to VarEndTokenPos do
+              begin
+                Self.TokenList.Insert(J, Self.TokenList[I]);
+                Inc(J);
+              end;
+              ParseExpr;
+            end else
               EmitPushVar(Ident^);
           end;
           ParseExpr;
