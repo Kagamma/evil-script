@@ -19,9 +19,14 @@ begin
   SE := TScriptEngine.Create;
   SL := TStringList.Create;
   try
-    SL.LoadFromFile(ParamStr(1));
-    SE.Source := SL.Text;
-    SE.Exec;
+    try
+      SL.LoadFromFile(ParamStr(1));
+      SE.Source := SL.Text;
+      SE.Exec;
+    except
+     on E: Exception do
+       Writeln(E.Message);
+    end;
   finally
     SE.Free;
     SL.Free;
