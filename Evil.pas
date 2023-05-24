@@ -1,4 +1,4 @@
-program Evil;
+program evil;
 
 {$mode objfpc}
 {$H+}
