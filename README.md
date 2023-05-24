@@ -3,8 +3,11 @@ Simple C-like scripting engine written in Free Pascal. While it is primarily des
 #### Features
 - https://github.com/Kagamma/satania-buddy/wiki/Scripting-Reference
 
-#### How to use
-- See Test.pas
+#### Building
+`fpc -O4 Evil.pas`
+
+#### Running
+`Evil examples/hello.evil`
 
 #### About compiler
 - The compiler itself is a one-pass compiler. It follows Niklaus Wirth’s design, completely skips AST generation and generates binary directly.
