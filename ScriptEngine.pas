@@ -422,7 +422,7 @@ type
     IncludeList: TStrings;
     TokenList: TSETokenList;
     OpcodeInfoList: TSEOpcodeInfoList;
-    LocalVarCount,
+    LocalVarCountList: TIntegerList;
     GlobalVarCount: Integer;
     VarList: TSEIdentList;
     FuncNativeList: TSEFuncNativeList;
@@ -635,6 +635,19 @@ begin
   FS := FormatSettings;
   FS.DecimalSeparator := '.';
   Result := FloatToStr(X, FS);
+end;
+
+function GetOS: String; inline;
+begin
+  {$if defined(WINDOWS)}
+  Result := 'windows';
+  {$elseif defined(LINUX)}
+  Result := 'linux';
+  {$elseif defined(DARWIN)}
+  Result := 'darwin';
+  {$else}
+  Result := 'unknown';
+  {$endif}
 end;
 
 function StringIndexOf(S, P: String): Integer; inline;
@@ -1624,7 +1637,7 @@ begin
     if (V1.Kind = sevkBuffer) and (V2.Kind in [sevkNumber, sevkBoolean]) then
     begin
       GC.AllocBuffer(@Temp, 1);
-      Temp.VarBuffer^.Ptr := V1.VarBuffer^.Ptr + Pointer(Round(V2.VarNumber));
+      Temp.VarBuffer^.Ptr := Pointer(QWord(V1.VarBuffer^.Ptr) + Round(V2.VarNumber));
       R := Temp;
     end;
 end;
@@ -1647,7 +1660,7 @@ begin
     sevkBuffer:
       begin
         GC.AllocBuffer(@Temp, 1);
-        Temp.VarBuffer^.Ptr := Pointer(V1.VarBuffer^.Ptr - Pointer(Round(V2.VarNumber)));
+        Temp.VarBuffer^.Ptr := Pointer(QWord(V1.VarBuffer^.Ptr) - Round(V2.VarNumber));
         R := Temp;
       end;
   end;
@@ -1961,7 +1974,7 @@ begin
     sevkBuffer:
       begin
         GC.AllocBuffer(@R, 1);
-        R.VarBuffer^.Ptr := V1.VarBuffer^.Ptr + Pointer(Round(V2.VarNumber));
+        R.VarBuffer^.Ptr := Pointer(QWord(V1.VarBuffer^.Ptr) + Round(V2.VarNumber));
       end;
     sevkPointer:
       begin
@@ -1996,7 +2009,7 @@ begin
     sevkBuffer:
       begin
         GC.AllocBuffer(@R, 1);
-        R.VarBuffer^.Ptr := Pointer(V1.VarBuffer^.Ptr - Pointer(Round(V2.VarNumber)));
+        R.VarBuffer^.Ptr := Pointer(QWord(V1.VarBuffer^.Ptr) - Round(V2.VarNumber));
       end;
   end;
 end;
@@ -3689,6 +3702,7 @@ begin
   Self.IncludeList := TStringList.Create;
   Self.IncludePathList := TStringList.Create;
   Self.CurrentFileList := TStringList.Create;
+  Self.LocalVarCountList := TIntegerList.Create;
   Self.VM.Parent := Self;
   Self.RegisterFunc('buffer_create', @TBuiltInFunction(nil).SEBufferCreate, 1);
   Self.RegisterFunc('buffer_length', @TBuiltInFunction(nil).SEBufferLength, 1);
@@ -3799,27 +3813,17 @@ begin
   FreeAndNil(Self.IncludeList);
   FreeAndNil(Self.IncludePathList);
   FreeAndNil(Self.CurrentFileList);
+  FreeAndNil(Self.LocalVarCountList);
   inherited;
 end;
 
 procedure TScriptEngine.AddDefaultConsts;
-var
-  OS: String;
 begin
-  {$if defined(WINDOWS)}
-  OS := 'windows';
-  {$elseif defined(LINUX)}
-  OS := 'linux';
-  {$elseif defined(DARWIN)}
-  OS := 'darwin';
-  {$else}
-  OS := 'unknown';
-  {$endif}
   Self.ConstMap.AddOrSetValue('PI', PI);
   Self.ConstMap.AddOrSetValue('true', True);
   Self.ConstMap.AddOrSetValue('false', False);
   Self.ConstMap.AddOrSetValue('null', SENull);
-  Self.ConstMap.AddOrSetValue('os', OS);
+  Self.ConstMap.AddOrSetValue('os', GetOS);
 end;
 
 procedure TScriptEngine.SetSource(V: String);
@@ -4179,6 +4183,41 @@ begin
             end;
           end;
         end;
+      '#':
+        begin
+          C := PeekAtNextChar;
+          while C in ['0'..'9', 'A'..'Z', 'a'..'z', '_'] do
+          begin
+            Token.Value := Token.Value + NextChar;
+            C := PeekAtNextChar;
+          end;
+          case Token.Value of
+            'require':
+              begin
+                Token.Value := '';
+                C := PeekAtNextChar;
+                while C = ' ' do
+                begin
+                  NextChar;
+                  C := PeekAtNextChar;
+                end;
+                C := PeekAtNextChar;
+                while C in ['0'..'9', 'A'..'Z', 'a'..'z', '_'] do
+                begin
+                  Token.Value := Token.Value + NextChar;
+                  C := PeekAtNextChar;
+                end;
+                if Token.Value <> GetOS then
+                begin
+                  C := #0;
+                  goto EndLabel;
+                end else
+                  Continue;
+              end
+            else
+              Error('Unhandled directive ' + C);
+          end;
+        end;
       'A'..'Z', 'a'..'z', '_':
         begin
           Token.Value := C;
@@ -4247,6 +4286,7 @@ begin
                   FSource := BackupSource;
                   Self.IncludeList.Add(Path);
                 end;
+                C := PeekAtNextChar;
                 continue;
               end;
             'if':
@@ -4490,8 +4530,8 @@ var
     Result.IsUsed := IsUsed;
     if Result.Local > 0 then
     begin
-      Result.Addr := Self.LocalVarCount;
-      Inc(Self.LocalVarCount);
+      Result.Addr := Self.LocalVarCountList.Last;
+      Self.LocalVarCountList[Self.LocalVarCountList.Count - 1] := Self.LocalVarCountList.Last + 1;
     end else
     begin
       Result.Addr := Self.GlobalVarCount;
@@ -5299,7 +5339,7 @@ var
     Token: TSEToken;
     Name: String;
     ArgCount: Integer = 0;
-    I: Integer;
+    I, FuncIndex: Integer;
     ReturnList: TList;
     Func: PSEFuncScriptInfo;
     ParentBinary: TSEBinary;
@@ -5341,6 +5381,7 @@ var
       CreateIdent(ikVariable, Token, True);
 
       Func := RegisterScriptFunc(Name, ArgCount);
+      FuncIndex := Self.FuncScriptList.Count - 1;
       ParentBinary := Self.Binary;
       Self.Binary := Self.VM.Binaries[Func^.BinaryPos];
       ParseBlock;
@@ -5350,7 +5391,9 @@ var
         Patch(Integer(ReturnList[I]), Pointer(Self.Binary.Count));
       Emit([Pointer(opPopFrame)]);
 
-      Func^.VarCount := Self.LocalVarCount - ArgCount;
+      // The pointer may be changed due to reallocation, need to query for it again
+      Func := Self.FuncScriptList.Ptr(FuncIndex);
+      Func^.VarCount := Self.LocalVarCountList[Self.LocalVarCountList.Count - 1] - ArgCount;
       Self.Binary := ParentBinary;
     finally
       ReturnList.Free;
@@ -5365,7 +5408,7 @@ var
     P: Pointer;
   begin
     Inc(FuncTraversal);
-    Self.LocalVarCount := -1;
+    Self.LocalVarCountList.Add(-1);
     Self.ScopeStack.Push(Self.VarList.Count);
     Self.ScopeFunc.Push(Self.FuncScriptList.Count + 1);
     Token := ParseFuncDecl(True);
@@ -5377,6 +5420,7 @@ var
       if Self.FuncScriptList.Ptr(J)^.Name.IndexOf('___fn') <> 0 then
         Self.FuncScriptList.Ptr(J)^.Name := '';
     end;
+    Self.LocalVarCountList.Delete(Self.LocalVarCountList.Count - 1);
     Dec(FuncTraversal);
     //
     P := FindFunc(Token.Value, FuncValue.VarFuncKind, Ind);
@@ -6008,9 +6052,9 @@ var
         end;
       tkFunctionDecl:
         begin
-          Inc(FuncTraversal);
-          Self.LocalVarCount := -1;
           NextToken;
+          Inc(FuncTraversal);
+          Self.LocalVarCountList.Add(-1);
           Self.ScopeStack.Push(Self.VarList.Count);
           Self.ScopeFunc.Push(Self.FuncScriptList.Count + 1);
           ParseFuncDecl;
@@ -6022,6 +6066,7 @@ var
             if Self.FuncScriptList.Ptr(J)^.Name.IndexOf('___fn') <> 0 then
               Self.FuncScriptList.Ptr(J)^.Name := '';
           end;
+          Self.LocalVarCountList.Delete(Self.LocalVarCountList.Count - 1);
           Dec(FuncTraversal);
         end;
       tkYield:
@@ -6108,6 +6153,7 @@ begin
   BreakStack := TSEListStack.Create;
   ReturnStack := TSEListStack.Create;
   try
+    Self.LocalVarCountList.Clear;
     Self.Binary := Self.VM.Binaries[0];
     repeat
       ParseBlock;
@@ -6129,6 +6175,7 @@ begin
   Self.FuncScriptList.Clear;
   Self.FuncImportList.Clear;
   Self.CurrentFileList.Clear;
+  Self.LocalVarCountList.Clear;
   Self.VM.Reset;
 
   Self.VM.BinaryClear;
@@ -6143,7 +6190,7 @@ begin
   Self.IncludeList.Clear;
   Self.ScopeFunc.Clear;
   Self.ScopeStack.Clear;
-  Self.GlobalVarCount := 10;
+  Self.GlobalVarCount := 1;
   Self.VarList.Count := Self.GlobalVarCount; // Safeguard
   Ident.Kind := ikVariable;
   Ident.Addr := 0;
@@ -6208,7 +6255,9 @@ begin
   FuncImportInfo.Name := Name;
   FuncImportInfo.Func := nil;
   if Lib <> nil then
+  begin
     FuncImportInfo.Func := GetProcAddress(Lib, ActualName);
+  end;
   Self.FuncImportList.Add(FuncImportInfo);
 end;
 
