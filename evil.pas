@@ -13,7 +13,7 @@ var
 begin
   if ParamCount < 1 then
   begin
-    Writeln('Usage: Evil [script file]');
+    Writeln('Usage: evil [script file]');
     Halt;
   end;
   SE := TScriptEngine.Create;
