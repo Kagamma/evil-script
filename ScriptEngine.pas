@@ -4361,7 +4361,7 @@ var
     if Token.BelongedFileName = '' then
       raise Exception.CreateFmt('[%d,%d] %s', [Token.Ln, Token.Col, S])
     else
-      raise Exception.CreateFmt('(%s:%d:%d) [%d,%d] %s', [Token.BelongedFileName, Token.Ln, Token.Col, Token.Ln, Token.Col, S]);
+      raise Exception.CreateFmt('[%s:%d:%d] %s', [Token.BelongedFileName, Token.Ln, Token.Col, S]);
   end;
 
   function FindFunc(const Name: String): Pointer; inline; overload;
