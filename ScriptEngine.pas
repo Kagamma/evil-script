@@ -3902,9 +3902,9 @@ var
     ErrorLn := Ln;
     ErrorCol := Col;
     if N = '' then
-      raise Exception.CreateFmt('[%d,%d] %s', [Ln, Col, S])
+      raise Exception.CreateFmt('[%d:%d] %s', [Ln, Col, S])
     else
-      raise Exception.CreateFmt('(%s) [%d,%d] %s', [N, Ln, Col, S]);
+      raise Exception.CreateFmt('[%s:%d:%d] %s', [N, Ln, Col, S]);
   end;
 
 var
@@ -4359,7 +4359,7 @@ var
     ErrorLn := Token.Ln;
     ErrorCol := Token.Col;
     if Token.BelongedFileName = '' then
-      raise Exception.CreateFmt('[%d,%d] %s', [Token.Ln, Token.Col, S])
+      raise Exception.CreateFmt('[%d:%d] %s', [Token.Ln, Token.Col, S])
     else
       raise Exception.CreateFmt('[%s:%d:%d] %s', [Token.BelongedFileName, Token.Ln, Token.Col, S]);
   end;
