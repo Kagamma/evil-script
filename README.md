@@ -9,6 +9,9 @@ Simple C-like scripting engine written in Free Pascal. While it is primarily des
 #### Running
 - `evil examples/hello.evil`
 
+#### How to embedded into applications
+- See `Test.pas` and `evil.pas` source code
+
 #### About compiler
 - The compiler itself is a one-pass compiler. It follows Niklaus Wirth’s design, completely skips AST generation and generates binary directly.
 - Due to the lack of AST, only constant folding and peephole optimizations are implemented.
