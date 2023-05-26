@@ -1,4 +1,4 @@
-Simple C-like scripting engine written in Free Pascal. While it is primarily designed for `satania-buddy`, it can also be utilized as a general-purpose scripting engine.
+Simple C-like scripting engine written in Free Pascal. While it is primarily designed for `satania-buddy`, it can also be utilized as a general-purpose, embeddable scripting engine.
 
 #### Features
 - https://github.com/Kagamma/satania-buddy/wiki/Scripting-Reference
