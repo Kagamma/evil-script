@@ -1,6 +1,6 @@
 // Demonstrate the use of function chaining and "self"
 
-fn calc_create(v) {
+fn calc_new(v) {
   fn add(v) {
     self.value = self.value + v
     result = self
@@ -18,6 +18,6 @@ fn calc_create(v) {
   ]
 }
 
-calc = calc_create(0)
+calc = calc_new(0)
 writeln(calc.add(20).sub(5).value) // 15
 
