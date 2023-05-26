@@ -709,6 +709,8 @@ begin
       end;
     sevkNull:
       Result := 'null';
+    sevkBuffer:
+      Result := 'buffer@' + IntToStr(QWord(Value.VarBuffer^.Ptr));
     else
       Result := Value;
   end;
@@ -2202,6 +2204,7 @@ var
 begin
   inherited;
   Self.FValueList := TSEGCValueList.Create;
+  Self.FValueList.Capacity := 65536;
   Self.FValueList.Add(Ref0);
   Self.FValueAvailList := TSEGCValueAvailList.Create;;
   Self.FTicks := GetTickCount64;
@@ -3453,6 +3456,8 @@ begin
           BinaryPtrLocal := Self.FramePtr^.Binary;
           BinaryLocal := Self.Binaries[BinaryPtrLocal];
           Dec(Self.FramePtr);
+          if Self.FramePtr < @Self.Frame[0] then
+            Break;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelAssignGlobalVar{$else}opAssignGlobalVar{$endif}:
@@ -3704,6 +3709,8 @@ begin
   Self.CurrentFileList := TStringList.Create;
   Self.LocalVarCountList := TIntegerList.Create;
   //
+  Self.TokenList.Capacity := 1024;
+  Self.VarList.Capacity := 256;
   Self.FuncNativeList.Capacity := 64;
   Self.FuncScriptList.Capacity := 64;
   Self.FuncImportList.Capacity := 64;
