@@ -66,7 +66,11 @@ type
     opCallScript,
     opCallImport,
     opYield,
-    opHlt
+    opHlt,
+
+    opPushTrap,
+    opPopTrap,
+    opThrow
   );
   TSEOpcodes = set of TSEOpcode;
   TSEOpcodeInfo = record
@@ -273,6 +277,12 @@ type
     Binary: Integer;
   end;
   PSEFrame = ^TSEFrame;
+  TSETrap = record
+    FramePtr: PSEFrame;
+    Stack: PSEValue;
+    CatchCode: Integer;
+  end;
+  PSETrap = ^TSETrap;
 
   TScriptEngine = class;
   TSEVM = class
@@ -282,12 +292,15 @@ type
     IsYielded: Boolean;
     Stack: array of TSEValue;
     Frame: array of TSEFrame;
+    Trap: array of TSETrap;
     CodePtr: Integer;
     StackPtr: PSEValue;
     BinaryPtr: Integer;
     FramePtr: PSEFrame;
+    TrapPtr: PSETrap;
     StackSize: Integer;
     FrameSize: Integer;
+    TrapSize: Integer;
     Parent: TScriptEngine;
     Binaries: array of TSEBinary;
     WaitTime: LongWord;
@@ -367,7 +380,10 @@ type
     tkReturn,
     tkAtom,
     tkImport,
-    tkDo
+    tkDo,
+    tkTry,
+    tkCatch,
+    tkThrow
   );
 TSETokenKinds = set of TSETokenKind;
 
@@ -377,7 +393,7 @@ const TokenNames: array[TSETokenKind] of String = (
   ',', 'if', 'switch', 'case', 'default', 'identity', 'function', 'fn', 'variable', 'const',
   'unknown', 'else', 'while', 'break', 'continue', 'yield',
   '[', ']', 'and', 'or', 'xor', 'not', 'for', 'in', 'to', 'downto', 'return',
-  'atom', 'import', 'do'
+  'atom', 'import', 'do', 'try', 'catch', 'throw'
 );
 
 type
@@ -2323,21 +2339,32 @@ procedure TSEGarbageCollector.GC;
     case Value.Value.Kind of
       sevkMap:
         begin
-          if SEMapIsValidArray(PValue^) then
-          begin
-            for I := 0 to TSEValueMap(PValue^.VarMap).List.Count - 1 do
+          if PValue^.VarMap <> nil then
+            if SEMapIsValidArray(PValue^) then
             begin
-              RValue := SEMapGet(PValue^, I);
-              Mark(@RValue);
-            end;
-          end else
-          begin
-            for Key in TSEValueMap(PValue^.VarMap).Keys do
+              try
+                for I := 0 to TSEValueMap(PValue^.VarMap).List.Count - 1 do
+                begin
+                  RValue := SEMapGet(PValue^, I);
+                  Mark(@RValue);
+                end;
+              except
+                on E: Exception do
+                  Writeln(E.Message);
+              end;
+            end else
             begin
-              RValue := SEMapGet(PValue^, Key);
-              Mark(@RValue);
+              try
+                for Key in TSEValueMap(PValue^.VarMap).Keys do
+                begin
+                  RValue := SEMapGet(PValue^, Key);
+                  Mark(@RValue);
+                end;
+              except
+                on E: Exception do
+                  Writeln(E.Message);
+              end;
             end;
-          end;
         end;
     end;
     Value.Garbage := False;
@@ -2475,6 +2502,7 @@ begin
   Self.WaitTime := 0;
   Self.StackSize := 65536;
   Self.FrameSize := 1024;
+  Self.TrapSize := 1024;
   if VMList = nil then
     VMList := TSEVMList.Create;
   if GC = nil then
@@ -2510,11 +2538,16 @@ begin
   Self.WaitTime := 0;
   SetLength(Self.Stack, Self.StackSize);
   SetLength(Self.Frame, Self.FrameSize);
+  SetLength(Self.Trap, Self.TrapSize);
   FillChar(Self.Stack[0], Length(Self.Stack) * SizeOf(TSEValue), 0);
   FillChar(Self.Frame[0], Length(Self.Frame) * SizeOf(TSEFrame), 0);
+  FillChar(Self.Trap[0], Length(Self.Trap) * SizeOf(TSETrap), 0);
   Self.FramePtr := @Self.Frame[0];
   Self.StackPtr := @Self.Stack[0];
   Self.StackPtr := Self.StackPtr + Self.Parent.GlobalVarCount + 64;
+  Self.FramePtr^.Stack := Self.StackPtr;
+  Self.TrapPtr := @Self.Trap[0];
+  Dec(Self.TrapPtr);
 end;
 
 procedure TSEVM.Exec;
@@ -2680,7 +2713,10 @@ label
   labelCallScript,
   labelCallImport,
   labelYield,
-  labelHlt
+  labelHlt,
+  labelPushTrap,
+  labelPopTrap,
+  labelThrow
   {$endif};
 
 {$ifdef SE_COMPUTED_GOTO}
@@ -2729,7 +2765,11 @@ var
     @labelCallScript,
     @labelCallImport,
     @labelYield,
-    @labelHlt
+    @labelHlt,
+
+    @labelPushTrap,
+    @labelPopTrap,
+    @labelThrow
   );
 {$endif}
 
@@ -3666,6 +3706,38 @@ begin
           Self.Parent.IsDone := True;
           Exit;
         end;
+      {$ifdef SE_COMPUTED_GOTO}labelPushTrap{$else}opPushTrap{$endif}:
+        begin
+          Inc(Self.TrapPtr);
+          Self.TrapPtr^.FramePtr := Self.FramePtr;
+          Self.TrapPtr^.Stack := StackPtrLocal;
+          Self.TrapPtr^.CatchCode := Integer(BinaryLocal.Ptr(CodePtrLocal + 1)^.VarPointer);
+          Inc(CodePtrLocal, 2);
+          DispatchGoto;
+        end;
+      {$ifdef SE_COMPUTED_GOTO}labelPopTrap{$else}opPopTrap{$endif}:
+        begin
+          Dec(Self.TrapPtr);
+          Inc(CodePtrLocal);
+          DispatchGoto;
+        end;
+      {$ifdef SE_COMPUTED_GOTO}labelThrow{$else}opThrow{$endif}:
+        begin
+          if Self.TrapPtr < @Self.Trap[0] then
+            raise Exception.Create(SEValueToText(Pop^))
+          else
+          begin
+            TV := Pop^;
+            Self.FramePtr := Self.TrapPtr^.FramePtr;
+            CodePtrLocal := Self.TrapPtr^.CatchCode;
+            StackPtrLocal := Self.TrapPtr^.Stack;
+            BinaryPtrLocal := Self.FramePtr^.Binary;
+            BinaryLocal := Self.Binaries[BinaryPtrLocal];
+            Push(TV);
+            Dec(Self.TrapPtr);
+          end;
+          DispatchGoto;
+        end;
       {$ifndef SE_COMPUTED_GOTO}
       end;
       if Self.IsPaused or Self.IsWaited then
@@ -3680,14 +3752,27 @@ begin
   except
     on E: Exception do
     begin
-      I := 0;
-      while I <= Self.Parent.LineOfCodeList.Count - 1 do
+      if Self.TrapPtr < @Self.Trap[0] then
       begin
-        if CodePtrLocal <= Self.Parent.LineOfCodeList[I] then
-          break;
-        Inc(I);
+        I := 0;
+        while I <= Self.Parent.LineOfCodeList.Count - 1 do
+        begin
+          if CodePtrLocal <= Self.Parent.LineOfCodeList[I] then
+            break;
+          Inc(I);
+        end;
+        raise Exception.Create(Format('Runtime error %s: "%s" at line %d', [E.ClassName, E.Message, I + 1]));
+      end else
+      begin
+        Self.FramePtr := Self.TrapPtr^.FramePtr;
+        CodePtrLocal := Self.TrapPtr^.CatchCode;
+        StackPtrLocal := Self.TrapPtr^.Stack;
+        BinaryPtrLocal := Self.FramePtr^.Binary;
+        BinaryLocal := Self.Binaries[BinaryPtrLocal];
+        Push(E.Message);
+        Dec(Self.TrapPtr);
+        DispatchGoto;
       end;
-      raise Exception.Create(Format('Runtime error %s: "%s" at line %d', [E.ClassName, E.Message, I + 1]));
     end;
   end;
   Self.CodePtr := CodePtrLocal;
@@ -4347,6 +4432,12 @@ begin
               Token.Kind := tkAtom;
             'import':
               Token.Kind := tkImport;
+            'try':
+              Token.Kind := tkTry;
+            'catch':
+              Token.Kind := tkCatch;
+            'throw':
+              Token.Kind := tkThrow;
             else
               Token.Kind := tkIdent;
           end;
@@ -6014,6 +6105,44 @@ var
     end;
   end;
 
+  procedure ParseTrap;
+  var
+    Token: TSEToken;
+    VarIdent: TSEIdent;
+    PVarIdent: PSEIdent;
+    JumpCatchBlock,
+    CatchBlock,
+    JumpFinallyBlock: Integer;
+  begin
+    JumpCatchBlock := Emit([Pointer(opPushTrap), Pointer(0)]);
+    ParseBlock;
+    Emit([Pointer(opPopTrap)]);
+    JumpFinallyBlock := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
+
+    CatchBlock := Self.Binary.Count;
+    NextTokenExpected([tkCatch]);
+    NextTokenExpected([tkBracketOpen]);
+    Token := NextTokenExpected([tkIdent]);
+    PVarIdent := FindVar(Token.Value);
+    if PVarIdent = nil then
+    begin
+      VarIdent := CreateIdent(ikVariable, Token, True);
+      EmitAssignVar(VarIdent);
+    end else
+      EmitAssignVar(PVarIdent^);
+    NextTokenExpected([tkBracketClose]);
+    ParseBlock;
+
+    Patch(JumpCatchBlock - 1, Pointer(CatchBlock));
+    Patch(JumpFinallyBlock - 1, Pointer(Self.Binary.Count));
+  end;
+
+  procedure ParseThrow;
+  begin
+    ParseExpr;
+    Emit([Pointer(opThrow)]);
+  end;
+
   procedure ParseBlock(const IsCase: Boolean = False);
   var
     Token: TSEToken;
@@ -6165,6 +6294,16 @@ var
         begin
           NextToken;
           ParseFuncImport;
+        end;
+      tkTry:
+        begin
+          NextToken;
+          ParseTrap;
+        end;
+      tkThrow:
+        begin
+          NextToken;
+          ParseThrow;
         end;
       tkEOF:
         Exit;
