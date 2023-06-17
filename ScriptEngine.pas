@@ -934,26 +934,31 @@ end;
 class function TBuiltInFunction.SEBufferSetU8(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
   Byte(Args[0].VarBuffer^.Ptr^) := Round(Args[1].VarNumber);
+  Result := SENull;
 end;
 
 class function TBuiltInFunction.SEBufferSetU16(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
   Word(Args[0].VarBuffer^.Ptr^) := Round(Args[1].VarNumber);
+  Result := SENull;
 end;
 
 class function TBuiltInFunction.SEBufferSetU32(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
   LongWord(Args[0].VarBuffer^.Ptr^) := Round(Args[1].VarNumber);
+  Result := SENull;
 end;
 
 class function TBuiltInFunction.SEBufferSetU64(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
   QWord(Args[0].VarBuffer^.Ptr^) := Round(Args[1].VarNumber);
+  Result := SENull;
 end;
 
 class function TBuiltInFunction.SEBufferSetI8(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
   ShortInt(Args[0].VarBuffer^.Ptr^) := Round(Args[1].VarNumber);
+  Result := SENull;
 end;
 
 class function TBuiltInFunction.SEBufferSetI16(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -962,26 +967,31 @@ var
 begin
   P := Pointer(Round(Args[0].VarNumber));
   SmallInt(P^) := Round(Args[1].VarNumber);
+  Result := SENull;
 end;
 
 class function TBuiltInFunction.SEBufferSetI32(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
   LongInt(Args[0].VarBuffer^.Ptr^) := Round(Args[1].VarNumber);
+  Result := SENull;
 end;
 
 class function TBuiltInFunction.SEBufferSetI64(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
   Int64(Args[0].VarBuffer^.Ptr^) := Round(Args[1].VarNumber);
+  Result := SENull;
 end;
 
 class function TBuiltInFunction.SEBufferSetF32(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
   Single(Args[0].VarBuffer^.Ptr^) := Single(Args[1].VarNumber);
+  Result := SENull;
 end;
 
 class function TBuiltInFunction.SEBufferSetF64(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
   TSENumber(Args[0].VarBuffer^.Ptr^) := Args[1];
+  Result := SENull;
 end;
 
 class function TBuiltInFunction.SEStringToBuffer(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -1042,6 +1052,7 @@ begin
   begin
     Write(SEValueToText(Args[I]));
   end;
+  Result := SENull;
 end;
 
 class function TBuiltInFunction.SEWriteln(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -1050,6 +1061,7 @@ var
 begin
   TBuiltInFunction.SEWrite(VM, Args);
   Writeln;
+  Result := SENull;
 end;
 
 class function TBuiltInFunction.SERandom(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -1088,6 +1100,7 @@ end;
 class function TBuiltInFunction.SESet(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
   ScriptVarMap.AddOrSetValue(Args[0].VarString^, Args[1]);
+  Result := SENull;
 end;
 
 class function TBuiltInFunction.SEString(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -1103,6 +1116,7 @@ end;
 class function TBuiltInFunction.SEWait(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
   VM.WaitTime := GetTickCount64 + Round(Args[0].VarNumber * 1000);
+  Result := SENull;
 end;
 
 class function TBuiltInFunction.SELength(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -1374,8 +1388,6 @@ begin
 end;
 
 class function TBuiltInFunction.SEStringUpperCase(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
-var
-  S: String;
 begin
   Result := '';
   case Args[0].Kind of
@@ -1386,8 +1398,6 @@ begin
 end;
 
 class function TBuiltInFunction.SEStringLowerCase(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
-var
-  S: String;
 begin
   Result := '';
   case Args[0].Kind of
@@ -1508,8 +1518,6 @@ begin
 end;
 
 class function TBuiltInFunction.SEGetTickCount(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
-var
-  S: TSENumber;
 begin
   Exit(GetTickCount64);
 end;
@@ -1597,6 +1605,7 @@ end;
 class function TBuiltInFunction.SEGCCollect(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
   GC.GC;
+  Result := SENull;
 end;
 
 function TSEOpcodeInfoList.Ptr(const P: Integer): PSEOpcodeInfo; inline;
@@ -4812,8 +4821,7 @@ var
 
   procedure Rewind(const StartAddr, Count: Integer); inline;
   var
-    Addr, I, J: Integer;
-    FuncScript: PSEFuncScriptInfo;
+    Addr, I: Integer;
   begin
     for I := 0 to Count - 1 do
     begin
@@ -5129,13 +5137,10 @@ var
         Emit(Data);
     end;
 
-    procedure BinaryOp(const Op: TSEOpcode; const Func: TProc; const IsString: Boolean = False); inline;
+    procedure BinaryOp(const Op: TSEOpcode; const Func: TProc); inline;
     begin
       NextToken;
-      if IsString then
-        PeekAtNextTokenExpected([tkBracketOpen, tkSquareBracketOpen, tkDot, tkNumber, tkString, tkNegative, tkIdent])
-      else
-        PeekAtNextTokenExpected([tkBracketOpen, tkSquareBracketOpen, tkDot, tkNumber, tkNegative, tkNot, tkIdent]);
+      PeekAtNextTokenExpected([tkBracketOpen, tkSquareBracketOpen, tkDot, tkNumber, tkString, tkNegative, tkIdent]);
       Func;
       EmitExpr([Pointer({$ifdef CPU64}Int64(Op){$else}Op{$endif})]);
     end;
@@ -5371,7 +5376,7 @@ var
         Token := PeekAtNextToken;
         case Token.Kind of
           tkPow:
-            BinaryOp(opOperatorPow, @SignedFactor, True);
+            BinaryOp(opOperatorPow, @SignedFactor);
           else
             Exit;
         end;
@@ -5388,11 +5393,11 @@ var
         Token := PeekAtNextToken;
         case Token.Kind of
           tkMul:
-            BinaryOp(opOperatorMul, @Pow, True);
+            BinaryOp(opOperatorMul, @Pow);
           tkDiv:
-            BinaryOp(opOperatorDiv, @Pow, True);
+            BinaryOp(opOperatorDiv, @Pow);
           tkMod:
-            BinaryOp(opOperatorMod, @Pow, True);
+            BinaryOp(opOperatorMod, @Pow);
           else
             Exit;
         end;
@@ -5409,9 +5414,9 @@ var
         Token := PeekAtNextToken;
         case Token.Kind of
           tkAdd:
-            BinaryOp(opOperatorAdd, @Term, True);
+            BinaryOp(opOperatorAdd, @Term);
           tkSub:
-            BinaryOp(opOperatorSub, @Term, True);
+            BinaryOp(opOperatorSub, @Term);
           else
             Exit;
         end;
@@ -5428,9 +5433,9 @@ var
         Token := PeekAtNextToken;
         case Token.Kind of
           tkShiftLeft:
-            BinaryOp(opOperatorShiftLeft, @Expr, True);
+            BinaryOp(opOperatorShiftLeft, @Expr);
           tkShiftRight:
-            BinaryOp(opOperatorShiftRight, @Expr, True);
+            BinaryOp(opOperatorShiftRight, @Expr);
           else
             Exit;
         end;
@@ -5447,23 +5452,23 @@ var
         Token := PeekAtNextToken;
         case Token.Kind of
           tkEqual:
-            BinaryOp(opOperatorEqual, @Expr, True);
+            BinaryOp(opOperatorEqual, @Expr);
           tkNotEqual:
-            BinaryOp(opOperatorNotEqual, @Expr, True);
+            BinaryOp(opOperatorNotEqual, @Expr);
           tkGreater:
-            BinaryOp(opOperatorGreater, @Expr, True);
+            BinaryOp(opOperatorGreater, @Expr);
           tkGreaterOrEqual:
-            BinaryOp(opOperatorGreaterOrEqual, @Expr, True);
+            BinaryOp(opOperatorGreaterOrEqual, @Expr);
           tkSmaller:
-            BinaryOp(opOperatorLesser, @Expr, True);
+            BinaryOp(opOperatorLesser, @Expr);
           tkSmallerOrEqual:
-            BinaryOp(opOperatorLesserOrEqual, @Expr, True);
+            BinaryOp(opOperatorLesserOrEqual, @Expr);
           tkAnd:
-            BinaryOp(opOperatorAnd, @Expr, True);
+            BinaryOp(opOperatorAnd, @Expr);
           tkOr:
-            BinaryOp(opOperatorOr, @Expr, True);
+            BinaryOp(opOperatorOr, @Expr);
           tkXor:
-            BinaryOp(opOperatorXor, @Expr, True);
+            BinaryOp(opOperatorXor, @Expr);
           else
             Exit;
         end;
@@ -5478,7 +5483,6 @@ var
     Token: TSEToken;
     ArgCount: Integer = 1;
     RewindCount: Integer;
-    ThisAddr: Integer;
   begin
     RewindCount := Self.Binary.Count - RewindStartAdd;
     NextTokenExpected([tkBracketOpen]);
@@ -5772,7 +5776,6 @@ var
       Name, ActualName: String;
       Return: TSEAtomKind;
       Args: TSEAtomKindArray;
-      I: Integer;
     begin
       NextTokenExpected([tkFunctionDecl]);
       Token := NextTokenExpected([tkIdent]);
@@ -6514,7 +6517,6 @@ end;
 procedure TScriptEngine.Reset;
 var
   Ident: TSEIdent;
-  I: Integer;
 begin
   Self.FuncScriptList.Clear;
   Self.FuncImportList.Clear;
