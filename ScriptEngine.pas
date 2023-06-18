@@ -2697,7 +2697,7 @@ var
         jmp P;
       end
     }
-  {$elseif CPUARM}
+  {$elseif defined(CPUARM) or defined(CPUAARCH64)}
     {$define DispatchGoto :=
       if Self.IsPaused or Self.IsWaited then
       begin
@@ -2839,6 +2839,7 @@ begin
   BinaryLocalCountMinusOne := BinaryLocal.Count - 1;
   GC.CheckForGC;
 
+  while True do
   try
     DispatchGoto;
     while True do
@@ -3903,6 +3904,7 @@ begin
       end;
       {$endif}
     end;
+    Break;
   except
     on E: Exception do
     begin
@@ -3926,6 +3928,7 @@ begin
         Push(E.Message);
         Dec(Self.TrapPtr);
         DispatchGoto;
+        Break;
       end;
     end;
   end;
