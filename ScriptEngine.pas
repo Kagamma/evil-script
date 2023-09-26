@@ -157,6 +157,7 @@ type
   public
     constructor Create;
     destructor Destroy; override;
+    procedure ToMap;
     procedure Set2(const Key: String; const AValue: TSEValue);
     procedure Del2(const Key: String);
     function Get2(const Key: String): TSEValue;
@@ -592,6 +593,7 @@ type
     class function SEMapDelete(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEMapKeysGet(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEArrayResize(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEArrayToMap(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SELerp(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SESLerp(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SESign(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -1206,6 +1208,13 @@ begin
   begin
     TSEValueMap(Args[0].VarMap).List.Count := Args[1];
   end;
+  Result := Args[0];
+end;
+
+class function TBuiltInFunction.SEArrayToMap(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+begin
+  if Args[0].Kind = sevkMap then
+    TSEValueMap(Args[0].VarMap).ToMap;
   Result := Args[0];
 end;
 
@@ -2203,6 +2212,20 @@ begin
   inherited;
 end;
 
+procedure TSEValueMap.ToMap;
+var
+  I: Integer;
+begin
+  if Self.FIsValidArray then
+  begin
+    for I := 0 to Self.FList.Count - 1 do
+      Self.AddOrSetValue(IntToStr(I), Self.FList[I]);
+    GC.AllocatedMem := GC.AllocatedMem - Self.FList.Count * SizeOf(TSEValue) + 1024;
+    FreeAndNil(Self.FList);
+    Self.FIsValidArray := False;
+  end;
+end;
+
 procedure TSEValueMap.Set2(const Key: String; const AValue: TSEValue);
 var
   Index, I: Integer;
@@ -2218,14 +2241,7 @@ begin
     GC.AllocatedMem := GC.AllocatedMem + Self.FList.Count * SizeOf(TSEValue);
   end else
   begin
-    if Self.FIsValidArray then
-    begin
-      for I := 0 to Self.FList.Count - 1 do
-        Self.AddOrSetValue(IntToStr(I), Self.FList[I]);
-      GC.AllocatedMem := GC.AllocatedMem - Self.FList.Count * SizeOf(TSEValue) + 1024;
-      FreeAndNil(Self.FList);
-      Self.FIsValidArray := False;
-    end;
+    Self.ToMap;
   end;
   if not Self.IsValidArray then
   begin
@@ -4005,6 +4021,7 @@ begin
   Self.RegisterFunc('map_delete', @TBuiltInFunction(nil).SEMapDelete, 2);
   Self.RegisterFunc('map_keys_get', @TBuiltInFunction(nil).SEMapKeysGet, 1);
   Self.RegisterFunc('array_resize', @TBuiltInFunction(nil).SEArrayResize, 2);
+  Self.RegisterFunc('array_to_map', @TBuiltInFunction(nil).SEArrayToMap, 1);
   Self.RegisterFunc('sign', @TBuiltInFunction(nil).SESign, 1);
   Self.RegisterFunc('min', @TBuiltInFunction(nil).SEMin, -1);
   Self.RegisterFunc('max', @TBuiltInFunction(nil).SEMax, 1);
@@ -6382,6 +6399,14 @@ var
       tkReturn:
         begin
           NextToken;
+          if PeekAtNextToken.Kind = tkBracketOpen then
+          begin
+            NextToken;
+            Token.Kind := tkEqual;
+            TokenList.Insert(Pos + 1, Token); // Insert equal token
+            ParseVarAssign('result');
+            NextTokenExpected([tkBracketClose]);
+          end;
           if FuncTraversal = 0 then
             Emit([Pointer(opHlt)])
           else
