@@ -870,7 +870,14 @@ end;
 
 class function TBuiltInFunction.SEBufferLength(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  Result := SESize(Args[0]);
+  case Args[0].Kind of
+    sevkBuffer:
+      begin
+        Result := Length(Args[0].VarBuffer^.Base);
+      end;
+    else
+      Result := 0;
+  end;
 end;
 
 class function TBuiltInFunction.SEBufferGetU8(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -5351,7 +5358,7 @@ var
                   end;
                 end;
               else
-                Error(Format('Unknown identify "%s"', [Token.Value]), Token);
+                Error(Format('Unknown identifier "%s"', [Token.Value]), Token);
             end;
           end;
       end;
