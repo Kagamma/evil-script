@@ -16,8 +16,13 @@ unit ScriptEngine;
 interface
 
 uses
-  SysUtils, Classes, Generics.Collections, StrUtils, Types, DateUtils, RegExpr
+  SysUtils, Classes, Generics.Collections, StrUtils, Types, DateUtils, RegExpr,
+  base64
   {$ifdef SE_STRING_UTF8},LazUTF8{$endif}{$ifdef CPU64}, dynlibs{$endif};
+
+const
+  // Maximum memory in bytes before GC starts acting aggressive
+  SE_MEM_CEIL = 1024 * 1024 * 256;
 
 type
   TSENumber = Double;
@@ -168,18 +173,18 @@ type
   PPSEValue = ^PSEValue;
 
   TSEGCValue = record
-    Garbage: Boolean;
     Value: TSEValue;
+    Garbage: Boolean;
     Lock: Boolean;
   end;
   TSEGCValueList = specialize TList<TSEGCValue>;
-  TSEGCValueAvailList = specialize TList<Integer>;
+  TSEGCValueAvailStack = specialize TStack<Integer>;
 
   TSEGarbageCollector = class
   private
     FAllocatedMem: Int64;
     FValueList: TSEGCValueList;
-    FValueAvailList: TSEGCValueAvailList;
+    FValueAvailStack: TSEGCValueAvailStack;
     FTicks: QWord;
     procedure Sweep;
   public
@@ -641,6 +646,9 @@ type
     class function SEGCObjectCount(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEGCUsed(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEGCCollect(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+
+    class function SEBase64Encode(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEBase64Decode(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
   end;
 
   TDynlibMap = specialize TDictionary<String, TLibHandle>;
@@ -1005,8 +1013,8 @@ end;
 
 class function TBuiltInFunction.SEStringToBuffer(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  GC.AllocBuffer(@Result, 1);
-  Result.VarBuffer^.Base := Args[0].VarString^;
+  GC.AllocBuffer(@Result, Length(Args[0].VarString^));
+  Move(Args[0].VarString^[1], Result.VarBuffer^.Base[1], Length(Args[0].VarString^));
   Result.VarBuffer^.Ptr := PChar(Result.VarBuffer^.Base);
 end;
 
@@ -1137,7 +1145,7 @@ begin
       {$else}
       Exit(Length(String(Args[0].VarString^)));
       {$endif}
-    sevkMap:
+    sevkMap, sevkBuffer:
       begin
         Exit(SESize(Args[0]));
       end;
@@ -1622,6 +1630,16 @@ class function TBuiltInFunction.SEGCCollect(const VM: TSEVM; const Args: array o
 begin
   GC.GC;
   Result := SENull;
+end;
+
+class function TBuiltInFunction.SEBase64Encode(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+begin
+  Result := EncodeStringBase64(Args[0]);
+end;
+
+class function TBuiltInFunction.SEBase64Decode(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+begin
+  Result := DecodeStringBase64(Args[0]);
 end;
 
 function TSEOpcodeInfoList.Ptr(const P: Integer): PSEOpcodeInfo; inline;
@@ -2301,10 +2319,11 @@ begin
   Self.FValueList := TSEGCValueList.Create;
   Self.FValueList.Capacity := 65536;
   Self.FValueList.Add(Ref0);
-  Self.FValueAvailList := TSEGCValueAvailList.Create;;
+  Self.FValueAvailStack := TSEGCValueAvailStack.Create;
+  Self.FValueAvailStack.Capacity := 65536;
   Self.FTicks := GetTickCount64;
   Self.FAllocatedMem := 0;
-  Self.CeilMem := 1024 * 1024 * 128;
+  Self.CeilMem := SE_MEM_CEIL;
 end;
 
 destructor TSEGarbageCollector.Destroy;
@@ -2320,7 +2339,7 @@ begin
   end;
   Self.Sweep;
   Self.FValueList.Free;
-  Self.FValueAvailList.Free;
+  Self.FValueAvailStack.Free;
   inherited;
 end;
 
@@ -2328,7 +2347,7 @@ procedure TSEGarbageCollector.AddToList(const PValue: PSEValue); inline;
 var
   Value: TSEGCValue;
 begin
-  if Self.FValueAvailList.Count = 0 then
+  if Self.FValueAvailStack.Count = 0 then
   begin
     PValue^.Ref := Self.FValueList.Count;
     Value.Value := PValue^;
@@ -2336,11 +2355,10 @@ begin
     Self.FValueList.Add(Value);
   end else
   begin
-    PValue^.Ref := Self.FValueAvailList[Self.FValueAvailList.Count - 1];
+    PValue^.Ref := Self.FValueAvailStack.Pop;
     Value.Value := PValue^;
     Value.Lock := False;
     Self.FValueList[PValue^.Ref] := Value;
-    Self.FValueAvailList.Delete(Self.FValueAvailList.Count - 1);
   end;
 end;
 
@@ -2356,7 +2374,7 @@ end;
 procedure TSEGarbageCollector.Sweep; inline;
 var
   Value: TSEGCValue;
-  I, J, MS: Integer;
+  I, MS: Integer;
 begin
   for I := Self.FValueList.Count - 1 downto 1 do
   begin
@@ -2377,7 +2395,7 @@ begin
             begin
               MS := ByteLength(Value.Value.VarString^);
               Self.FAllocatedMem := Self.FAllocatedMem - MS;
-              Value.Value.VarString^ := '';
+              // Value.Value.VarString^ := '';
               Dispose(Value.Value.VarString);
             end;
           end;
@@ -2385,16 +2403,16 @@ begin
           begin
             if Value.Value.VarBuffer <> nil then
             begin
-              MS := ByteLength(Value.Value.VarBuffer^.Base);
+              MS := Length(Value.Value.VarBuffer^.Base);
               Self.FAllocatedMem := Self.FAllocatedMem - MS;
-              Value.Value.VarBuffer^.Base := '';
+              // Value.Value.VarBuffer^.Base := '';
               Dispose(Value.Value.VarBuffer);
             end;
           end;
       end;
       Value.Value.Kind := sevkNumber;
       Self.FValueList[I] := Value;
-      Self.FValueAvailList.Add(I);
+      Self.FValueAvailStack.Push(I);
     end;
   end;
 end;
@@ -2407,7 +2425,7 @@ procedure TSEGarbageCollector.GC;
     Key: String;
     I: Integer;
   begin
-    if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) then
+    if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) then
       Exit;
     Value := Self.FValueList[PValue^.Ref];
     if not Value.Garbage then
@@ -2509,15 +2527,13 @@ begin
   PValue^.Kind := sevkBuffer;
   New(PValue^.VarBuffer);
   SetLength(PValue^.VarBuffer^.Base, Size);
-  PValue^.VarBuffer^.Ptr := PChar(PValue^.VarBuffer^.Base);
+  PValue^.VarBuffer^.Ptr := @PValue^.VarBuffer^.Base[1];
   PValue^.Size := Size;
   Self.FAllocatedMem := Self.FAllocatedMem + Size;
   Self.AddToList(PValue);
 end;
 
 procedure TSEGarbageCollector.AllocMap(const PValue: PSEValue);
-var
-  Len: Integer;
 begin
   PValue^.Kind := sevkMap;
   PValue^.VarMap := TSEValueMap.Create;
@@ -2539,7 +2555,7 @@ procedure TSEGarbageCollector.Lock(const PValue: PSEValue);
 var
   Value: TSEGCValue;
 begin
-  if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) then
+  if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) then
     Exit;
   Value := Self.FValueList[PValue^.Ref];
   Value.Lock := True;
@@ -2550,7 +2566,7 @@ procedure TSEGarbageCollector.Unlock(const PValue: PSEValue);
 var
   Value: TSEGCValue;
 begin
-  if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) then
+  if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) then
     Exit;
   Value := Self.FValueList[PValue^.Ref];
   Value.Lock := False;
@@ -4031,7 +4047,7 @@ begin
   Self.RegisterFunc('array_to_map', @TBuiltInFunction(nil).SEArrayToMap, 1);
   Self.RegisterFunc('sign', @TBuiltInFunction(nil).SESign, 1);
   Self.RegisterFunc('min', @TBuiltInFunction(nil).SEMin, -1);
-  Self.RegisterFunc('max', @TBuiltInFunction(nil).SEMax, 1);
+  Self.RegisterFunc('max', @TBuiltInFunction(nil).SEMax, -1);
   Self.RegisterFunc('range', @TBuiltInFunction(nil).SERange, -1);
   Self.RegisterFunc('pow', @TBuiltInFunction(nil).SEPow, 2);
   Self.RegisterFunc('string_empty', @TBuiltInFunction(nil).SEStringEmpty, 1);
@@ -4083,6 +4099,8 @@ begin
   Self.RegisterFunc('mem_object_count', @TBuiltInFunction(nil).SEGCObjectCount, 0);
   Self.RegisterFunc('mem_used', @TBuiltInFunction(nil).SEGCUsed, 0);
   Self.RegisterFunc('mem_gc', @TBuiltInFunction(nil).SEGCCollect, 0);
+  Self.RegisterFunc('base64_encode', @TBuiltInFunction(nil).SEBase64Encode, 1);
+  Self.RegisterFunc('base64_decode', @TBuiltInFunction(nil).SEBase64Decode, 1);
   Self.AddDefaultConsts;
   Self.Source := '';
 end;
@@ -4330,12 +4348,23 @@ begin
                 end;
               '\':
                 begin
-                  if PeekAtNextChar = 'n' then
+                  C := PeekAtNextChar;
+                  if C = 'n' then
                   begin
                     NextChar;
                     Token.Value := Token.Value + #10;
                   end else
-                  if PeekAtNextChar <> #0 then
+                  if C = 'r' then
+                  begin
+                    NextChar;
+                    Token.Value := Token.Value + #13;
+                  end else
+                  if C = 't' then
+                  begin
+                    NextChar;
+                    Token.Value := Token.Value + #9;
+                  end else
+                  if C <> #0 then
                   begin
                     Token.Value := Token.Value + NextChar;
                   end;
@@ -5141,6 +5170,18 @@ var
                 SEValueNotEqual(V, V1, V2);
                 Emit([Pointer(opPushConst), V]);
               end;
+            opOperatorShiftLeft:
+              begin
+                Pop2;
+                SEValueShiftLeft(V, V1, V2);
+                Emit([Pointer(opPushConst), V]);
+              end;
+            opOperatorShiftRight:
+              begin
+                Pop2;
+                SEValueShiftRight(V, V1, V2);
+                Emit([Pointer(opPushConst), V]);
+              end;
             else
               begin
                 PushConstCount := 0;
@@ -5640,7 +5681,6 @@ var
       NextTokenExpected([tkBracketOpen]);
       NextTokenExpected([tkBracketClose]);
     end;
-    ArgCount := Max(0, ArgCount);
     if FuncNativeInfo <> nil then
     begin
       Emit([Pointer(opCallNative), Pointer(FuncNativeInfo), Pointer(ArgCount)]);
@@ -6444,6 +6484,14 @@ var
       tkYield:
         begin
           NextToken;
+          if PeekAtNextToken.Kind = tkBracketOpen then
+          begin
+            NextToken;
+            Token.Kind := tkEqual;
+            TokenList.Insert(Pos + 1, Token); // Insert equal token
+            ParseVarAssign('___result');
+            NextTokenExpected([tkBracketClose]);
+          end;
           Emit([Pointer(opYield)]);
         end;
       tkColon:
@@ -6571,13 +6619,15 @@ begin
   Self.IncludeList.Clear;
   Self.ScopeFunc.Clear;
   Self.ScopeStack.Clear;
-  Self.GlobalVarCount := 1;
+  Self.GlobalVarCount := 2;
   Self.VarList.Count := Self.GlobalVarCount; // Safeguard
   Ident.Kind := ikVariable;
   Ident.Addr := 0;
   Ident.Name := 'result';
   Ident.Local := 0;
   Self.VarList[0] := Ident;
+  Ident.Name := '___result';
+  Self.VarList[1] := Ident;
   ErrorLn := -1;
   ErrorCol := -1;
   FuncTraversal := 0;
