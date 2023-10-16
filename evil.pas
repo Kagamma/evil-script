@@ -17,6 +17,7 @@ begin
     Halt;
   end;
   SE := TScriptEngine.Create;
+  SE.OptimizeAsserts := False;
   SL := TStringList.Create;
   try
     try
