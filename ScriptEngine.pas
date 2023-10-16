@@ -274,6 +274,14 @@ type
     function Ptr(const P: Integer): PSEValue;
   end;
 
+  TSELineOfCode = record
+    BinaryCount: Integer;
+    BinaryPtr: Integer;
+    Line: Integer;
+    Module: String;
+  end;
+  TSELineOfCodeList = specialize TList<TSELineOfCode>;
+
   TSEConstMap = specialize TDictionary<String, TSEValue>;
   TSEStack = TSEBinaryAncestor;
   TSEVarMap = TSEConstMap;
@@ -326,7 +334,7 @@ type
   TSECache = record
     Binaries: array of TSEBinary;
     GlobalVarCount: Cardinal;
-    LineOfCodeList: TIntegerList;
+    LineOfCodeList: TSELineOfCodeList;
     FuncScriptList: TSEFuncScriptList;
     FuncImportList: TSEFuncImportList;
   end;
@@ -447,6 +455,9 @@ type
     procedure SetSource(V: String);
     function InternalIdent: String;
   public
+    OptimizePeephole,         // True = enable peephole optimization, default is true
+    OptimizeConstantFolding,  // True = enable constant folding optimization, default is true
+    OptimizeAsserts: Boolean; // True = ignore assert, default is true
     ErrorLn, ErrorCol: Integer;
     VM: TSEVM;
     IncludePathList,
@@ -462,12 +473,13 @@ type
     ConstMap: TSEConstMap;
     ScopeStack: TSEScopeStack;
     ScopeFunc: TSEScopeStack;
-    LineOfCodeList: TIntegerList;
+    LineOfCodeList: TSELineOfCodeList;
     IsLex,
     IsParsed: Boolean;
     IsDone: Boolean;
     FuncTraversal: Integer;
     CurrentFileList: TStrings;
+    BinaryPos: Integer; // This is mainly for storing line of code for runtime
     Binary: TSEBinary; // Current working binary
     constructor Create;
     destructor Destroy; override;
@@ -646,6 +658,7 @@ type
     class function SEGCObjectCount(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEGCUsed(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEGCCollect(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEAssert(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 
     class function SEBase64Encode(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEBase64Decode(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -1371,9 +1384,9 @@ class function TBuiltInFunction.SEStringConcat(const VM: TSEVM; const Args: arra
 begin
   Result := Args[0];
   // Since we mess with GC, manually update mem used
-  GC.AllocatedMem := GC.AllocatedMem - ByteLength(Args[1].VarString^);
+  GC.AllocatedMem := GC.AllocatedMem - Length(Args[1].VarString^);
   Result.VarString^ := Args[1].VarString^ + Args[2].VarString^;
-  GC.AllocatedMem := GC.AllocatedMem + ByteLength(Args[1].VarString^);
+  GC.AllocatedMem := GC.AllocatedMem + Length(Args[1].VarString^);
 end;
 
 class function TBuiltInFunction.SEStringInsert(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -1630,6 +1643,12 @@ class function TBuiltInFunction.SEGCCollect(const VM: TSEVM; const Args: array o
 begin
   GC.GC;
   Result := SENull;
+end;
+
+class function TBuiltInFunction.SEAssert(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+begin
+  if Args[0] = False then
+    raise EAssertionFailed.Create(Args[1]);
 end;
 
 class function TBuiltInFunction.SEBase64Encode(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -2393,7 +2412,7 @@ begin
           begin
             if Value.Value.VarString <> nil then
             begin
-              MS := ByteLength(Value.Value.VarString^);
+              MS := Length(Value.Value.VarString^);
               Self.FAllocatedMem := Self.FAllocatedMem - MS;
               // Value.Value.VarString^ := '';
               Dispose(Value.Value.VarString);
@@ -2547,7 +2566,7 @@ begin
   New(PValue^.VarString);
   PValue^.VarString^ := S;
   PValue^.Size := Length(S);
-  Self.FAllocatedMem := Self.FAllocatedMem + ByteLength(PValue^.VarString^);
+  Self.FAllocatedMem := Self.FAllocatedMem + Length(PValue^.VarString^);
   Self.AddToList(PValue);
 end;
 
@@ -2668,6 +2687,7 @@ var
   ImportResultS: Single;
   FuncImport, P, PP, PC: Pointer;
   BinaryLocalCountMinusOne: Integer;
+  LineOfCode: TSELineOfCode;
 
   procedure Push(const Value: TSEValue); inline;
   begin
@@ -3952,11 +3972,15 @@ begin
         I := 0;
         while I <= Self.Parent.LineOfCodeList.Count - 1 do
         begin
-          if CodePtrLocal <= Self.Parent.LineOfCodeList[I] then
+          LineOfCode := Self.Parent.LineOfCodeList[I];
+          if (CodePtrLocal <= LineOfCode.BinaryCount) and (Self.BinaryPtr = LineOfCode.BinaryPtr) then
             break;
           Inc(I);
         end;
-        raise Exception.Create(Format('Runtime error %s: "%s" at line %d', [E.ClassName, E.Message, I + 1]));
+        if LineOfCode.Module = '' then
+          raise Exception.Create(Format('Runtime error %s: "%s" at line %d', [E.ClassName, E.Message, LineOfCode.Line]))
+        else
+          raise Exception.Create(Format('Runtime error %s: "%s" at line %d (%s)', [E.ClassName, E.Message, LineOfCode.Line, LineOfCode.Module]));
       end else
       begin
         Self.FramePtr := Self.TrapPtr^.FramePtr;
@@ -3991,11 +4015,15 @@ begin
   Self.ConstMap := TSEConstMap.Create;
   Self.ScopeStack := TSEScopeStack.Create;
   Self.ScopeFunc := TSEScopeStack.Create;
-  Self.LineOfCodeList := TIntegerList.Create;
+  Self.LineOfCodeList := TSELineOfCodeList.Create;
   Self.IncludeList := TStringList.Create;
   Self.IncludePathList := TStringList.Create;
   Self.CurrentFileList := TStringList.Create;
   Self.LocalVarCountList := TIntegerList.Create;
+  //
+  Self.OptimizeAsserts := True;
+  Self.OptimizeConstantFolding := True;
+  Self.OptimizePeephole := True;
   //
   Self.TokenList.Capacity := 1024;
   Self.VarList.Capacity := 256;
@@ -4101,6 +4129,7 @@ begin
   Self.RegisterFunc('mem_gc', @TBuiltInFunction(nil).SEGCCollect, 0);
   Self.RegisterFunc('base64_encode', @TBuiltInFunction(nil).SEBase64Encode, 1);
   Self.RegisterFunc('base64_decode', @TBuiltInFunction(nil).SEBase64Decode, 1);
+  Self.RegisterFunc('assert', @TBuiltInFunction(nil).SEAssert, 2);
   Self.AddDefaultConsts;
   Self.Source := '';
 end;
@@ -4225,6 +4254,7 @@ begin
   Col := 1;
   ErrorLn := -1;
   ErrorCol := -1;
+  Self.LineOfCodeList.Clear;
   repeat
     Token.Value := '';
     repeat
@@ -4676,10 +4706,12 @@ end;
 procedure TScriptEngine.Parse;
 var
   Pos: Integer = -1;
+  CurrentLine: Integer = -1;
   Token: TSEToken;
   ContinueStack: TSEListStack;
   BreakStack: TSEListStack;
   ReturnStack: TSEListStack;
+  CanEmit: Boolean = True;
 
   procedure Error(const S: String; const Token: TSEToken);
   begin
@@ -4815,13 +4847,23 @@ var
   end;
 
   function NextToken: TSEToken; inline;
+  var
+    LineOfCode: TSELineOfCode;
   begin
     Pos := Pos + 1;
     if Pos >= Self.TokenList.Count then
       Pos := Pos - 1;
     Result := Self.TokenList[Pos];
-    if Self.LineOfCodeList.Count + 1 < Result.Ln then
-      Self.LineOfCodeList.Add({Self.VM.Binary.Count}0);
+    if (Self.LineOfCodeList.Count = 0) or
+       ((Self.LineOfCodeList.Count > 0) and (CurrentLine <> Result.Ln)) then
+    begin
+      LineOfCode.BinaryCount := Self.Binary.Count;
+      LineOfCode.BinaryPtr := Self.BinaryPos;
+      LineOfCode.Line := Result.Ln;
+      LineOfCode.Module := Result.BelongedFileName;
+      CurrentLine := LineOfCode.Line;
+      Self.LineOfCodeList.Add(LineOfCode);
+    end;
   end;
 
   function TokenTypeString(const Kinds: TSETokenKinds): String; inline;
@@ -4892,6 +4934,8 @@ var
     I: Integer;
     OpcodeInfo: TSEOpcodeInfo;
   begin
+    if not CanEmit then
+      Exit(Self.Binary.Count);
     OpcodeInfo.Op := TSEOpcode(Integer(Data[0].VarPointer));
     OpcodeInfo.Pos := Self.Binary.Count;
     OpcodeInfo.Size := Length(Data);
@@ -5198,9 +5242,9 @@ var
         Emit(Data);
         Inc(PushConstCount)
       end else
-      if PeepholeOptimization then
+      if Self.OptimizePeephole and PeepholeOptimization then
       else
-      if ConstantFoldingOptimization then
+      if Self.OptimizeConstantFolding and ConstantFoldingOptimization then
       else
         Emit(Data);
     end;
@@ -5704,6 +5748,7 @@ var
     ReturnList: TList;
     Func: PSEFuncScriptInfo;
     ParentBinary: TSEBinary;
+    ParentBinaryPos: Integer;
   begin
     ReturnList := TList.Create;
     try
@@ -5744,7 +5789,9 @@ var
       Func := RegisterScriptFunc(Name, ArgCount);
       FuncIndex := Self.FuncScriptList.Count - 1;
       ParentBinary := Self.Binary;
+      ParentBinaryPos := Self.BinaryPos;
       Self.Binary := Self.VM.Binaries[Func^.BinaryPos];
+      Self.BinaryPos := Func^.BinaryPos;
       if PeekAtNextToken.Kind = tkEqual then
         Self.TokenList.Insert(Pos + 1, TokenResult);
       ParseBlock;
@@ -5758,6 +5805,7 @@ var
       Func := Self.FuncScriptList.Ptr(FuncIndex);
       Func^.VarCount := Self.LocalVarCountList[Self.LocalVarCountList.Count - 1] - ArgCount;
       Self.Binary := ParentBinary;
+      Self.BinaryPos := ParentBinaryPos;
     finally
       ReturnList.Free;
     end;
@@ -6398,7 +6446,7 @@ var
     Token: TSEToken;
     Ident: TSEIdent;
     List: TList;
-    I, J, RewindStartAddr: Integer;
+    I, J, RewindStartAddr, AssertStartAddr: Integer;
   begin
     Token := PeekAtNextToken;
     case Token.Kind of
@@ -6548,9 +6596,13 @@ var
               end;
             tkFunction:
               begin
+                if Self.OptimizeAsserts and (Token.Value = 'assert') then
+                  CanEmit := False;
                 NextToken;
                 ParseFuncCall(Token.Value);
                 ParseAssignTail;
+                if Self.OptimizeAsserts and (Token.Value = 'assert') then
+                  CanEmit := True;
               end;
             else
               Error('Invalid statement', Token);
@@ -6610,6 +6662,7 @@ begin
   Self.VM.BinaryClear;
   Self.VM.IsDone := True;
   Self.Vm.IsPaused := False;
+  Self.BinaryPos := 0;
   Self.IsDone := False;
   Self.IsParsed := False;
   Self.IsLex := False;
@@ -6709,7 +6762,7 @@ var
   I, J: Integer;
   BackupBinary, SrcBinary: TSEBinary;
 begin
-  Result.LineOfCodeList := TIntegerList.Create;
+  Result.LineOfCodeList := TSELineOfCodeList.Create;
   Result.FuncScriptList := TSEFuncScriptList.Create;
   Result.FuncImportList := TSEFuncImportList.Create;
   SetLength(Result.Binaries, Length(Self.VM.Binaries));
