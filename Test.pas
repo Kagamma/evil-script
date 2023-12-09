@@ -16,6 +16,7 @@ const
   CustomFunctionWithSelfTest = 'a = [ func: add, value: 1 ] writeln(a.func(3).value)';
   YieldTest = 'i = 0 while i < 3 { i = i + 1 yield }';
   FibTest = 'fn fib(n) { if n < 2 result = n else result = fib(n-1) + fib(n-2) } writeln(fib(36))';
+  AssertTest = 'assert(false, "Assert triggered")';
   ResultTest = 'result = 5';
 
 type
@@ -120,6 +121,21 @@ begin
   Writeln(GetTickCount - S, 'ms');
 end;
 
+procedure AssertTestRun;
+begin
+  try
+    Writeln('--- AssertTestRun ---');
+    SE.OptimizeAsserts := False;
+    SE.Source := AssertTest;
+    SE.Exec;
+  except
+    on E: Exception do
+    begin
+      Writeln(E.Message);
+    end;
+  end;
+end;
+
 procedure ResultTestRun;
 begin
   Writeln('--- ResultTestRun ---');
@@ -139,6 +155,7 @@ begin
   CustomFunctionWithSelfTestRun;
   YieldTestRun;
   FibTestRun;
+  AssertTestRun;
   ResultTestRun;
   SE.Free;
 end.
