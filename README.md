@@ -2,7 +2,9 @@ Simple C-like scripting engine written in Free Pascal. While it is primarily des
 
 It has been tested and works on the following platforms: DOS (go32v2), Windows (x86 & x64), Linux (x64), although theoretically it should work on every platforms except 8/16-bit systems and wasm, due to the lack of `goto`
 
-`import` feature (allows to import external functions from DLLs directly) only works on x64 platforms at the moment.
+By default `import` feature (allows to import external functions from DLLs directly) only works on x64 platforms by default. Enable `SE_LIBFFI`, which in turn uses `libffi` instead, will allow you to use `import` in other archs.
+
+In case of `libffi`, because evil script does not allow to change calling convention (for now!), on x86 it is default to `stdcall` on Windows, and `cdecl` on Unix.
 
 #### Features
 - https://github.com/Kagamma/satania-buddy/wiki/Scripting-Reference
