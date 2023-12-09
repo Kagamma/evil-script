@@ -11,10 +11,12 @@ unit ScriptEngine;
 // enable this if you want to handle UTF-8 strings (requires LCL)
 {.$define SE_STRING_UTF8}
 // use computed goto instead of case of
-{$define SE_COMPUTED_GOTO}
+{$ifndef AARCH64}
+  {$define SE_COMPUTED_GOTO}
+{$endif}
 // enable this if you want to use libffi to handle dynamic function calls
 {.$define SE_LIBFFI}
-{$if defined(CPU64) or defined(SE_LIBFFI)}
+{$if defined(CPU32) or defined(CPU64) or defined(SE_LIBFFI)}
   {$define SE_DYNLIBS}
 {$endif}
 
