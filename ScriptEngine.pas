@@ -122,6 +122,16 @@ type
 
   TSEFuncKind = (sefkNative, sefkScript, sefkImport);
 
+  PSEStackTraceSymbol = ^TSEStackTraceSymbol;
+  TSEStackTraceSymbol = record
+    Name,
+    Value: String;
+    Kind: TSEValueKind;
+    Childs: array of TSEStackTraceSymbol;
+  end;
+  TSEStackTraceSymbolArray = array of TSEStackTraceSymbol;
+  TSEStackTraceSymbolProc = procedure(Message: String; Nodes: TSEStackTraceSymbolArray) of object;
+
   {$mode delphi}
   PSEValue = ^TSEValue;
   TSEValue = record
@@ -247,6 +257,7 @@ type
     BinaryPos: Integer;
     ArgCount: Integer;
     VarCount: Integer;
+    VarSymbols: TStrings;
   end;
   PSEFuncScriptInfo = ^TSEFuncScriptInfo;
 
@@ -300,6 +311,7 @@ type
     Code: Integer;
     Stack: PSEValue;
     Binary: Integer;
+    Func: PSEFuncScriptInfo;
   end;
   PSEFrame = ^TSEFrame;
   TSETrap = record
@@ -316,6 +328,7 @@ type
     IsPaused: Boolean;
     IsDone: Boolean;
     IsYielded: Boolean;
+    Global: array of TSEValue;
     Stack: array of TSEValue;
     Frame: array of TSEFrame;
     Trap: array of TSETrap;
@@ -342,6 +355,7 @@ type
   TSECache = record
     Binaries: array of TSEBinary;
     GlobalVarCount: Cardinal;
+    GlobalVarSymbols: TStrings;
     LineOfCodeList: TSELineOfCodeList;
     FuncScriptList: TSEFuncScriptList;
     FuncImportList: TSEFuncImportList;
@@ -415,14 +429,18 @@ type
   );
 TSETokenKinds = set of TSETokenKind;
 
-const TokenNames: array[TSETokenKind] of String = (
-  'EOF', '.', '+', '-', '*', 'div', 'mod', '^', '<<', '>>', 'operator assign', '=', '!=', '<',
-  '>', '<=', '>=', '{', '}', ':', '(', ')', 'neg', 'number', 'string',
-  ',', 'if', 'switch', 'case', 'default', 'identity', 'function', 'fn', 'variable', 'const',
-  'unknown', 'else', 'while', 'break', 'continue', 'yield',
-  '[', ']', 'and', 'or', 'xor', 'not', 'for', 'in', 'to', 'downto', 'return',
-  'atom', 'import', 'do', 'try', 'catch', 'throw'
-);
+const
+  TokenNames: array[TSETokenKind] of String = (
+    'EOF', '.', '+', '-', '*', 'div', 'mod', '^', '<<', '>>', 'operator assign', '=', '!=', '<',
+    '>', '<=', '>=', '{', '}', ':', '(', ')', 'neg', 'number', 'string',
+    ',', 'if', 'switch', 'case', 'default', 'identity', 'function', 'fn', 'variable', 'const',
+    'unknown', 'else', 'while', 'break', 'continue', 'yield',
+    '[', ']', 'and', 'or', 'xor', 'not', 'for', 'in', 'to', 'downto', 'return',
+    'atom', 'import', 'do', 'try', 'catch', 'throw'
+  );
+  ValueKindNames: array[TSEValueKind] of String = (
+    'null', 'number', 'string', 'map', 'buffer', 'pointer', 'boolean', 'function'
+  );
 
 type
   TSEIdentKind = (
@@ -474,6 +492,7 @@ type
     OpcodeInfoList: TSEOpcodeInfoList;
     LocalVarCountList: TIntegerList;
     GlobalVarCount: Integer;
+    GlobalVarSymbols: TStrings;
     VarList: TSEIdentList;
     FuncNativeList: TSEFuncNativeList;
     FuncScriptList: TSEFuncScriptList;
@@ -482,9 +501,11 @@ type
     ScopeStack: TSEScopeStack;
     ScopeFunc: TSEScopeStack;
     LineOfCodeList: TSELineOfCodeList;
+    StackTraceHandler: TSEStackTraceSymbolProc;
     IsLex,
     IsParsed: Boolean;
     IsDone: Boolean;
+    FuncCurrent: Integer;
     FuncTraversal: Integer;
     CurrentFileList: TStrings;
     BinaryPos: Integer; // This is mainly for storing line of code for runtime
@@ -2760,7 +2781,7 @@ procedure TSEGarbageCollector.GC;
 
 var
   Value: TSEGCValue;
-  P: PSEValue;
+  P, P2: PSEValue;
   V: TSEValue;
   VM: TSEVM;
   I, J, K: Integer;
@@ -2778,7 +2799,14 @@ begin
   begin
     VM := VMList[I];
     P := @VM.Stack[0];
-    while QWord(P) <= QWord(VM.StackPtr)  do
+    while P <= VM.StackPtr do
+    begin
+      Mark(P);
+      Inc(P);
+    end;
+    P := @VM.Global[0];
+    P2 := @VM.Global[High(VM.Global)];
+    while P <= P2 do
     begin
       Mark(P);
       Inc(P);
@@ -2921,15 +2949,16 @@ begin
   Self.IsDone := False;
   Self.Parent.IsDone := False;
   Self.WaitTime := 0;
+  SetLength(Self.Global, Self.Parent.GlobalVarCount);
   SetLength(Self.Stack, Self.StackSize);
   SetLength(Self.Frame, Self.FrameSize);
   SetLength(Self.Trap, Self.TrapSize);
+  FillChar(Self.Global[0], Length(Self.Global) * SizeOf(TSEValue), 0);
   FillChar(Self.Stack[0], Length(Self.Stack) * SizeOf(TSEValue), 0);
   FillChar(Self.Frame[0], Length(Self.Frame) * SizeOf(TSEFrame), 0);
   FillChar(Self.Trap[0], Length(Self.Trap) * SizeOf(TSETrap), 0);
   Self.FramePtr := @Self.Frame[0];
   Self.StackPtr := @Self.Stack[0];
-  Self.StackPtr := Self.StackPtr + Self.Parent.GlobalVarCount + 64;
   Self.FramePtr^.Stack := Self.StackPtr;
   Self.TrapPtr := @Self.Trap[0];
   Dec(Self.TrapPtr);
@@ -2940,13 +2969,13 @@ var
   A, B, C, V,
   OA, OB, OC, OV: PSEValue;
   AA: array[0..15] of PSEValue;
-  TV: TSEValue;
+  TV, TV2: TSEValue;
   S, S1, S2: String;
   WS, WS1, WS2: WideString;
   FuncNativeInfo: PSEFuncNativeInfo;
   FuncScriptInfo: PSEFuncScriptInfo;
   FuncImportInfo: PSEFuncImportInfo;
-  I, J, ArgCountStack, ArgCount, ArgSize: Integer;
+  I, J, ArgCountStack, ArgCount, ArgSize, DeepCount: Integer;
   This: TSEValue;
   Args: array of TSEValue;
   CodePtrLocal: Integer;
@@ -2972,6 +3001,93 @@ var
   ffiResultType: ffi_type;
   {$endif}
 
+  procedure PrintEvilScriptStackTrace(Message: String);
+
+    procedure AddChildNode(Node: PSEStackTraceSymbol; const AName: String; const AValue: TSEValue);
+    var
+      I, C: Integer;
+      Key: String;
+    begin
+      C := Length(Node^.Childs) + 1;
+      SetLength(Node^.Childs, C);
+      Node := @Node^.Childs[C - 1];
+      Node^.Name := AName;
+      Node^.Kind := AValue.Kind;
+      case AValue.Kind of
+        sevkMap:
+          begin
+            if SEMapIsValidArray(AValue) then
+            begin
+              for I := 0 to TSEValueMap(AValue.VarMap).List.Count - 1 do
+              begin
+                AddChildNode(Node, IntToStr(I), SEMapGet(AValue, I));
+              end;
+            end else
+            begin
+              for Key in TSEValueMap(AValue.VarMap).Keys do
+              begin
+                AddChildNode(Node, Key, SEMapGet(AValue, Key));
+              end;
+            end;
+          end;
+        else
+          begin
+            Node^.Value := SEValueToText(AValue);
+          end;
+      end;
+    end;
+
+  var
+    CurFrame: PSEFrame;
+    CurFunc: PSEFuncScriptInfo;
+    I, J: Integer;
+    LineOfCode: TSELineOfCode;
+    Nodes: TSEStackTraceSymbolArray;
+    NodeCount: Integer = 0;
+    BinaryPos: Integer;
+  begin
+    if Self.Parent.StackTraceHandler <> nil then
+    begin
+      for I := Self.FrameSize - 1 downto 1 do
+      begin
+        CurFrame := @Self.Frame[I];
+        if CurFrame <= Self.FramePtr then
+        begin
+          Inc(NodeCount);
+          SetLength(Nodes, NodeCount);
+          CurFunc := CurFrame^.Func;
+
+          J := Self.Parent.LineOfCodeList.Count - 1;
+          while J >= 0 do
+          begin
+            LineOfCode := Self.Parent.LineOfCodeList[J];
+            if I = 1 then
+              BinaryPos := 0
+            else
+              BinaryPos := Self.Frame[I - 1].Func^.BinaryPos;
+            if (CurFrame^.Binary < LineOfCode.BinaryCount) and (BinaryPos = LineOfCode.BinaryPtr) then
+              break;
+            Dec(J);
+          end;
+          Nodes[NodeCount - 1].Name := CurFunc^.Name + ' [' + LineOfCode.Module + ':' + IntToStr(LineOfCode.Line) + ']';
+          for J := 0 to CurFrame^.Func^.VarSymbols.Count - 1 do
+          begin
+            AddChildNode(@Nodes[NodeCount - 1], CurFunc^.VarSymbols[J], CurFrame^.Stack[J - 1]);
+          end;
+        end;
+      end;
+      // Global
+      Inc(NodeCount);
+      SetLength(Nodes, NodeCount);
+      Nodes[NodeCount - 1].Name := 'global_variables';
+      for J := 0 to Self.Parent.GlobalVarSymbols.Count - 1 do
+      begin
+        AddChildNode(@Nodes[NodeCount - 1], Self.Parent.GlobalVarSymbols[J], Self.Global[J]);
+      end;
+      Self.Parent.StackTraceHandler(Message, Nodes);
+    end;
+  end;
+
   procedure Push(const Value: TSEValue); inline;
   begin
     StackPtrLocal^ := Value;
@@ -2986,7 +3102,7 @@ var
 
   procedure AssignGlobal(const I: Pointer; const Value: PSEValue); inline;
   begin
-    Self.Stack[Integer(I)] := Value^;
+    Self.Global[Integer(I)] := Value^;
   end;
 
   procedure AssignLocal(const I: Pointer; const F: Integer; const Value: PSEValue); inline;
@@ -2996,7 +3112,7 @@ var
 
   function GetGlobal(const I: Pointer): PSEValue; inline;
   begin
-    Exit(@Self.Stack[Integer(I)]);
+    Exit(@Self.Global[Integer(I)]);
   end;
 
   function GetLocal(const I: Pointer; const F: Integer): PSEValue; inline;
@@ -3006,7 +3122,7 @@ var
 
   function GetGlobalInt(const I: Integer): PSEValue; inline;
   begin
-    Exit(@Self.Stack[Integer(I)]);
+    Exit(@Self.Global[Integer(I)]);
   end;
 
   function GetLocalInt(const I, F: Integer): PSEValue; inline;
@@ -3016,7 +3132,7 @@ var
 
   procedure AssignGlobalInt(const I: Integer; const Value: PSEValue); inline;
   begin
-    Self.Stack[Integer(I)] := Value^;
+    Self.Global[Integer(I)] := Value^;
   end;
 
   procedure AssignLocalInt(const I: Integer; const F: Integer; const Value: PSEValue); inline;
@@ -3471,6 +3587,7 @@ begin
       {$ifdef SE_COMPUTED_GOTO}labelCallRef{$else}opCallRef{$endif}:
         begin
           A := Pop; // Ref or map
+          DeepCount := 0;
           case A^.Kind of
             sevkFunction:
               begin
@@ -3478,13 +3595,14 @@ begin
               end;
             sevkMap:
               begin
-                ArgCount := Integer(BinaryLocal.Ptr(CodePtrLocal + 1)^.VarPointer);
-                if ArgCount = 0 then
+                DeepCount := Integer(BinaryLocal.Ptr(CodePtrLocal + 3)^.VarPointer);
+                if DeepCount = 0 then
                   raise Exception.Create('Not a function reference');
-                for I := ArgCount - 1 downto 0 do
+                for I := DeepCount - 1 downto 0 do
                   AA[I] := Pop;
-                for I := 0 to ArgCount - 1 do
+                for I := 0 to DeepCount - 1 do
                 begin
+                  TV2 := A^;
                   TV := SEMapGet(A^, AA[I]^);
                   A := @TV;
                 end;
@@ -3496,6 +3614,8 @@ begin
           case A^.VarFuncKind of
             sefkScript:
               begin
+                if DeepCount > 1 then
+                  (StackPtrLocal - 1)^ := TV2;
                 goto CallScript;
               end;
             sefkImport:
@@ -3505,6 +3625,8 @@ begin
               end;
             sefkNative:
               begin
+                if DeepCount > 1 then
+                  (StackPtrLocal - 1)^ := TV2;
                 This := Pop^;
                 Dec(BinaryLocal.Ptr(CodePtrLocal + 2)^.VarPointer); // ArgCount contains this, so we minus it by 1
                 goto CallNative;
@@ -3531,7 +3653,7 @@ begin
             Exit;
           end;
           Push(TV);
-          Inc(CodePtrLocal, 3);
+          Inc(CodePtrLocal, 4);
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelCallScript{$else}opCallScript{$endif}:
@@ -3545,8 +3667,9 @@ begin
             raise Exception.Create('Too much recursion');
           Self.FramePtr^.Stack := StackPtrLocal - ArgCount;
           StackPtrLocal := StackPtrLocal + FuncScriptInfo^.VarCount;
-          Self.FramePtr^.Code := CodePtrLocal + 3;
+          Self.FramePtr^.Code := CodePtrLocal + 4;
           Self.FramePtr^.Binary := BinaryPtrLocal;
+          Self.FramePtr^.Func := FuncScriptInfo;
           CodePtrLocal := 0;
           BinaryPtrLocal := FuncScriptInfo^.BinaryPos;
           BinaryLocal := Self.Binaries[BinaryPtrLocal];
@@ -4126,7 +4249,7 @@ begin
               end;
           end;
           Push(TV);
-          Inc(CodePtrLocal, 3);
+          Inc(CodePtrLocal, 4);
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelPopFrame{$else}opPopFrame{$endif}:
@@ -4389,18 +4512,33 @@ begin
     begin
       if Self.TrapPtr < @Self.Trap[0] then
       begin
-        I := 0;
-        while I <= Self.Parent.LineOfCodeList.Count - 1 do
+        if FramePtr = @Self.Frame[0] then
         begin
-          LineOfCode := Self.Parent.LineOfCodeList[I];
-          if (CodePtrLocal <= LineOfCode.BinaryCount) and (Self.BinaryPtr = LineOfCode.BinaryPtr) then
-            break;
-          Inc(I);
+          I := Self.Parent.LineOfCodeList.Count - 1;
+          while I >= 0 do
+          begin
+            LineOfCode := Self.Parent.LineOfCodeList[I];
+            if (CodePtrLocal >= LineOfCode.BinaryCount) and (LineOfCode.BinaryPtr = 0) then
+              break;
+            Dec(I);
+          end;
+        end else
+        begin
+          I := 0;
+          while I < Self.Parent.LineOfCodeList.Count - 1 do
+          begin
+            LineOfCode := Self.Parent.LineOfCodeList[I];
+            if (CodePtrLocal < LineOfCode.BinaryCount) and (BinaryPtrLocal = LineOfCode.BinaryPtr) then
+              break;
+            Inc(I);
+          end;
         end;
         if LineOfCode.Module = '' then
-          raise Exception.Create(Format('Runtime error %s: "%s" at line %d', [E.ClassName, E.Message, LineOfCode.Line]))
+          S := Format('Runtime error %s: "%s" at line %d', [E.ClassName, E.Message, LineOfCode.Line])
         else
-          raise Exception.Create(Format('Runtime error %s: "%s" at line %d (%s)', [E.ClassName, E.Message, LineOfCode.Line, LineOfCode.Module]));
+          S := Format('Runtime error %s: "%s" at line %d (%s)', [E.ClassName, E.Message, LineOfCode.Line, LineOfCode.Module]);
+        PrintEvilScriptStackTrace(S);
+        raise Exception.Create(S);
       end else
       begin
         Self.FramePtr := Self.TrapPtr^.FramePtr;
@@ -4426,6 +4564,7 @@ constructor TScriptEngine.Create;
 begin
   inherited;
   Self.VM := TSEVM.Create;
+  Self.GlobalVarSymbols := TStringList.Create;
   Self.TokenList := TSETokenList.Create;
   Self.OpcodeInfoList := TSEOpcodeInfoList.Create;
   Self.VarList := TSEIdentList.Create;
@@ -4573,7 +4712,11 @@ begin
 end;
 
 destructor TScriptEngine.Destroy;
+var
+  I: Integer;
 begin
+  for I := 0 to Self.FuncScriptList.Count - 1 do
+    Self.FuncScriptList[I].VarSymbols.Free;
   FreeAndNil(Self.VM);
   FreeAndNil(Self.TokenList);
   FreeAndNil(Self.OpcodeInfoList);
@@ -4589,6 +4732,7 @@ begin
   FreeAndNil(Self.IncludePathList);
   FreeAndNil(Self.CurrentFileList);
   FreeAndNil(Self.LocalVarCountList);
+  FreeAndNil(Self.GlobalVarSymbols);
   inherited;
 end;
 
@@ -5330,6 +5474,13 @@ var
 
   function CreateIdent(const Kind: TSEIdentKind; const Token: TSEToken; const IsUsed: Boolean = False): TSEIdent; inline;
   begin
+    if Kind = ikVariable then
+    begin
+      if Self.FuncCurrent >= 0 then
+        Self.FuncScriptList.Ptr(Self.FuncCurrent)^.VarSymbols.Add(Token.Value)
+      else
+        Self.GlobalVarSymbols.Add(Token.Value);
+    end;
     Result.Kind := Kind;
     Result.Ln := Token.Ln;
     Result.Col := Token.Col;
@@ -6048,7 +6199,7 @@ var
     // Push map to stack
     Rewind(RewindStartAdd, RewindCount);
     EmitPushVar(Ident);
-    Emit([Pointer(opCallRef), Pointer(DeepCount), Pointer(ArgCount)]);
+    Emit([Pointer(opCallRef), Pointer(0), Pointer(ArgCount), Pointer(DeepCount)]);
   end;
 
   procedure ParseFuncRefCallByRewind(const RewindStartAdd: Integer; const ThisRefIdent: PSEIdent = nil);
@@ -6077,7 +6228,7 @@ var
       Emit([Pointer(opPushConst), SENull]);
     // Func def already exists in stack, rewind to access it
     Rewind(RewindStartAdd, RewindCount);
-    Emit([Pointer(opCallRef), Pointer(0), Pointer(ArgCount)]);
+    Emit([Pointer(opCallRef), Pointer(0), Pointer(ArgCount), Pointer(0)]);
   end;
 
   procedure ParseFuncRefCallByName(const Name: String);
@@ -6101,7 +6252,7 @@ var
     Emit([Pointer(opPushConst), SENull]);
     // We now push func def to stack
     EmitPushVar(FindVar(Name)^);
-    Emit([Pointer(opCallRef), Pointer(0), Pointer(ArgCount)]);
+    Emit([Pointer(opCallRef), Pointer(0), Pointer(ArgCount), Pointer(0)]);
   end;
 
   procedure ParseFuncCall(const Name: String);
@@ -6158,31 +6309,35 @@ var
     end;
     if FuncNativeInfo <> nil then
     begin
-      Emit([Pointer(opCallNative), Pointer(FuncNativeInfo), Pointer(ArgCount)]);
+      Emit([Pointer(opCallNative), Pointer(FuncNativeInfo), Pointer(ArgCount), Pointer(0)]);
     end else
     if FuncScriptInfo <> nil then
     begin
       Emit([Pointer(opPushConst), SENull]); // this
       Inc(ArgCount);
-      Emit([Pointer(opCallScript), Pointer(Ind), Pointer(ArgCount)])
+      Emit([Pointer(opCallScript), Pointer(Ind), Pointer(ArgCount), Pointer(0)])
     end
     else
-      Emit([Pointer(opCallImport), Pointer(Ind), Pointer(0)]);
+      Emit([Pointer(opCallImport), Pointer(Ind), Pointer(0), Pointer(0)]);
   end;
 
   function ParseFuncDecl(const IsAnon: Boolean = False): TSEToken;
   var
     Token, TokenResult: TSEToken;
     Name: String;
+    OldFuncCurrent: Integer;
     ArgCount: Integer = 0;
     I, FuncIndex: Integer;
     ReturnList: TList;
     Func: PSEFuncScriptInfo;
     ParentBinary: TSEBinary;
     ParentBinaryPos: Integer;
+    VarSymbols: TStrings;
   begin
     ReturnList := TList.Create;
+    VarSymbols := TStringList.Create;
     try
+      OldFuncCurrent := Self.FuncCurrent;
       ReturnStack.Push(ReturnList);
       if not IsAnon then
       begin
@@ -6197,6 +6352,7 @@ var
         Name := Token.Value;
       end;
       Result := Token;
+      Func := RegisterScriptFunc(Name, 0);
 
       TokenResult.Value := 'result';
       TokenResult.Kind := tkIdent;
@@ -6217,7 +6373,9 @@ var
       Token.Kind := tkIdent;
       CreateIdent(ikVariable, Token, True);
 
-      Func := RegisterScriptFunc(Name, ArgCount);
+      Func^.ArgCount := ArgCount;
+      for I := 0 to VarSymbols.Count - 1 do
+        Func^.VarSymbols.Add(VarSymbols[I]);
       FuncIndex := Self.FuncScriptList.Count - 1;
       ParentBinary := Self.Binary;
       ParentBinaryPos := Self.BinaryPos;
@@ -6238,7 +6396,9 @@ var
       Self.Binary := ParentBinary;
       Self.BinaryPos := ParentBinaryPos;
     finally
+      Self.FuncCurrent := OldFuncCurrent;
       ReturnList.Free;
+      VarSymbols.Free;
     end;
   end;
 
@@ -6573,7 +6733,7 @@ var
         StartBlock := Self.Binary.Count;
 
         EmitPushVar(VarHiddenArrayIdent);
-        Emit([Pointer(opCallNative), FindFuncNative('length', Ind), Pointer(1)]);
+        Emit([Pointer(opCallNative), FindFuncNative('length', Ind), Pointer(1), Pointer(0)]);
         EmitPushVar(VarHiddenCountIdent);
         JumpEnd := Emit([Pointer(opJumpEqualOrLesser), Pointer(0)]);
 
@@ -6728,7 +6888,7 @@ var
       end;
       Token := NextTokenExpected([tkComma, tkSquareBracketClose]);
     until Token.Kind = tkSquareBracketClose;
-    Emit([Pointer(opCallNative), Pointer(FuncNativeInfo), Pointer(ArgCount)]);
+    Emit([Pointer(opCallNative), Pointer(FuncNativeInfo), Pointer(ArgCount), Pointer(0)]);
   end;
 
   procedure ParseAssignTail;
@@ -7112,7 +7272,14 @@ end;
 procedure TScriptEngine.Reset;
 var
   Ident: TSEIdent;
+  I: Integer;
 begin
+  Self.GlobalVarCount := 2;
+  Self.GlobalVarSymbols.Clear;
+  Self.GlobalVarSymbols.Add('result');
+  Self.GlobalVarSymbols.Add('___result');
+  for I := 0 to Self.FuncScriptList.Count - 1 do
+    Self.FuncScriptList[I].VarSymbols.Free;
   Self.FuncScriptList.Clear;
   Self.FuncImportList.Clear;
   Self.CurrentFileList.Clear;
@@ -7132,7 +7299,6 @@ begin
   Self.IncludeList.Clear;
   Self.ScopeFunc.Clear;
   Self.ScopeStack.Clear;
-  Self.GlobalVarCount := 2;
   Self.VarList.Count := Self.GlobalVarCount; // Safeguard
   Ident.Kind := ikVariable;
   Ident.Addr := 0;
@@ -7144,6 +7310,7 @@ begin
   ErrorLn := -1;
   ErrorCol := -1;
   FuncTraversal := 0;
+  Self.FuncCurrent := -1;
 end;
 
 function TScriptEngine.Exec: TSEValue;
@@ -7176,8 +7343,7 @@ begin
   Self.VM.IsDone := False;
   Self.VM.WaitTime := 0;
   Self.VM.FramePtr := @Self.VM.Frame[0];
-  Self.VM.StackPtr := @Self.VM.Stack[0];
-  Self.VM.StackPtr := Self.VM.StackPtr + Self.GlobalVarCount + 64;
+  Self.VM.StackPtr := @Self.VM.Stack[0] + 32;
   Self.VM.FramePtr^.Stack := Self.VM.StackPtr;
   Self.VM.TrapPtr := @Self.VM.Trap[0];
   Dec(Self.VM.TrapPtr);
@@ -7216,8 +7382,7 @@ begin
   Self.VM.IsDone := False;
   Self.VM.WaitTime := 0;
   Self.VM.FramePtr := @Self.VM.Frame[0];
-  Self.VM.StackPtr := @Self.VM.Stack[0];
-  Self.VM.StackPtr := Self.VM.StackPtr + Self.GlobalVarCount + 64;
+  Self.VM.StackPtr := @Self.VM.Stack[0] + 32;
   Self.VM.FramePtr^.Stack := Self.VM.StackPtr;
   Self.VM.TrapPtr := @Self.VM.Trap[0];
   Dec(Self.VM.TrapPtr);
@@ -7274,8 +7439,10 @@ begin
   FuncScriptInfo.ArgCount := ArgCount;
   FuncScriptInfo.BinaryPos := Length(Self.VM.Binaries) - 1;
   FuncScriptInfo.Name := Name;
+  FuncScriptInfo.VarSymbols := TStringList.Create;
   Self.FuncScriptList.Add(FuncScriptInfo);
   Result := Self.FuncScriptList.Ptr(Self.FuncScriptList.Count - 1);
+  Self.FuncCurrent := Self.FuncScriptList.Count - 1;
 end;
 
 procedure TScriptEngine.RegisterImportFunc(const Name, ActualName, LibName: String; const Args: TSEAtomKindArray; const Return: TSEAtomKind);
@@ -7306,10 +7473,12 @@ function TScriptEngine.Backup: TSECache;
 var
   I, J: Integer;
   BackupBinary, SrcBinary: TSEBinary;
+  FuncScriptInfo: TSEFuncScriptInfo;
 begin
   Result.LineOfCodeList := TSELineOfCodeList.Create;
   Result.FuncScriptList := TSEFuncScriptList.Create;
   Result.FuncImportList := TSEFuncImportList.Create;
+  Result.GlobalVarSymbols := TStringList.Create;
   SetLength(Result.Binaries, Length(Self.VM.Binaries));
   for J := 0 to High(Self.VM.Binaries) do
   begin
@@ -7327,12 +7496,16 @@ begin
   end;
   for I := 0 to Self.FuncScriptList.Count - 1 do
   begin
-    Result.FuncScriptList.Add(Self.FuncScriptList[I]);
+    FuncScriptInfo := Self.FuncScriptList[I];
+    FuncScriptInfo.VarSymbols := TStringList.Create;
+    FuncScriptInfo.VarSymbols.Assign(Self.FuncScriptList[I].VarSymbols);
+    Result.FuncScriptList.Add(FuncScriptInfo);
   end;
   for I := 0 to Self.FuncImportList.Count - 1 do
   begin
     Result.FuncImportList.Add(Self.FuncImportList[I]);
   end;
+  Result.GlobalVarSymbols.Assign(Self.GlobalVarSymbols);
   Result.GlobalVarCount := Self.GlobalVarCount;
 end;
 
@@ -7340,9 +7513,11 @@ procedure TScriptEngine.Restore(const Cache: TSECache);
 var
   I, J: Integer;
   BackupBinary, DstBinary: TSEBinary;
+  FuncScriptInfo: TSEFuncScriptInfo;
 begin
   Self.VM.BinaryClear;
   Self.LineOfCodeList.Clear;
+  Self.GlobalVarSymbols.Clear;
   for I := 0 to Cache.LineOfCodeList.Count - 1 do
     Self.LineOfCodeList.Add(Cache.LineOfCodeList[I]);
   SetLength(Self.VM.Binaries, Length(Cache.Binaries));
@@ -7355,9 +7530,15 @@ begin
       DstBinary.Add(BackupBinary[J]);
   end;
   for I := 0 to Cache.FuncScriptList.Count - 1 do
-    Self.FuncScriptList.Add(Cache.FuncScriptList[I]);
+  begin
+    FuncScriptInfo := Cache.FuncScriptList[I];
+    FuncScriptInfo.VarSymbols := TStringList.Create;
+    FuncScriptInfo.VarSymbols.Assign(Cache.FuncScriptList[I].VarSymbols);
+    Self.FuncScriptList.Add(FuncScriptInfo);
+  end;
   for I := 0 to Cache.FuncImportList.Count - 1 do
     Self.FuncImportList.Add(Cache.FuncImportList[I]);
+  Self.GlobalVarSymbols.Assign(Cache.GlobalVarSymbols);
   Self.GlobalVarCount := Cache.GlobalVarCount;
   Self.IsParsed := True;
 end;
@@ -7372,8 +7553,11 @@ begin
     for I := 0 to High(Cache.Binaries) do
       Cache.Binaries[I].Free;
     Cache.LineOfCodeList.Free;
+    for I := 0 to Cache.FuncScriptList.Count - 1 do
+      Cache.FuncScriptList[I].VarSymbols.Free;
     Cache.FuncScriptList.Free;
     Cache.FuncImportList.Free;
+    Cache.GlobalVarSymbols.Free;
     Self.Remove(AName);
   except
   end;
@@ -7393,6 +7577,7 @@ begin
     Cache.LineOfCodeList.Free;
     Cache.FuncScriptList.Free;
     Cache.FuncImportList.Free;
+    Cache.GlobalVarSymbols.Free;
   end;
   inherited;
 end;
