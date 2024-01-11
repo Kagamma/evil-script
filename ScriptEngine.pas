@@ -2327,8 +2327,12 @@ operator + (V1: TSEValue; V2: String) R: TSEValue; inline;
 var
   S: String;
 begin
-  S := V1.VarString^;
-  R := S + V2;
+  if V1.Kind = sevkString then
+  begin
+    S := V1.VarString^;
+    R := S + V2;
+  end else
+    R := V2;
 end;
 
 operator + (V1: TSEValue; V2: Pointer) R: TSEValue; inline;
@@ -2374,7 +2378,10 @@ begin
       end;
     sevkString:
       begin
-        GC.AllocString(@R, V1.VarString^ + V2.VarString^);
+        if V2.Kind = sevkString then
+          GC.AllocString(@R, V1.VarString^ + V2.VarString^)
+        else
+          GC.AllocString(@R, V1.VarString^);
       end;
     sevkMap:
       begin
@@ -6603,6 +6610,7 @@ var
   procedure ParseDoWhile;
   var
     StartBlock,
+    ContinueBlock,
     EndBlock,
     JumpBlock,
     JumpEnd: Integer;
@@ -6617,6 +6625,7 @@ var
       BreakStack.Push(BreakList);
       StartBlock := Self.Binary.Count;
       ParseBlock;
+      ContinueBlock := Self.Binary.Count;
       NextTokenExpected([tkWhile]);
       ParseExpr;
       Emit([Pointer(opPushConst), False]);
@@ -6626,7 +6635,7 @@ var
       ContinueList := ContinueStack.Pop;
       BreakList := BreakStack.Pop;
       for I := 0 to ContinueList.Count - 1 do
-        Patch(Integer(ContinueList[I]), Pointer(StartBlock));
+        Patch(Integer(ContinueList[I]), Pointer(ContinueBlock));
       for I := 0 to BreakList.Count - 1 do
         Patch(Integer(BreakList[I]), Pointer(EndBlock));
       Patch(JumpBlock - 1, Pointer(StartBlock));
@@ -6640,6 +6649,7 @@ var
  procedure ParseFor;
   var
     StartBlock,
+    ContinueBlock,
     EndBlock,
     JumpBlock,
     JumpEnd: Integer;
@@ -6695,6 +6705,7 @@ var
 
         ParseBlock;
 
+        ContinueBlock := Self.Binary.Count;
         EmitPushVar(VarIdent);
         if Token.Kind = tkTo then
         begin
@@ -6744,6 +6755,7 @@ var
 
         ParseBlock;
 
+        ContinueBlock := Self.Binary.Count;
         EmitPushVar(VarHiddenCountIdent);
         Emit([Pointer(opPushConst), 1]);
         Emit([Pointer(opOperatorAdd)]);
@@ -6755,7 +6767,7 @@ var
       ContinueList := ContinueStack.Pop;
       BreakList := BreakStack.Pop;
       for I := 0 to ContinueList.Count - 1 do
-        Patch(Integer(ContinueList[I]), Pointer(StartBlock));
+        Patch(Integer(ContinueList[I]), Pointer(ContinueBlock));
       for I := 0 to BreakList.Count - 1 do
         Patch(Integer(BreakList[I]), Pointer(EndBlock));
       Patch(JumpBlock - 1, Pointer(StartBlock));
@@ -7339,7 +7351,6 @@ begin
   Self.VM.CodePtr := 0;
   Self.VM.BinaryPtr := 0;
   Self.VM.IsPaused := False;
-  Self.VM.IsDone := False;
   Self.VM.IsDone := False;
   Self.VM.WaitTime := 0;
   Self.VM.FramePtr := @Self.VM.Frame[0];
