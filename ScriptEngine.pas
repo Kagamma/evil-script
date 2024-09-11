@@ -19,6 +19,9 @@ unit ScriptEngine;
 {$if defined(CPU32) or defined(CPU64) or defined(SE_LIBFFI)}
   {$define SE_DYNLIBS}
 {$endif}
+// enable this if you have access to LCL's FileUtil
+{.$define SE_HAS_FILEUTIL}
+// enable this if you want to print logs to terminal
 {.$define SE_LOG}
 {$align 16}
 
@@ -26,7 +29,7 @@ interface
 
 uses
   SysUtils, Classes, Generics.Collections, StrUtils, Types, DateUtils, RegExpr,
-  base64
+  base64{$ifdef SE_HAS_FILEUTIL}, FileUtil{$endif}
   {$ifdef SE_LIBFFI}, ffi{$endif}
   {$ifdef SE_STRING_UTF8},LazUTF8{$endif}{$ifdef SE_DYNLIBS}, dynlibs{$endif};
 
@@ -39,6 +42,7 @@ type
 
   TSEOpcode = (
     opPushConst,
+    opPushConstString,
     opPushGlobalVar,
     opPushLocalVar,
     opPushArrayPop,
@@ -113,14 +117,20 @@ type
     sevkBuffer,
     sevkPointer,
     sevkBoolean,
-    sevkFunction
+    sevkFunction,
+    sevkPascalObject
   );
   PSECommonString = ^String;
   TSEBuffer = record
-    Base: RawByteString;
+    Base: Pointer;
     Ptr: Pointer;
   end;
   PSEBuffer = ^TSEBuffer;
+  TSEPascalObject = record
+    Value: TObject;
+    IsManaged: Boolean;
+  end;
+  PSEPascalObject = ^TSEPascalObject;
 
   TSEFuncKind = (sefkNative, sefkScript, sefkImport);
 
@@ -172,6 +182,10 @@ type
           VarFuncKind: TSEFuncKind;
           VarFuncIndx: QWord;
         );
+      sevkPascalObject:
+        (
+          VarPascalObject: PSEPascalObject;
+        );
   end;
   {$mode objfpc}
   TSEValueList = specialize TList<TSEValue>;
@@ -217,6 +231,7 @@ type
     procedure AllocBuffer(const PValue: PSEValue; const Size: Integer);
     procedure AllocMap(const PValue: PSEValue);
     procedure AllocString(const PValue: PSEValue; const S: String);
+    procedure AllocPascalObject(const PValue: PSEValue; const Obj: TObject; const IsManaged: Boolean = True);
     procedure Lock(const PValue: PSEValue);
     procedure Unlock(const PValue: PSEValue);
     property ValueList: TSEGCValueList read FValueList;
@@ -341,6 +356,7 @@ type
     Stack: array of TSEValue;
     Frame: array of TSEFrame;
     Trap: array of TSETrap;
+    ConstStrings: TStringList;
     CodePtr: Integer;
     StackPtr: PSEValue;
     BinaryPtr: Integer;
@@ -368,6 +384,7 @@ type
     LineOfCodeList: TSELineOfCodeList;
     FuncScriptList: TSEFuncScriptList;
     FuncImportList: TSEFuncImportList;
+    ConstStrings: TStringList;
   end;
   TSECacheMapAncestor = specialize TDictionary<String, TSECache>;
   TSECacheMap = class(TSECacheMapAncestor)
@@ -448,7 +465,7 @@ const
     'atom', 'import', 'do', 'try', 'catch', 'throw'
   );
   ValueKindNames: array[TSEValueKind] of String = (
-    'null', 'number', 'string', 'map', 'buffer', 'pointer', 'boolean', 'function'
+    'null', 'number', 'string', 'map', 'buffer', 'pointer', 'boolean', 'function', 'pasobject'
   );
 
 type
@@ -547,7 +564,7 @@ type
 
 function SEValueToText(const Value: TSEValue; const IsRoot: Boolean = True): String;
 function SESize(constref Value: TSEValue): Cardinal; inline;
-procedure SEValidateType(V: PSEValue; Expected: TSEValueKind; At: DWord); inline;
+procedure SEValidateType(V: PSEValue; Expected: TSEValueKind; At: DWord; const FuncName: String); inline;
 procedure SEMapDelete(constref V: TSEValue; constref I: Integer); inline; overload;
 procedure SEMapDelete(constref V: TSEValue; constref S: String); inline; overload;
 procedure SEMapDelete(constref V, I: TSEValue); inline; overload;
@@ -679,7 +696,7 @@ type
     class function SECos(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SETan(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SECot(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
-    class function SESqrt(const VM: TSEVM; const Args: array of TSEValue): TSEValue;   
+    class function SESqrt(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEAbs(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEFrac(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SERange(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -693,7 +710,7 @@ type
     class function SEStringInsert(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEStringDelete(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEStringConcat(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
-    class function SEStringReplace(const VM: TSEVM; const Args: array of TSEValue): TSEValue; 
+    class function SEStringReplace(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEStringReplaceIgnoreCase(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEStringFormat(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEStringUpperCase(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -730,12 +747,16 @@ type
     class function SEFileReadBinary(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEFileWriteText(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEFileWriteBinary(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEFileCopy(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEFileExists(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEFileDelete(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEFileRename(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEFileFindAll(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEFileGetSize(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEFileGetAge(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEDirectoryCreate(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEDirectoryDelete(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEDirectoryFindAll(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEDirectoryExists(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 
     class function SEBase64Encode(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -748,22 +769,15 @@ var
   DynlibMap: TDynlibMap;
   VMList: TSEVMList;
   CS: TRTLCriticalSection;
+  FS: TFormatSettings;
 
 function PointStrToFloat(S: String): Double; inline;
-var
-  fS: TFormatSettings;
 begin
-  FS := FormatSettings;
-  fS.DecimalSeparator := '.';
   Result := StrToFloat(S, FS);
 end;
 
 function PointFloatToStr(X: Double): String; inline;
-var
-  FS: TFormatSettings;
 begin
-  FS := FormatSettings;
-  FS.DecimalSeparator := '.';
   Result := FloatToStr(X, FS);
 end;
 
@@ -818,7 +832,7 @@ begin
   {$endif}
 end;
 
-procedure SEValidateType(V: PSEValue; Expected: TSEValueKind; At: DWord); inline;
+procedure SEValidateType(V: PSEValue; Expected: TSEValueKind; At: DWord; const FuncName: String); inline;
 var
   S1, S2: String;
 begin
@@ -826,7 +840,7 @@ begin
   begin
     WriteStr(S1, Expected);
     WriteStr(S2, V^.Kind);
-    raise Exception.Create(Format('Parameter #%d: Expected %s, got %s', [At, S1, S2]));
+    raise Exception.Create(Format('[%s] Parameter #%d: Expected %s, got %s', [FuncName, At, S1, S2]));
   end;
 end;
 
@@ -894,7 +908,7 @@ begin
         Result := 'buffer@' + IntToStr(QWord(Value.VarBuffer^.Ptr));
         if Value.VarBuffer^.Base <> nil then
         begin
-          Result := Result + ' <' + IntToStr(Length(Value.VarBuffer^.Base) - 16) + ' bytes>';
+          Result := Result + ' <' + IntToStr(MemSize(Value.VarBuffer^.Base) - 16) + ' bytes>';
         end;
       end
     else
@@ -914,7 +928,7 @@ begin
       end;
     sevkBuffer:
       begin
-        Result := Length(Value.VarBuffer^.Base) - 16;
+        Result := MemSize(Value.VarBuffer^.Base) - 16;
       end;
     else
       Result := Value.Size;
@@ -1049,93 +1063,93 @@ end;
 
 class function TBuiltInFunction.SEBufferCreate(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkNumber, 1);
+  SEValidateType(@Args[0], sevkNumber, 1, {$I %CURRENTROUTINE%});
   GC.AllocBuffer(@Result, Round(Args[0].VarNumber));
 end;
 
 class function TBuiltInFunction.SEBufferLength(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
-  Result := Length(Args[0].VarBuffer^.Base) - 16;
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
+  Result := SESize(Args[0]);
 end;
 
 class function TBuiltInFunction.SEBufferCopy(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
-  SEValidateType(@Args[1], sevkBuffer, 2);
-  SEValidateType(@Args[2], sevkNumber, 3);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
+  SEValidateType(@Args[1], sevkBuffer, 2, {$I %CURRENTROUTINE%});
+  SEValidateType(@Args[2], sevkNumber, 3, {$I %CURRENTROUTINE%});
   Move(Args[1].VarBuffer^.Ptr^, Args[0].VarBuffer^.Ptr^, Round(Args[2].VarNumber));
   Result := Args[0];
 end;
 
 class function TBuiltInFunction.SEBufferFillU8(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
-  SEValidateType(@Args[1], sevkNumber, 2);
-  SEValidateType(@Args[2], sevkNumber, 3);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
+  SEValidateType(@Args[1], sevkNumber, 2, {$I %CURRENTROUTINE%});
+  SEValidateType(@Args[2], sevkNumber, 3, {$I %CURRENTROUTINE%});
   FillChar(Args[0].VarBuffer^.Ptr^, Round(Args[2].VarNumber), Byte(Round(Args[1].VarNumber)));
   Result := Args[0];
 end;
 
 class function TBuiltInFunction.SEBufferFillU16(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
-  SEValidateType(@Args[1], sevkNumber, 2);
-  SEValidateType(@Args[2], sevkNumber, 3);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
+  SEValidateType(@Args[1], sevkNumber, 2, {$I %CURRENTROUTINE%});
+  SEValidateType(@Args[2], sevkNumber, 3, {$I %CURRENTROUTINE%});
   FillWord(Args[0].VarBuffer^.Ptr^, Round(Args[2].VarNumber), Word(Round(Args[1].VarNumber)));
   Result := Args[0];
 end;
 
 class function TBuiltInFunction.SEBufferFillU32(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
-  SEValidateType(@Args[1], sevkNumber, 2);
-  SEValidateType(@Args[2], sevkNumber, 3);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
+  SEValidateType(@Args[1], sevkNumber, 2, {$I %CURRENTROUTINE%});
+  SEValidateType(@Args[2], sevkNumber, 3, {$I %CURRENTROUTINE%});
   FillDWord(Args[0].VarBuffer^.Ptr^, Round(Args[2].VarNumber), DWord(Round(Args[1].VarNumber)));
   Result := Args[0];
 end;
 
 class function TBuiltInFunction.SEBufferFillU64(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
-  SEValidateType(@Args[1], sevkNumber, 2);
-  SEValidateType(@Args[2], sevkNumber, 3);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
+  SEValidateType(@Args[1], sevkNumber, 2, {$I %CURRENTROUTINE%});
+  SEValidateType(@Args[2], sevkNumber, 3, {$I %CURRENTROUTINE%});
   FillQWord(Args[0].VarBuffer^.Ptr^, Round(Args[2].VarNumber), QWord(Round(Args[1].VarNumber)));
   Result := Args[0];
 end;
 
 class function TBuiltInFunction.SEBufferFillI8(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
-  SEValidateType(@Args[1], sevkNumber, 2);
-  SEValidateType(@Args[2], sevkNumber, 3);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
+  SEValidateType(@Args[1], sevkNumber, 2, {$I %CURRENTROUTINE%});
+  SEValidateType(@Args[2], sevkNumber, 3, {$I %CURRENTROUTINE%});
   FillChar(Args[0].VarBuffer^.Ptr^, Round(Args[2].VarNumber), ShortInt(Round(Args[1].VarNumber)));
   Result := Args[0];
 end;
 
 class function TBuiltInFunction.SEBufferFillI16(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
-  SEValidateType(@Args[1], sevkNumber, 2);
-  SEValidateType(@Args[2], sevkNumber, 3);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
+  SEValidateType(@Args[1], sevkNumber, 2, {$I %CURRENTROUTINE%});
+  SEValidateType(@Args[2], sevkNumber, 3, {$I %CURRENTROUTINE%});
   FillWord(Args[0].VarBuffer^.Ptr^, Round(Args[2].VarNumber), SmallInt(Round(Args[1].VarNumber)));
   Result := Args[0];
 end;
 
 class function TBuiltInFunction.SEBufferFillI32(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
-  SEValidateType(@Args[1], sevkNumber, 2);
-  SEValidateType(@Args[2], sevkNumber, 3);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
+  SEValidateType(@Args[1], sevkNumber, 2, {$I %CURRENTROUTINE%});
+  SEValidateType(@Args[2], sevkNumber, 3, {$I %CURRENTROUTINE%});
   FillDWord(Args[0].VarBuffer^.Ptr^, Round(Args[2].VarNumber), LongInt(Round(Args[1].VarNumber)));
   Result := Args[0];
 end;
 
 class function TBuiltInFunction.SEBufferFillI64(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
-  SEValidateType(@Args[1], sevkNumber, 2);
-  SEValidateType(@Args[2], sevkNumber, 3);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
+  SEValidateType(@Args[1], sevkNumber, 2, {$I %CURRENTROUTINE%});
+  SEValidateType(@Args[2], sevkNumber, 3, {$I %CURRENTROUTINE%});
   FillQWord(Args[0].VarBuffer^.Ptr^, Round(Args[2].VarNumber), Int64(Round(Args[1].VarNumber)));
   Result := Args[0];
 end;
@@ -1144,9 +1158,9 @@ class function TBuiltInFunction.SEBufferFillF32(const VM: TSEVM; const Args: arr
 var
   V: Single;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
-  SEValidateType(@Args[1], sevkNumber, 2);
-  SEValidateType(@Args[2], sevkNumber, 3);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
+  SEValidateType(@Args[1], sevkNumber, 2, {$I %CURRENTROUTINE%});
+  SEValidateType(@Args[2], sevkNumber, 3, {$I %CURRENTROUTINE%});
   V := Args[1].VarNumber;
   FillDWord(Args[0].VarBuffer^.Ptr^, Round(Args[2].VarNumber), DWord((@V)^));
   Result := Args[0];
@@ -1156,9 +1170,9 @@ class function TBuiltInFunction.SEBufferFillF64(const VM: TSEVM; const Args: arr
 var
   V: Double;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
-  SEValidateType(@Args[1], sevkNumber, 2);
-  SEValidateType(@Args[2], sevkNumber, 3);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
+  SEValidateType(@Args[1], sevkNumber, 2, {$I %CURRENTROUTINE%});
+  SEValidateType(@Args[2], sevkNumber, 3, {$I %CURRENTROUTINE%});
   V := Args[1].VarNumber;
   FillQWord(Args[0].VarBuffer^.Ptr^, Round(Args[2].VarNumber), QWord((@V)^));
   Result := Args[0];
@@ -1166,91 +1180,91 @@ end;
 
 class function TBuiltInFunction.SEBufferGetU8(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   Result.Kind := sevkNumber;
   Result.VarNumber := Byte((Args[0].VarBuffer^.Ptr)^);
 end;
 
 class function TBuiltInFunction.SEBufferGetU16(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   Result.Kind := sevkNumber;
   Result.VarNumber := Word((Args[0].VarBuffer^.Ptr)^);
 end;
 
 class function TBuiltInFunction.SEBufferGetU32(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   Result.Kind := sevkNumber;
   Result.VarNumber := LongWord((Args[0].VarBuffer^.Ptr)^);
 end;
 
 class function TBuiltInFunction.SEBufferGetU64(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   Result.Kind := sevkNumber;
   Result.VarNumber := QWord((Args[0].VarBuffer^.Ptr)^);
 end;
 
 class function TBuiltInFunction.SEBufferGetI8(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   Result.Kind := sevkNumber;
   Result.VarNumber := ShortInt((Args[0].VarBuffer^.Ptr)^);
 end;
 
 class function TBuiltInFunction.SEBufferGetI16(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   Result.Kind := sevkNumber;
   Result.VarNumber := SmallInt((Args[0].VarBuffer^.Ptr)^);
 end;
 
 class function TBuiltInFunction.SEBufferGetI32(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   Result.Kind := sevkNumber;
   Result.VarNumber := LongInt((Args[0].VarBuffer^.Ptr)^);
 end;
 
 class function TBuiltInFunction.SEBufferGetI64(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   Result.Kind := sevkNumber;
   Result.VarNumber := Int64((Args[0].VarBuffer^.Ptr)^);
 end;
 
 class function TBuiltInFunction.SEBufferGetF32(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   Result.Kind := sevkNumber;
   Result.VarNumber := TSENumber(Single((Args[0].VarBuffer^.Ptr)^));
 end;
 
 class function TBuiltInFunction.SEBufferGetF64(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   Result.Kind := sevkNumber;
   Result.VarNumber := TSENumber((Args[0].VarBuffer^.Ptr)^);
 end;
 
 class function TBuiltInFunction.SEBufferSetU8(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   Byte(Args[0].VarBuffer^.Ptr^) := Round(Args[1].VarNumber);
   Result := SENull;
 end;
 
 class function TBuiltInFunction.SEBufferSetU16(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   Word(Args[0].VarBuffer^.Ptr^) := Round(Args[1].VarNumber);
   Result := SENull;
 end;
 
 class function TBuiltInFunction.SEBufferSetU32(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   case Args[1].Kind of
     sevkBuffer:
       LongWord(Args[0].VarBuffer^.Ptr^) := LongWord(Args[1].VarBuffer^.Ptr);
@@ -1262,7 +1276,7 @@ end;
 
 class function TBuiltInFunction.SEBufferSetU64(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   case Args[1].Kind of
     sevkBuffer:
       QWord(Args[0].VarBuffer^.Ptr^) := QWord(Args[1].VarBuffer^.Ptr);
@@ -1274,7 +1288,7 @@ end;
 
 class function TBuiltInFunction.SEBufferSetI8(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   ShortInt(Args[0].VarBuffer^.Ptr^) := Round(Args[1].VarNumber);
   Result := SENull;
 end;
@@ -1283,7 +1297,7 @@ class function TBuiltInFunction.SEBufferSetI16(const VM: TSEVM; const Args: arra
 var
   P: Pointer;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   P := Pointer(Round(Args[0].VarNumber));
   SmallInt(P^) := Round(Args[1].VarNumber);
   Result := SENull;
@@ -1291,35 +1305,35 @@ end;
 
 class function TBuiltInFunction.SEBufferSetI32(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   LongInt(Args[0].VarBuffer^.Ptr^) := Round(Args[1].VarNumber);
   Result := SENull;
 end;
 
 class function TBuiltInFunction.SEBufferSetI64(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   Int64(Args[0].VarBuffer^.Ptr^) := Round(Args[1].VarNumber);
   Result := SENull;
 end;
 
 class function TBuiltInFunction.SEBufferSetF32(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   Single(Args[0].VarBuffer^.Ptr^) := Single(Args[1].VarNumber);
   Result := SENull;
 end;
 
 class function TBuiltInFunction.SEBufferSetF64(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   TSENumber(Args[0].VarBuffer^.Ptr^) := Args[1];
   Result := SENull;
 end;
 
 class function TBuiltInFunction.SEStringToBuffer(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  SEValidateType(@Args[0], sevkString, 1);
+  SEValidateType(@Args[0], sevkString, 1, {$I %CURRENTROUTINE%});
   GC.AllocBuffer(@Result, Length(Args[0].VarString^));
   Move(Args[0].VarString^[1], PByte(Result.VarBuffer^.Ptr)[1], Length(Args[0].VarString^));
 end;
@@ -1328,17 +1342,17 @@ class function TBuiltInFunction.SEBufferToString(const VM: TSEVM; const Args: ar
 var
   S: String;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   S := PChar(Args[0].VarBuffer^.Ptr);
   GC.AllocString(@Result, S);
 end;
 
 class function TBuiltInFunction.SEWBufferToString(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 var
-  WS: WideString;
+  WS: UnicodeString;
   S: String;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   WS := PWideChar(Args[0].VarBuffer^.Ptr);
   S := UTF8Encode(WS);
   GC.AllocString(@Result, S);
@@ -1349,7 +1363,7 @@ var
   I: Integer;
   Size: QWord;
 begin
-  SEValidateType(@Args[0], sevkMap, 1);
+  SEValidateType(@Args[0], sevkMap, 1, {$I %CURRENTROUTINE%});
   Size := SESize(Args[0]);
   GC.AllocBuffer(@Result, Size * 4);
   for I := 0 to Size - 1 do
@@ -1363,7 +1377,7 @@ var
   I: Integer;
   Size: QWord;
 begin
-  SEValidateType(@Args[0], sevkMap, 1);
+  SEValidateType(@Args[0], sevkMap, 1, {$I %CURRENTROUTINE%});
   Size := SESize(Args[0]);
   GC.AllocBuffer(@Result, Size * 8);
   for I := 0 to Size - 1 do
@@ -1377,8 +1391,8 @@ var
   I: Integer;
   Size: QWord;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
-  SEValidateType(@Args[1], sevkNumber, 2);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
+  SEValidateType(@Args[1], sevkNumber, 2, {$I %CURRENTROUTINE%});
   Size := Round(Args[1].VarNumber);
   GC.AllocMap(@Result);
   TSEValueMap(Result.VarMap).List.Count := Size;
@@ -1393,8 +1407,8 @@ var
   I: Integer;
   Size: QWord;
 begin
-  SEValidateType(@Args[0], sevkBuffer, 1);
-  SEValidateType(@Args[1], sevkNumber, 2);
+  SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
+  SEValidateType(@Args[1], sevkNumber, 2, {$I %CURRENTROUTINE%});
   Size := Round(Args[1].VarNumber);
   GC.AllocMap(@Result);
   TSEValueMap(Result.VarMap).List.Count := Size;
@@ -1489,7 +1503,7 @@ end;
 
 class function TBuiltInFunction.SESet(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  EnterCriticalSection(CS);  
+  EnterCriticalSection(CS);
   try
     ScriptVarMap.AddOrSetValue(Args[0].VarString^, Args[1]);
     Result := SENull;
@@ -1505,7 +1519,7 @@ end;
 
 class function TBuiltInFunction.SENumber(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
-  Exit(PointStrToFloat(Args[0]));
+  Exit(PointStrToFloat(Trim(Args[0])));
 end;
 
 class function TBuiltInFunction.SEWait(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -1747,7 +1761,7 @@ var
 begin
   S := StringReplace(Args[0], Args[1], Args[2], [rfReplaceAll]);
   Result := S;
-end;       
+end;
 
 class function TBuiltInFunction.SEStringReplaceIgnoreCase(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 var
@@ -1854,7 +1868,7 @@ end;
 class function TBuiltInFunction.SESqrt(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
   Exit(Sqrt(TSENumber(Args[0])));
-end;     
+end;
 
 class function TBuiltInFunction.SEAbs(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
@@ -2091,6 +2105,17 @@ begin
   end;
 end;
 
+class function TBuiltInFunction.SEFileCopy(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+begin
+  Result := False;
+  {$ifdef SE_HAS_FILEUTIL}
+  if FileExists(Args[0].VarString^) then
+  begin
+    Result := CopyFile(Args[0].VarString^, Args[1], [cffOverwriteFile], False);
+  end;
+  {$endif}
+end;
+
 class function TBuiltInFunction.SEFileExists(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
   Result := FileExists(Args[0].VarString^);
@@ -2106,6 +2131,25 @@ class function TBuiltInFunction.SEFileRename(const VM: TSEVM; const Args: array 
 begin
   RenameFile(Args[0].VarString^, Args[1].VarString^);
   Result := SENull;
+end;
+
+class function TBuiltInFunction.SEFileFindAll(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+var
+  SL: TStringList;
+  I: Integer;
+begin
+  Result := SENull;
+  {$ifdef SE_HAS_FILEUTIL}
+  SL := TStringList.Create;
+  try
+    FindAllFiles(SL, Args[0], Args[1], Boolean(Round(Args[2].VarNumber)), Round(Args[3].VarNumber));
+    GC.AllocMap(@Result);
+    for I := 0 to SL.Count - 1 do
+      SEMapSet(Result, I, SL[I]);
+  finally
+    SL.Free;
+  end;
+  {$endif}
 end;
 
 class function TBuiltInFunction.SEFileGetSize(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -2137,6 +2181,33 @@ class function TBuiltInFunction.SEDirectoryCreate(const VM: TSEVM; const Args: a
 begin
   ForceDirectories(Args[0].VarString^);
   Result := SENull;
+end;
+
+class function TBuiltInFunction.SEDirectoryDelete(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+begin
+  {$ifdef SE_HAS_FILEUTIL}
+  DeleteDirectory(Args[0], False);
+  {$endif}
+  Result := SENull;
+end;
+
+class function TBuiltInFunction.SEDirectoryFindAll(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+var
+  SL: TStringList;
+  I: Integer;
+begin
+  Result := SENull;
+  {$ifdef SE_HAS_FILEUTIL}
+  SL := TStringList.Create;
+  try
+    FindAllDirectories(SL, Args[0], Args[1]);
+    GC.AllocMap(@Result);
+    for I := 0 to SL.Count - 1 do
+      SEMapSet(Result, I, SL[I]);
+  finally
+    SL.Free;
+  end;
+  {$endif}
 end;
 
 class function TBuiltInFunction.SEDirectoryExists(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -2885,7 +2956,7 @@ var
 begin
   Ticks := GetTickCount64 - Self.FTicks;
   if (Ticks > 1000 * 60 * 2) or
-    ((Self.FAllocatedMem > Self.CeilMem) and (Ticks > 1000 * 5)) then
+    ((Self.FAllocatedMem > Self.CeilMem) and (Ticks > 1000 * 2)) then
   begin
     Self.GC;
     Self.FTicks := GetTickCount64;
@@ -2924,10 +2995,20 @@ begin
           begin
             if Value.Value.VarBuffer <> nil then
             begin
-              MS := Length(Value.Value.VarBuffer^.Base) - 16;
+              MS := MemSize(Value.Value.VarBuffer^.Base) - 16;
               Self.FAllocatedMem := Self.FAllocatedMem - MS;
-              Value.Value.VarBuffer^.Base := '';
+              FreeMem(Value.Value.VarBuffer^.Base);
               Dispose(Value.Value.VarBuffer);
+            end;
+          end;
+        sevkPascalObject:
+          begin
+            if Value.Value.VarPascalObject <> nil then
+            begin
+              if Value.Value.VarPascalObject^.IsManaged then
+                Value.Value.VarPascalObject^.Value.Free;
+              Self.FAllocatedMem := Self.FAllocatedMem - SizeOf(TSEPascalObject);
+              Dispose(Value.Value.VarPascalObject);
             end;
           end;
       end;
@@ -3016,31 +3097,10 @@ begin
       Mark(P);
       Inc(P);
     end;
-    for J := 0 to High(VM.Binaries) do
-    begin
-      Binary := VM.Binaries[J];
-      for K := 0 to Binary.Count - 1 do
-      begin
-        P := Binary.Ptr(K);
-        Mark(P);
-      end;
-    end;
     for Key in VM.Parent.ConstMap.Keys do
     begin
       V := VM.Parent.ConstMap[Key];
       Mark(@V);
-    end;
-  end;
-  for Cache in ScriptCacheMap.Values do
-  begin;
-    for J := 0 to High(Cache.Binaries) do
-    begin
-      Binary := Cache.Binaries[J];
-      for K := 0 to Binary.Count - 1 do
-      begin
-        P := Binary.Ptr(K);
-        Mark(P);
-      end;
     end;
   end;
   for V in ScriptVarMap.Values do
@@ -3054,8 +3114,8 @@ procedure TSEGarbageCollector.AllocBuffer(const PValue: PSEValue; const Size: In
 begin
   PValue^.Kind := sevkBuffer;
   New(PValue^.VarBuffer);
-  SetLength(PValue^.VarBuffer^.Base, Size + 16);
-  PValue^.VarBuffer^.Ptr := Pointer(QWord(@PValue^.VarBuffer^.Base[1]) + QWord(@PValue^.VarBuffer^.Base[1]) mod 16);
+  GetMem(PValue^.VarBuffer^.Base, Size + 16);
+  PValue^.VarBuffer^.Ptr := Pointer(QWord(PValue^.VarBuffer^.Base) + QWord(PValue^.VarBuffer^.Base) mod 16);
   PValue^.Size := Size;
   Self.FAllocatedMem := Self.FAllocatedMem + Size;
   Self.AddToList(PValue);
@@ -3076,6 +3136,17 @@ begin
   PValue^.VarString^ := S;
   PValue^.Size := Length(S);
   Self.FAllocatedMem := Self.FAllocatedMem + Length(PValue^.VarString^);
+  Self.AddToList(PValue);
+end;
+
+procedure  TSEGarbageCollector.AllocPascalObject(const PValue: PSEValue; const Obj: TObject; const IsManaged: Boolean = True);
+begin
+  PValue^.Kind := sevkPascalObject;
+  New(PValue^.VarPascalObject);
+  PValue^.VarPascalObject^.Value := Obj;
+  PValue^.VarPascalObject^.IsManaged := IsManaged;
+  PValue^.Size := SizeOf(TSEPascalObject);
+  Self.FAllocatedMem := PValue^.Size;
   Self.AddToList(PValue);
 end;
 
@@ -3128,6 +3199,8 @@ begin
   VMList.Add(Self);
   SetLength(Self.Binaries, 1);
   Self.Binaries[0] := TSEBinary.Create;
+  Self.ConstStrings := TStringList.Create;
+  Self.ConstStrings.Capacity := 64;
 end;
 
 destructor TSEVM.Destroy;
@@ -3138,6 +3211,7 @@ begin
     FreeAndNil(Self.Binaries[I]);
   if VMList <> nil then
     VMList.Delete(VMList.IndexOf(Self));
+  Self.ConstStrings.Free;
   inherited;
 end;
 
@@ -3176,7 +3250,7 @@ var
   AA: array[0..15] of PSEValue;
   TV, TV2: TSEValue;
   S, S1, S2: String;
-  WS, WS1, WS2: WideString;
+  WS, WS1, WS2: UnicodeString;
   FuncNativeInfo: PSEFuncNativeInfo;
   FuncScriptInfo: PSEFuncScriptInfo;
   FuncImportInfo: PSEFuncImportInfo;
@@ -3191,7 +3265,7 @@ var
   ImportBufferIndex: array [0..31] of QWord;
   ImportBufferData: array [0..8*31] of Byte;
   ImportBufferString: array [0..31] of String;
-  ImportBufferWideString: array [0..31] of WideString;
+  ImportBufferWideString: array [0..31] of UnicodeString;
   ImportResult: QWord;
   ImportResultD: TSENumber;
   ImportResultS: Single;
@@ -3384,6 +3458,7 @@ label
   CallScript, CallNative, CallImport
   {$ifdef SE_COMPUTED_GOTO},
   labelPushConst,
+  labelPushConstString,
   labelPushGlobalVar,
   labelPushLocalVar,
   labelPushArrayPop,
@@ -3438,6 +3513,7 @@ label
 var
   DispatchTable: array[TSEOpcode] of Pointer = (
     @labelPushConst,
+    @labelPushConstString,
     @labelPushGlobalVar,
     @labelPushLocalVar,
     @labelPushArrayPop,
@@ -3715,6 +3791,12 @@ begin
       {$ifdef SE_COMPUTED_GOTO}labelPushConst{$else}opPushConst{$endif}:
         begin
           Push(BinaryLocal.Ptr(CodePtrLocal + 1)^);
+          Inc(CodePtrLocal, 2);
+          DispatchGoto;
+        end;
+      {$ifdef SE_COMPUTED_GOTO}labelPushConstString{$else}opPushConstString{$endif}:
+        begin
+          Push(Self.ConstStrings[Integer(BinaryLocal.Ptr(CodePtrLocal + 1)^.VarPointer)]);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
@@ -4111,7 +4193,7 @@ begin
               ffiAbi := ffi_abi({$ifdef WINDOWS}1{$else}2{$endif});
             {$ifdef CPUI386}
             seccStdcall:
-              ffiAbi := FFI_STDCALL;    
+              ffiAbi := FFI_STDCALL;
             seccCdecl:
               ffiAbi := FFI_MS_CDECL;
             {$endif}
@@ -4876,7 +4958,7 @@ begin
   Self.RegisterFunc('string_find', @TBuiltInFunction(nil).SEStringFind, 2);
   Self.RegisterFunc('string_delete', @TBuiltInFunction(nil).SEStringDelete, 3);
   Self.RegisterFunc('string_insert', @TBuiltInFunction(nil).SEStringInsert, 3);
-  Self.RegisterFunc('string_replace', @TBuiltInFunction(nil).SEStringReplace, 3);   
+  Self.RegisterFunc('string_replace', @TBuiltInFunction(nil).SEStringReplace, 3);
   Self.RegisterFunc('string_replace_ignorecase', @TBuiltInFunction(nil).SEStringReplaceIgnoreCase, 3);
   Self.RegisterFunc('string_uppercase', @TBuiltInFunction(nil).SEStringUpperCase, 1);
   Self.RegisterFunc('string_lowercase', @TBuiltInFunction(nil).SEStringLowerCase, 1);
@@ -4916,7 +4998,7 @@ begin
   Self.RegisterFunc('cos', @TBuiltInFunction(nil).SECos, 1);
   Self.RegisterFunc('tan', @TBuiltInFunction(nil).SETan, 1);
   Self.RegisterFunc('cot', @TBuiltInFunction(nil).SECot, 1);
-  Self.RegisterFunc('sqrt', @TBuiltInFunction(nil).SESqrt, 1);  
+  Self.RegisterFunc('sqrt', @TBuiltInFunction(nil).SESqrt, 1);
   Self.RegisterFunc('abs', @TBuiltInFunction(nil).SEAbs, 1);
   Self.RegisterFunc('frac', @TBuiltInFunction(nil).SEFrac, 1);
   Self.RegisterFunc('mem_object_count', @TBuiltInFunction(nil).SEGCObjectCount, 0);
@@ -4931,9 +5013,13 @@ begin
   Self.RegisterFunc('fs_file_write', @TBuiltInFunction(nil).SEFileWriteText, 2);
   Self.RegisterFunc('fs_file_write_text', @TBuiltInFunction(nil).SEFileWriteText, 2);
   Self.RegisterFunc('fs_file_write_binary', @TBuiltInFunction(nil).SEFileWriteBinary, 3);
+  Self.RegisterFunc('fs_file_copy', @TBuiltInFunction(nil).SEFileCopy, 2);
   Self.RegisterFunc('fs_file_size_get', @TBuiltInFunction(nil).SEFileGetSize, 1);
   Self.RegisterFunc('fs_file_age_get', @TBuiltInFunction(nil).SEFileGetAge, 1);
+  Self.RegisterFunc('fs_file_find_all', @TBuiltInFunction(nil).SEFileFindAll, 4);
   Self.RegisterFunc('fs_directory_create', @TBuiltInFunction(nil).SEDirectoryCreate, 1);
+  Self.RegisterFunc('fs_directory_delete', @TBuiltInFunction(nil).SEDirectoryDelete, 1);
+  Self.RegisterFunc('fs_directory_find_all', @TBuiltInFunction(nil).SEDirectoryFindAll, 2);
   Self.RegisterFunc('fs_directory_exists', @TBuiltInFunction(nil).SEDirectoryExists, 1);
   Self.RegisterFunc('base64_encode', @TBuiltInFunction(nil).SEBase64Encode, 1);
   Self.RegisterFunc('base64_decode', @TBuiltInFunction(nil).SEBase64Decode, 1);
@@ -5761,14 +5847,24 @@ var
   begin
     if not CanEmit then
       Exit(Self.Binary.Count);
-    OpcodeInfo.Op := TSEOpcode(Integer(Data[0].VarPointer));
     OpcodeInfo.Pos := Self.Binary.Count;
     OpcodeInfo.Size := Length(Data);
     OpcodeInfo.Binary := Self.Binary;
     Self.OpcodeInfoList.Add(OpcodeInfo);
-    for I := Low(Data) to High(Data) do
+    if (Integer(Data[0].VarPointer) = Integer(opPushConst)) and (Data[1].Kind = sevkString) then
     begin
-      Self.Binary.Add(Data[I]);
+      // TODO: We have leftover TSEValue with string type here, this should be organized better someday.
+      OpcodeInfo.Op := opPushConstString;
+      Self.Binary.Add(Pointer(opPushConstString));
+      Self.Binary.Add(Pointer(Self.VM.ConstStrings.Count));
+      Self.VM.ConstStrings.Add(Data[1].VarString^);
+    end else
+    begin
+      OpcodeInfo.Op := TSEOpcode(Integer(Data[0].VarPointer));
+      for I := Low(Data) to High(Data) do
+      begin
+        Self.Binary.Add(Data[I]);
+      end;
     end;
     Exit(Self.Binary.Count);
   end;
@@ -7560,6 +7656,7 @@ begin
   Self.VM.Reset;
 
   Self.VM.BinaryClear;
+  Self.VM.ConstStrings.Clear;
   Self.VM.IsDone := True;
   Self.Vm.IsPaused := False;
   Self.BinaryPos := 0;
@@ -7629,7 +7726,7 @@ begin
   begin
     if Name = Self.FuncScriptList[I].Name then
     begin
-      Self.VM.BinaryPtr := Self.FuncScriptList[I].BinaryPos; 
+      Self.VM.BinaryPtr := Self.FuncScriptList[I].BinaryPos;
       Self.VM.StackPtr := Self.VM.StackPtr + Self.FuncScriptList[I].VarCount + 1;
       Break;
     end;
@@ -7740,7 +7837,7 @@ begin
       Writeln(' - The library not exists in root directory');
     {$endif}
     Lib := LoadLibrary(LibName);
-    DynlibMap.Add(LibName, Lib); 
+    DynlibMap.Add(LibName, Lib);
     {$ifdef SE_LOG}
     Writeln(' - Library''s pointer: ', QWord(Lib));
     {$endif}
@@ -7749,7 +7846,7 @@ begin
   FuncImportInfo.Args := Args;
   FuncImportInfo.Return := Return;
   FuncImportInfo.Name := Name;
-  FuncImportInfo.Func := nil;   
+  FuncImportInfo.Func := nil;
   FuncImportInfo.CallingConvention := CC;
   if Lib <> 0 then
   begin
@@ -7768,6 +7865,7 @@ begin
   Result.FuncScriptList := TSEFuncScriptList.Create;
   Result.FuncImportList := TSEFuncImportList.Create;
   Result.GlobalVarSymbols := TStringList.Create;
+  Result.ConstStrings := TStringList.Create;
   SetLength(Result.Binaries, Length(Self.VM.Binaries));
   for J := 0 to High(Self.VM.Binaries) do
   begin
@@ -7796,6 +7894,7 @@ begin
   end;
   Result.GlobalVarSymbols.Assign(Self.GlobalVarSymbols);
   Result.GlobalVarCount := Self.GlobalVarCount;
+  Result.ConstStrings.Assign(Self.VM.ConstStrings);
 end;
 
 procedure TScriptEngine.Restore(const Cache: TSECache);
@@ -7829,6 +7928,7 @@ begin
     Self.FuncImportList.Add(Cache.FuncImportList[I]);
   Self.GlobalVarSymbols.Assign(Cache.GlobalVarSymbols);
   Self.GlobalVarCount := Cache.GlobalVarCount;
+  Self.VM.ConstStrings.Assign(Cache.ConstStrings);
   Self.IsParsed := True;
 end;
 
@@ -7847,6 +7947,7 @@ begin
     Cache.FuncScriptList.Free;
     Cache.FuncImportList.Free;
     Cache.GlobalVarSymbols.Free;
+    Cache.ConstStrings.Free;
     Self.Remove(AName);
   except
   end;
@@ -7867,12 +7968,15 @@ begin
     Cache.FuncScriptList.Free;
     Cache.FuncImportList.Free;
     Cache.GlobalVarSymbols.Free;
+    Cache.ConstStrings.Free;
   end;
   inherited;
 end;
 
 initialization
   InitCriticalSection(CS);
+  FS := FormatSettings;
+  FS.DecimalSeparator := '.';
   SENull.Kind := sevkNull;
   SENull.Ref := 0;
   SENull.VarNumber := Floor(0);

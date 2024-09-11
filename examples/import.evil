@@ -1,5 +1,5 @@
 import 'user32.dll' {
-  fn MessageBox(i32, buffer, buffer, i32): void 'MessageBoxA' // Map MessageBoxA external function to MessageBox
+  fn MessageBox(i32, buffer, buffer, i32): i32 'MessageBoxA' // Map MessageBoxA external function to MessageBox
 }
 
 MessageBox(0, 'Hello, World!', '', 0) // Strings are automatically converted to null-terminated strings

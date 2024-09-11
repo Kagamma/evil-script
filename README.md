@@ -4,8 +4,6 @@ It has been tested and works on the following platforms: DOS (go32v2), Windows (
 
 By default `import` feature (allows to import external functions from DLLs directly) only works on x64. Enable `SE_LIBFFI`, which in turn uses `libffi` instead, will allow you to use `import` in other archs.
 
-In case of `libffi`, because evil script does not allow to change calling convention (for now!), on x86 it is default to `stdcall` on Windows, and `cdecl` on Unix.
-
 #### Features
 - https://github.com/Kagamma/satania-buddy/wiki/Scripting-Reference
 
