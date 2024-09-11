@@ -1,0 +1,13 @@
+obj = [
+  Name: 'Gabriel',
+  Race: 'Angel',
+  Inventory: [
+    'Angel halo': 1,
+  ]
+]
+
+jsonstr = json_stringify(obj)
+writeln('JSON: ', jsonstr)
+
+jsonobj = json_parse(jsonstr)
+writeln('Obj : ', jsonobj)
