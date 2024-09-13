@@ -23,14 +23,17 @@ unit ScriptEngine;
 {.$define SE_HAS_FILEUTIL}
 // enable this if you want to print logs to terminal
 {.$define SE_LOG}
+// enable this if you need json support
+{$define SE_HAS_JSON}
 {$align 16}
 
 interface
 
 uses
   SysUtils, Classes, Generics.Collections, StrUtils, Types, DateUtils, RegExpr,
-  fpjson, jsonparser,
-  base64{$ifdef SE_HAS_FILEUTIL}, FileUtil{$endif}
+  base64
+  {$ifdef SE_HAS_JSON}, fpjson, jsonparser{$endif}
+  {$ifdef SE_HAS_FILEUTIL}, FileUtil{$endif}
   {$ifdef SE_LIBFFI}, ffi{$endif}
   {$ifdef SE_STRING_UTF8},LazUTF8{$endif}{$ifdef SE_DYNLIBS}, dynlibs{$endif};
 
@@ -763,8 +766,10 @@ type
     class function SEBase64Encode(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEBase64Decode(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 
+    {$ifdef SE_HAS_JSON}
     class function SEJSONParse(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEJSONStringify(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    {$endif}
   end;
 
   TDynlibMap = specialize TDictionary<String, TLibHandle>;
@@ -2229,6 +2234,7 @@ begin
   Result := DecodeStringBase64(Args[0]);
 end;
 
+{$ifdef SE_HAS_JSON}
 class function TBuiltInFunction.SEJSONParse(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
   procedure QueryForObject(out R: TSEValue; Data: TJSONData); forward;
 
@@ -2437,6 +2443,7 @@ begin
     SB.Free;
   end;
 end;
+{$endif}
 
 function TSEOpcodeInfoList.Ptr(const P: Integer): PSEOpcodeInfo; inline;
 begin
@@ -5236,8 +5243,10 @@ begin
   Self.RegisterFunc('fs_directory_exists', @TBuiltInFunction(nil).SEDirectoryExists, 1);
   Self.RegisterFunc('base64_encode', @TBuiltInFunction(nil).SEBase64Encode, 1);
   Self.RegisterFunc('base64_decode', @TBuiltInFunction(nil).SEBase64Decode, 1);
+  {$ifdef SE_HAS_JSON}
   Self.RegisterFunc('json_parse', @TBuiltInFunction(nil).SEJSONParse, 1);
   Self.RegisterFunc('json_stringify', @TBuiltInFunction(nil).SEJSONStringify, 1);
+  {$endif}
   Self.RegisterFunc('assert', @TBuiltInFunction(nil).SEAssert, 2);
   Self.RegisterFunc('chr', @TBuiltInFunction(nil).SEChar, 1);
   Self.RegisterFunc('ord', @TBuiltInFunction(nil).SEOrd, 1);
@@ -6158,7 +6167,7 @@ var
       OpInfoPrev1,
       OpInfoPrev2: PSEOpcodeInfo;
 
-      function PeekAtPrevOp(const Ind: Integer): PSEOpcodeInfo; inline;
+      function PeekAtPrevOp(const Ind: Integer): PSEOpcodeInfo;
       var
         I: Integer;
       begin
@@ -6169,7 +6178,7 @@ var
           Result := nil;
       end;
 
-      function PeekAtPrevOpExpected(const Ind: Integer; const Expected: TSEOpcodes): PSEOpcodeInfo; inline;
+      function PeekAtPrevOpExpected(const Ind: Integer; const Expected: TSEOpcodes): PSEOpcodeInfo;
       var
         Op: TSEOpcode;
       begin
@@ -6181,7 +6190,7 @@ var
         Result := nil;
       end;
 
-      function OpToOp2(const Op: TSEOpcode): TSEOpcode; inline;
+      function OpToOp2(const Op: TSEOpcode): TSEOpcode;
       begin
         case Op of
           opOperatorAdd:
@@ -6195,7 +6204,7 @@ var
         end;
       end;
 
-      function PeepholeOptimization: Boolean; inline;
+      function PeepholeOptimization: Boolean;
       var
         A, B: TSEValue;
         I: Integer;
@@ -6247,15 +6256,15 @@ var
         end;
       end;
 
-      function ConstantFoldingOptimization: Boolean; inline;
-        function SameKind: Boolean; inline;
+      function ConstantFoldingOptimization: Boolean;
+        function SameKind: Boolean;
         begin
           V2 := Self.Binary[Self.Binary.Count - 1];
           V1 := Self.Binary[Self.Binary.Count - 3];
           Result := V1.Kind = V2.Kind;
         end;
 
-        procedure Pop2; inline;
+        procedure Pop2;
         begin
           Self.Binary.DeleteRange(Self.Binary.Count - 4, 4);
           Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 2);
@@ -6268,6 +6277,8 @@ var
         OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushConst]);
         if (OpInfoPrev1 <> nil) and (OpInfoPrev1 <> nil) and SameKind then
         begin
+          if (OpInfoPrev1^.Binary <> Pointer(Self.Binary)) or (OpInfoPrev2^.Binary <> Pointer(Self.Binary)) then
+            Exit;
           Result := True;
           case Op of
             opOperatorAdd:
