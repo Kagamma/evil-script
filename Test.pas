@@ -35,9 +35,9 @@ class function TCustomFunctions.Add(const VM: TSEVM; const Args: array of TSEVal
 var
   V: TSEValue;
 begin
-  V := SEMapGet(This, 'value');
+  V := SEMapGet(This, 'value'); // Get data from "value" property
   V := V + Args[0];
-  SEMapSet(This, 'value', V);
+  SEMapSet(This, 'value', V); // Set new data to "value" property
   Exit(This);
 end;
 
@@ -141,7 +141,7 @@ begin
   Writeln('--- ResultTestRun ---');
   SE.Source := ResultTest;
   SE.Exec;
-  Writeln(SE.VM.Stack[0].VarNumber);
+  Writeln(SE.VM.Global[0].VarNumber); // The first global variable is always "result"
 end;
 
 begin
