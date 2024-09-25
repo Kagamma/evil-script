@@ -1122,7 +1122,7 @@ begin
       begin
         Op := TSEOpcode(QWord(Binary[I].VarPointer));
         System.WriteStr(S, Op);
-        SB.Append(S);
+        SB.Append(IntToStr(I) + ': ' + S);
         for K := 1 to OpcodeSizes[Op] - 1 do
         begin
           SB.Append(' ' + SEValueToText(Binary[I + K]));
@@ -2636,7 +2636,7 @@ begin
   else
     if (V1.Kind = sevkBuffer) and (V2.Kind in [sevkNumber, sevkBoolean]) then
     begin
-      GC.AllocBuffer(@Temp, 1);
+      GC.AllocBuffer(@Temp, 0);
       Temp.VarBuffer^.Ptr := Pointer(QWord(V1.VarBuffer^.Ptr) + Round(V2.VarNumber));
       R := Temp;
     end;
@@ -2659,7 +2659,7 @@ begin
       end;
     sevkBuffer:
       begin
-        GC.AllocBuffer(@Temp, 1);
+        GC.AllocBuffer(@Temp, 0);
         Temp.VarBuffer^.Ptr := Pointer(QWord(V1.VarBuffer^.Ptr) - Round(V2.VarNumber));
         R := Temp;
       end;
@@ -3002,7 +3002,7 @@ begin
       end;
     sevkBuffer:
       begin
-        GC.AllocBuffer(@R, 1);
+        GC.AllocBuffer(@R, 0);
         R.VarBuffer^.Ptr := Pointer(QWord(V1.VarBuffer^.Ptr) + Round(V2.VarNumber));
       end;
     sevkPointer:
@@ -3013,7 +3013,7 @@ begin
   end else
     if (V1.Kind = sevkBuffer) and (V2.Kind in [sevkNumber, sevkBoolean]) then
     begin
-      GC.AllocBuffer(@R, 1);
+      GC.AllocBuffer(@R, 0);
       R.VarBuffer^.Ptr := V1.VarBuffer^.Ptr + Pointer(Round(V2.VarNumber));
     end;
 end;
@@ -3037,7 +3037,7 @@ begin
       end;
     sevkBuffer:
       begin
-        GC.AllocBuffer(@R, 1);
+        GC.AllocBuffer(@R, 0);
         R.VarBuffer^.Ptr := Pointer(QWord(V1.VarBuffer^.Ptr) - Round(V2.VarNumber));
       end;
   end;
@@ -3328,9 +3328,12 @@ begin
           begin
             if Value.Value.VarBuffer <> nil then
             begin
-              MS := MemSize(Value.Value.VarBuffer^.Base) - 16;
-              Self.FAllocatedMem := Self.FAllocatedMem - MS;
-              FreeMem(Value.Value.VarBuffer^.Base);
+              if Value.Value.VarBuffer^.Base <> nil then
+              begin
+                MS := MemSize(Value.Value.VarBuffer^.Base) - 16;
+                Self.FAllocatedMem := Self.FAllocatedMem - MS;
+                FreeMem(Value.Value.VarBuffer^.Base);
+              end;
               Dispose(Value.Value.VarBuffer);
             end;
           end;
@@ -3360,7 +3363,7 @@ procedure TSEGarbageCollector.GC;
     Key: String;
     I: Integer;
   begin
-    if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) then
+    if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) and (PValue^.Kind <> sevkPascalObject) then
       Exit;
     Value := Self.FValueList[PValue^.Ref];
     if not Value.Garbage then
@@ -3447,9 +3450,16 @@ procedure TSEGarbageCollector.AllocBuffer(const PValue: PSEValue; const Size: In
 begin
   PValue^.Kind := sevkBuffer;
   New(PValue^.VarBuffer);
-  GetMem(PValue^.VarBuffer^.Base, Size + 16);
-  PValue^.VarBuffer^.Ptr := Pointer(QWord(PValue^.VarBuffer^.Base) + QWord(PValue^.VarBuffer^.Base) mod 16);
-  PValue^.Size := Size;
+  if Size > 0 then
+  begin
+    GetMem(PValue^.VarBuffer^.Base, Size + 16);
+    PValue^.VarBuffer^.Ptr := Pointer(QWord(PValue^.VarBuffer^.Base) + QWord(PValue^.VarBuffer^.Base) mod 16);
+    PValue^.Size := Size;
+  end else
+  begin
+    PValue^.VarBuffer^.Base := nil;
+    PValue^.VarBuffer^.Ptr := nil;
+  end;
   Self.FAllocatedMem := Self.FAllocatedMem + Size;
   Self.AddToList(PValue);
 end;
@@ -8071,7 +8081,7 @@ begin
     Self.Parse;
   end;
   Self.VM.Exec;
-  Exit(Self.VM.Stack[0])
+  Exit(Self.VM.Global[0])
 end;
 
 {
