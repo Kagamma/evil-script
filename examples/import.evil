@@ -1,5 +1,8 @@
 import 'user32.dll' {
-  fn MessageBox(i32, buffer, buffer, i32): i32 'MessageBoxA' // Map MessageBoxA external function to MessageBox
+  // Map MessageBoxA external function to MessageBox
+  // MessageBoxA is optional and can be omitted if function name is the same as external function
+  // stdcall is for x86 only, on other archs, this will be ignored
+  fn stdcall MessageBox(i32, buffer, buffer, i32): i32 'MessageBoxA'
 }
 
 MessageBox(0, 'Hello, World!', '', 0) // Strings are automatically converted to null-terminated strings
