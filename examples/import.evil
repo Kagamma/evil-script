@@ -1,7 +1,7 @@
 import 'user32.dll' {
   // Map MessageBoxA external function to MessageBox
   // MessageBoxA is optional and can be omitted if function name is the same as external function
-  // stdcall is optional and is is for x86 only, on other archs, this will be ignored
+  // stdcall is optional and is for x86 only, on other archs, this will be ignored
   fn stdcall MessageBox(i32, buffer, buffer, i32): i32 'MessageBoxA'
 }
 
