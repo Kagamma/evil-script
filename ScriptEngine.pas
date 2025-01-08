@@ -12,12 +12,16 @@ unit ScriptEngine;
 {.$define SE_STRING_UTF8}
 // use computed goto instead of case of
 {$ifndef AARCH64}
-  {$define SE_COMPUTED_GOTO}
+  {$ifndef WASI}
+    {$define SE_COMPUTED_GOTO}
+  {$endif}
 {$endif}
 // enable this if you want to use libffi to handle dynamic function calls
 {.$define SE_LIBFFI}
 {$if defined(CPU32) or defined(CPU64) or defined(SE_LIBFFI)}
-  {$define SE_DYNLIBS}
+  {$ifndef WASI}
+    {$define SE_DYNLIBS}
+  {$endif}
 {$endif}
 // enable this if you have access to LCL's FileUtil
 {.$define SE_HAS_FILEUTIL}
@@ -25,12 +29,17 @@ unit ScriptEngine;
 {.$define SE_LOG}
 // enable this if you need json support
 {$define SE_HAS_JSON}
+// enable this if you want to include this incastle game engine's profiler report
+{.$define SE_PROFILER}
 {$align 16}
 
 interface
 
 uses
   SysUtils, Classes, Generics.Collections, StrUtils, Types, DateUtils, RegExpr,
+  {$ifdef SE_PROFILER}
+  CastleTimeUtils,
+  {$endif}
   base64
   {$ifdef SE_HAS_JSON}, fpjson, jsonparser{$endif}
   {$ifdef SE_HAS_FILEUTIL}, FileUtil{$endif}
@@ -565,6 +574,7 @@ type
     procedure SetSource(V: String);
     function InternalIdent: String;
   public
+    Owner: TObject;
     OptimizePeephole,         // True = enable peephole optimization, default is true
     OptimizeConstantFolding,  // True = enable constant folding optimization, default is true
     OptimizeAsserts: Boolean; // True = ignore assert, default is true
@@ -597,7 +607,7 @@ type
     constructor Create;
     destructor Destroy; override;
     procedure AddDefaultConsts;
-    function IsWaited: Boolean;
+    function IsWaited: Boolean; inline;
     function GetIsPaused: Boolean;
     procedure SetIsPaused(V: Boolean);
     function IsYielded: Boolean;
@@ -978,7 +988,11 @@ begin
     sevkPointer:
       begin
         Result := IntToStr(Integer(Value.VarPointer));
-      end
+      end;
+    sevkPascalObject:
+      begin
+        Result := 'pasobject@' + IntToStr(QWord(Value.VarPascalObject^.Value));
+      end;
     else
       Result := Value;
   end;
@@ -2186,7 +2200,7 @@ begin
       if SizeToRead > 0 then
       begin
         GC.AllocBuffer(@Result, SizeToRead);
-        FS.Position := Args[1];
+        FS.Position := Round(Args[1]);
         FS.Read(Result.VarBuffer^.Ptr^, SizeToRead);
       end;
     end;
@@ -3558,7 +3572,7 @@ begin
   inherited;
 end;
 
-function TSEVM.IsWaited: Boolean;
+function TSEVM.IsWaited: Boolean; inline;
 begin
   Exit(GetTickCount64 < Self.WaitTime);
 end;
@@ -4294,7 +4308,7 @@ begin
           ArgCount := Integer(BinaryLocal.Ptr(CodePtrLocal + 2)^.VarPointer);
           FuncScriptInfo := Self.Parent.FuncScriptList.Ptr(Integer(BinaryLocal.Ptr(CodePtrLocal + 1)^.VarPointer));
           Inc(Self.FramePtr);
-          if Self.FramePtr >= @Self.Frame[Self.FrameSize] then
+          if Self.FramePtr > @Self.Frame[Self.FrameSize - 1] then
             raise Exception.Create('Too much recursion');
           Self.FramePtr^.Stack := StackPtrLocal - ArgCount;
           StackPtrLocal := StackPtrLocal + FuncScriptInfo^.VarCount;
@@ -8098,14 +8112,23 @@ end;
 
 function TScriptEngine.Exec: TSEValue;
 begin
-  if not Self.IsLex then
-    Self.Lex;
-  if not Self.IsParsed then
-  begin
-    Self.Parse;
+  {$ifdef SE_PROFILER}
+  FrameProfiler.Start('TScriptEngine.Exec');
+  {$endif}
+  try
+    if not Self.IsLex then
+      Self.Lex;
+    if not Self.IsParsed then
+    begin
+      Self.Parse;
+    end;
+    Self.VM.Exec;
+    Exit(Self.VM.Global[0]);
+  finally
+    {$ifdef SE_PROFILER}
+    FrameProfiler.Stop('TScriptEngine.Exec');
+    {$endif}
   end;
-  Self.VM.Exec;
-  Exit(Self.VM.Global[0])
 end;
 
 {
@@ -8152,7 +8175,7 @@ begin
       Stack[I] := Args[I];
     end;
     Self.VM.Exec;
-    Exit(Self.VM.StackPtr[-1]);
+    Exit(Stack[-1]);
   end else
     Exit(SENull);
 end;
@@ -8162,36 +8185,61 @@ var
   I: Integer;
   Stack: PSEValue;
 begin
-  Self.VM.CodePtr := 0;
-  Self.VM.BinaryPtr := 0;
-  Self.VM.IsPaused := False;
-  Self.VM.IsDone := False;
-  Self.VM.WaitTime := 0;
-  Self.VM.FramePtr := @Self.VM.Frame[0];
-  Self.VM.StackPtr := PSEValue(@Self.VM.Stack[0]) + 8;
-  Self.VM.FramePtr^.Stack := Self.VM.StackPtr;
-  Self.VM.TrapPtr := @Self.VM.Trap[0];
-  Dec(Self.VM.TrapPtr);
-  for I := 0 to Self.FuncScriptList.Count - 1 do
-  begin
-    if Name = Self.FuncScriptList[I].Name then
+  {$ifdef SE_PROFILER}
+  FrameProfiler.Start('TScriptEngine.ExecFunc');
+  {$endif}
+  try
+    Result := SENull;
+    if Self.VM.IsPaused or Self.VM.IsWaited or Self.VM.IsYielded then
     begin
-      Self.VM.BinaryPtr := Self.FuncScriptList[I].BinaryPos;
-      Self.VM.StackPtr := Self.VM.StackPtr + Self.FuncScriptList[I].VarCount + 1;
-      Break;
+      Stack := PSEValue(@Self.VM.Stack[0]) + 8;
+      for I := 0 to Self.FuncScriptList.Count - 1 do
+      begin
+        if Name = Self.FuncScriptList[I].Name then
+        begin
+          Self.VM.Exec;
+          if Self.VM.IsDone then
+            Exit(Stack[-1]);
+        end;
+      end;
+    end else
+    begin
+      Self.VM.CodePtr := 0;
+      Self.VM.BinaryPtr := 0;
+      Self.VM.IsPaused := False;
+      Self.VM.IsDone := False;
+      Self.VM.WaitTime := 0;
+      Self.VM.FramePtr := @Self.VM.Frame[0];
+      Self.VM.StackPtr := PSEValue(@Self.VM.Stack[0]) + 8;
+      Self.VM.FramePtr^.Stack := Self.VM.StackPtr;
+      Self.VM.TrapPtr := @Self.VM.Trap[0];
+      Dec(Self.VM.TrapPtr);
+      for I := 0 to Self.FuncScriptList.Count - 1 do
+      begin
+        if Name = Self.FuncScriptList[I].Name then
+        begin
+          Self.VM.BinaryPtr := Self.FuncScriptList[I].BinaryPos;
+          Self.VM.StackPtr := Self.VM.StackPtr + Self.FuncScriptList[I].VarCount + 1;
+          Break;
+        end;
+      end;
+      if Self.VM.BinaryPtr <> 0 then
+      begin
+        Stack := PSEValue(@Self.VM.Stack[0]) + 8;
+        for I := 0 to Length(Args) - 1 do
+        begin
+          Stack[I] := Args[I];
+        end;
+        Self.VM.Exec;
+        if Self.VM.IsDone then
+          Exit(Stack[-1]);
+      end;
     end;
+  finally
+    {$ifdef SE_PROFILER}
+    FrameProfiler.Stop('TScriptEngine.ExecFunc');
+    {$endif}
   end;
-  if Self.VM.BinaryPtr <> 0 then
-  begin
-    Stack := PSEValue(@Self.VM.Stack[0]) + 8;
-    for I := 0 to Length(Args) - 1 do
-    begin
-      Stack[I] := Args[I];
-    end;
-    Self.VM.Exec;
-    Exit(Self.VM.StackPtr[-1]);
-  end else
-    Exit(SENull);
 end;
 
 procedure TScriptEngine.RegisterFunc(const Name: String; const Func: TSEFunc; const ArgCount: Integer);
