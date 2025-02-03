@@ -75,6 +75,7 @@ type
     opOperatorMul2,
     opOperatorDiv2,
 
+    opOperatorInc,
     opOperatorAdd,
     opOperatorSub,
     opOperatorMul,
@@ -360,7 +361,7 @@ type
   end;
   PSETrap = ^TSETrap;
 
-  TScriptEngine = class;
+  TEvilC = class;
   TSEVM = class
   public
     IsPaused: Boolean;
@@ -379,7 +380,7 @@ type
     StackSize: Integer;
     FrameSize: Integer;
     TrapSize: Integer;
-    Parent: TScriptEngine;
+    Parent: TEvilC;
     Binaries: array of TSEBinary;
     WaitTime: LongWord;
 
@@ -503,6 +504,7 @@ const
     4, // opOperatorMul2,
     4, // opOperatorDiv2,
 
+    2, // opOperatorInc,
     1, // opOperatorAdd,
     1, // opOperatorSub,
     1, // opOperatorMul,
@@ -567,7 +569,7 @@ type
   PSEToken = ^TSEToken;
   TSETokenList = specialize TList<TSEToken>;
 
-  TScriptEngine = class
+  TEvilC = class
   private
     FSource: String;
     FInternalIdentCount: QWord;
@@ -629,6 +631,8 @@ type
     property IsPaused: Boolean read GetIsPaused write SetIsPaused;
     property Source: String read FSource write SetSource;
   end;
+
+  TScriptEngine = TEvilC;
 
 function SEValueToText(const Value: TSEValue; const IsRoot: Boolean = True): String;
 function SESize(constref Value: TSEValue): Cardinal; inline;
@@ -788,6 +792,9 @@ type
     class function SEStringTrim(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEStringTrimLeft(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEStringTrimRight(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEStringExtractName(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEStringExtractPath(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+    class function SEStringExtractExt(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEEaseInQuad(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEEaseOutQuad(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
     class function SEEaseInOutQuad(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
@@ -1981,6 +1988,21 @@ begin
   Result := TrimRight(Args[0]);
 end;
 
+class function TBuiltInFunction.SEStringExtractName(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+begin
+  Result := ExtractFileName(Args[0].VarString^);
+end;
+
+class function TBuiltInFunction.SEStringExtractPath(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+begin
+  Result := ExtractFilePath(Args[0].VarString^);
+end;
+
+class function TBuiltInFunction.SEStringExtractExt(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+begin
+  Result := ExtractFileExt(Args[0].VarString^);
+end;
+
 class function TBuiltInFunction.SESin(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
 begin
   Exit(Sin(TSENumber(Args[0])));
@@ -2200,7 +2222,7 @@ begin
       if SizeToRead > 0 then
       begin
         GC.AllocBuffer(@Result, SizeToRead);
-        FS.Position := Round(Args[1]);
+        FS.Position := Round(Args[1].VarNumber);
         FS.Read(Result.VarBuffer^.Ptr^, SizeToRead);
       end;
     end;
@@ -3835,6 +3857,7 @@ label
   labelOperatorMul2,
   labelOperatorDiv2,
 
+  labelOperatorInc,
   labelOperatorAdd,
   labelOperatorSub,
   labelOperatorMul,
@@ -3890,6 +3913,7 @@ var
     @labelOperatorMul2,
     @labelOperatorDiv2,
 
+    @labelOperatorInc,
     @labelOperatorAdd,
     @labelOperatorSub,
     @labelOperatorMul,
@@ -3944,6 +3968,14 @@ begin
       {$ifndef SE_COMPUTED_GOTO}
       case TSEOpcode(Integer(BinaryLocal.Ptr(CodePtrLocal)^.VarPointer)) of
       {$endif}
+      {$ifdef SE_COMPUTED_GOTO}labelOperatorInc{$else}opOperatorInc{$endif}:
+        begin
+          A := Pop;
+          A^.VarNumber := A^.VarNumber + BinaryLocal.Ptr(CodePtrLocal + 1)^.VarNumber;
+          Inc(StackPtrLocal);
+          Inc(CodePtrLocal, 2);
+          DispatchGoto;
+        end;
       {$ifdef SE_COMPUTED_GOTO}labelOperatorAdd{$else}opOperatorAdd{$endif}:
         begin
           B := Pop;
@@ -5216,7 +5248,7 @@ begin
   Self.Parent.IsDone := True;
 end;
 
-constructor TScriptEngine.Create;
+constructor TEvilC.Create;
 begin
   inherited;
   Self.VM := TSEVM.Create;
@@ -5324,6 +5356,9 @@ begin
   Self.RegisterFunc('string_trim', @TBuiltInFunction(nil).SEStringTrim, 1);
   Self.RegisterFunc('string_trim_left', @TBuiltInFunction(nil).SEStringTrimLeft, 1);
   Self.RegisterFunc('string_trim_right', @TBuiltInFunction(nil).SEStringTrimRight, 1);
+  Self.RegisterFunc('string_extract_name', @TBuiltInFunction(nil).SEStringExtractName, 1);
+  Self.RegisterFunc('string_extract_path', @TBuiltInFunction(nil).SEStringExtractPath, 1);
+  Self.RegisterFunc('string_extract_ext', @TBuiltInFunction(nil).SEStringExtractExt, 1);
   Self.RegisterFunc('lerp', @TBuiltInFunction(nil).SELerp, 3);
   Self.RegisterFunc('slerp', @TBuiltInFunction(nil).SESLerp, 3);
   Self.RegisterFunc('write', @TBuiltInFunction(nil).SEWrite, -1);
@@ -5391,7 +5426,7 @@ begin
   Self.Source := '';
 end;
 
-destructor TScriptEngine.Destroy;
+destructor TEvilC.Destroy;
 var
   I: Integer;
 begin
@@ -5416,7 +5451,7 @@ begin
   inherited;
 end;
 
-procedure TScriptEngine.AddDefaultConsts;
+procedure TEvilC.AddDefaultConsts;
 begin
   Self.ConstMap.AddOrSetValue('PI', PI);
   Self.ConstMap.AddOrSetValue('true', True);
@@ -5425,39 +5460,39 @@ begin
   Self.ConstMap.AddOrSetValue('os', GetOS);
 end;
 
-procedure TScriptEngine.SetSource(V: String);
+procedure TEvilC.SetSource(V: String);
 begin
   Self.Reset;
   Self.FSource := V;
 end;
 
-function TScriptEngine.InternalIdent: String; inline;
+function TEvilC.InternalIdent: String; inline;
 begin
   Inc(Self.FInternalIdentCount);
   Result := IntToStr(FInternalIdentCount);
 end;
 
-function TScriptEngine.IsWaited: Boolean;
+function TEvilC.IsWaited: Boolean;
 begin
   Exit(Self.VM.IsWaited);
 end;
 
-function TScriptEngine.GetIsPaused: Boolean;
+function TEvilC.GetIsPaused: Boolean;
 begin
   Exit(Self.VM.IsPaused);
 end;
 
-procedure TScriptEngine.SetIsPaused(V: Boolean);
+procedure TEvilC.SetIsPaused(V: Boolean);
 begin
   Self.VM.IsPaused := V;
 end;
 
-function TScriptEngine.IsYielded: Boolean;
+function TEvilC.IsYielded: Boolean;
 begin
   Exit(Self.VM.IsYielded);
 end;
 
-procedure TScriptEngine.Lex(const IsIncluded: Boolean = False);
+procedure TEvilC.Lex(const IsIncluded: Boolean = False);
 var
   Ln, Col: Integer;
   Pos: Integer = 0;
@@ -5968,7 +6003,7 @@ EndLabel:
   Self.IsLex := True;
 end;
 
-procedure TScriptEngine.Parse;
+procedure TEvilC.Parse;
 var
   Pos: Integer = -1;
   CurrentLine: Integer = -1;
@@ -7476,14 +7511,12 @@ var
         ParseExpr;
         if Token.Kind = tkTo then
         begin
-          Emit([Pointer(opPushConst), 1]);
-          Emit([Pointer(opOperatorAdd)]);
+          Emit([Pointer(opOperatorInc), 1]);
           JumpEnd := Emit([Pointer(opJumpEqualOrGreater), Pointer(0)]);
         end else
         if Token.Kind = tkDownto then
         begin
-          Emit([Pointer(opPushConst), 1]);
-          Emit([Pointer(opOperatorSub)]);
+          Emit([Pointer(opOperatorInc), -1]);
           JumpEnd := Emit([Pointer(opJumpEqualOrLesser), Pointer(0)]);
         end;
 
@@ -7493,13 +7526,11 @@ var
         EmitPushVar(VarIdent);
         if Token.Kind = tkTo then
         begin
-          Emit([Pointer(opPushConst), 1]);
-          Emit([Pointer(opOperatorAdd)]);
+          Emit([Pointer(opOperatorInc), 1]);
         end else
         if Token.Kind = tkDownto then
         begin
-          Emit([Pointer(opPushConst), 1]);
-          Emit([Pointer(opOperatorSub)]);
+          Emit([Pointer(opOperatorInc), -1]);
         end;
         EmitAssignVar(VarIdent);
         JumpBlock := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
@@ -8065,7 +8096,7 @@ begin
   end;
 end;
 
-procedure TScriptEngine.Reset;
+procedure TEvilC.Reset;
 var
   Ident: TSEIdent;
   I: Integer;
@@ -8110,10 +8141,10 @@ begin
   Self.FuncCurrent := -1;
 end;
 
-function TScriptEngine.Exec: TSEValue;
+function TEvilC.Exec: TSEValue;
 begin
   {$ifdef SE_PROFILER}
-  FrameProfiler.Start('TScriptEngine.Exec');
+  FrameProfiler.Start('TEvilC.Exec');
   {$endif}
   try
     if not Self.IsLex then
@@ -8126,7 +8157,7 @@ begin
     Exit(Self.VM.Global[0]);
   finally
     {$ifdef SE_PROFILER}
-    FrameProfiler.Stop('TScriptEngine.Exec');
+    FrameProfiler.Stop('TEvilC.Exec');
     {$endif}
   end;
 end;
@@ -8137,7 +8168,7 @@ end;
   - Parameters (0..X)
   - Variables (X+1..Y)
 }
-function TScriptEngine.ExecFuncOnly(const Name: String; const Args: array of TSEValue): TSEValue;
+function TEvilC.ExecFuncOnly(const Name: String; const Args: array of TSEValue): TSEValue;
 var
   I: Integer;
   Stack: PSEValue;
@@ -8180,13 +8211,13 @@ begin
     Exit(SENull);
 end;
 
-function TScriptEngine.ExecFunc(const Name: String; const Args: array of TSEValue): TSEValue;
+function TEvilC.ExecFunc(const Name: String; const Args: array of TSEValue): TSEValue;
 var
   I: Integer;
   Stack: PSEValue;
 begin
   {$ifdef SE_PROFILER}
-  FrameProfiler.Start('TScriptEngine.ExecFunc');
+  FrameProfiler.Start('TEvilC.ExecFunc');
   {$endif}
   try
     Result := SENull;
@@ -8237,12 +8268,12 @@ begin
     end;
   finally
     {$ifdef SE_PROFILER}
-    FrameProfiler.Stop('TScriptEngine.ExecFunc');
+    FrameProfiler.Stop('TEvilC.ExecFunc');
     {$endif}
   end;
 end;
 
-procedure TScriptEngine.RegisterFunc(const Name: String; const Func: TSEFunc; const ArgCount: Integer);
+procedure TEvilC.RegisterFunc(const Name: String; const Func: TSEFunc; const ArgCount: Integer);
 var
   FuncNativeInfo: TSEFuncNativeInfo;
 begin
@@ -8253,7 +8284,7 @@ begin
   Self.FuncNativeList.Add(FuncNativeInfo);
 end;
 
-procedure TScriptEngine.RegisterFuncWithSelf(const Name: String; const Func: TSEFuncWithSelf; const ArgCount: Integer);
+procedure TEvilC.RegisterFuncWithSelf(const Name: String; const Func: TSEFuncWithSelf; const ArgCount: Integer);
 var
   FuncNativeInfo: TSEFuncNativeInfo;
 begin
@@ -8264,7 +8295,7 @@ begin
   Self.FuncNativeList.Add(FuncNativeInfo);
 end;
 
-function TScriptEngine.RegisterScriptFunc(const Name: String; const ArgCount: Integer): PSEFuncScriptInfo;
+function TEvilC.RegisterScriptFunc(const Name: String; const ArgCount: Integer): PSEFuncScriptInfo;
 var
   FuncScriptInfo: TSEFuncScriptInfo;
 begin
@@ -8280,7 +8311,7 @@ begin
   Self.FuncCurrent := Self.FuncScriptList.Count - 1;
 end;
 
-procedure TScriptEngine.RegisterImportFunc(const Name, ActualName, LibName: String; const Args: TSEAtomKindArray; const Return: TSEAtomKind; const CC: TSECallingConvention = seccAuto);
+procedure TEvilC.RegisterImportFunc(const Name, ActualName, LibName: String; const Args: TSEAtomKindArray; const Return: TSEAtomKind; const CC: TSECallingConvention = seccAuto);
 var
   FuncImportInfo: TSEFuncImportInfo;
   Lib: TLibHandle;
@@ -8315,7 +8346,7 @@ begin
   Self.FuncImportList.Add(FuncImportInfo);
 end;
 
-function TScriptEngine.Backup: TSECache;
+function TEvilC.Backup: TSECache;
 var
   I, J: Integer;
   BackupBinary, SrcBinary: TSEBinary;
@@ -8357,7 +8388,7 @@ begin
   Result.ConstStrings.Assign(Self.VM.ConstStrings);
 end;
 
-procedure TScriptEngine.Restore(const Cache: TSECache);
+procedure TEvilC.Restore(const Cache: TSECache);
 var
   I, J: Integer;
   BackupBinary, DstBinary: TSEBinary;
