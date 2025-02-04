@@ -10,7 +10,8 @@ const
   HelloWorld = 'writeln(''Hello, World!'')';
   IfTest = 'i = 5.1 if i = 5.1 writeln(''True'') else writeln(''Something is wrong!'')';
   StringTest = 's = ''This is a string!'' writeln(s)';
-  PerformanceTest = 'i = 0 while i < 999 { i = i + 1 j = 0 while j < 999 { j = j + 1 k = i * j } }';
+  PerformanceWhileTest = 'k = 0 i = 0 while i < 9999 { i = i + 1 j = 0 while j < 9999 { j = j + 1 k = i * j } } writeln(''k = '', k)';
+  PerformanceForTest = 'k = 0 for i = 0 to 9999 { for j = 0 to 9999 { j = j + 1 k = i * j } } writeln(''k = '', k)';
   ArrayTest = 'a = [] i = 0 while i < 2 { a[i] = 1 + i * 2 i = i + 1 } a[2] = ''text'' writeln(a[0], '' '', a[1], '' '', a[2])';
   CustomFunctionTest = 'writeln(hello(''Satania''))';
   CustomFunctionWithSelfTest = 'a = [ func: add, value: 1 ] writeln(a.func(3).value)';
@@ -65,12 +66,23 @@ begin
   SE.Exec;
 end;
 
-procedure PerformanceTestRun;
+procedure PerformanceWhileTestRun;
 var
   S: Integer;
 begin
-  Writeln('--- PerformanceTestRun ---');
-  SE.Source := PerformanceTest;
+  Writeln('--- PerformanceWhileTestRun ---');
+  SE.Source := PerformanceWhileTest;
+  S := GetTickCount;
+  SE.Exec;
+  Writeln(GetTickCount - S, 'ms');
+end;
+
+procedure PerformanceForTestRun;
+var
+  S: Integer;
+begin
+  Writeln('--- PerformanceForTestRun ---');
+  SE.Source := PerformanceForTest;
   S := GetTickCount;
   SE.Exec;
   Writeln(GetTickCount - S, 'ms');
@@ -149,7 +161,8 @@ begin
   HelloWorldRun;
   IfTestRun;
   StringTestRun;
-  PerformanceTestRun;
+  PerformanceWhileTestRun;   
+  PerformanceForTestRun;
   ArrayTestRun;
   CustomFunctionTestRun;
   CustomFunctionWithSelfTestRun;

@@ -460,6 +460,7 @@ type
     tkIn,
     tkTo,
     tkDownto,
+    tkStep,
     tkReturn,
     tkAtom,
     tkImport,
@@ -476,7 +477,7 @@ const
     '>', '<=', '>=', '{', '}', ':', '(', ')', 'neg', 'number', 'string',
     ',', 'if', 'switch', 'case', 'default', 'identity', 'function', 'fn', 'variable', 'const',
     'unknown', 'else', 'while', 'break', 'continue', 'yield',
-    '[', ']', 'and', 'or', 'xor', 'not', 'for', 'in', 'to', 'downto', 'return',
+    '[', ']', 'and', 'or', 'xor', 'not', 'for', 'in', 'to', 'downto', 'step', 'return',
     'atom', 'import', 'do', 'try', 'catch', 'throw'
   );
   ValueKindNames: array[TSEValueKind] of String = (
@@ -5962,6 +5963,8 @@ begin
               Token.Kind := tkDo;
             'downto':
               Token.Kind := tkDownto;
+            'step':
+              Token.Kind := tkStep;
             'while':
               Token.Kind := tkWhile;
             'switch':
@@ -6923,28 +6926,29 @@ var
         Token := PeekAtNextToken;
         case Token.Kind of
           tkEqual:
-            BinaryOp(opOperatorEqual, @Expr);
+            BinaryOp(opOperatorEqual, @Bitwise);
           tkNotEqual:
-            BinaryOp(opOperatorNotEqual, @Expr);
+            BinaryOp(opOperatorNotEqual, @Bitwise);
           tkGreater:
-            BinaryOp(opOperatorGreater, @Expr);
+            BinaryOp(opOperatorGreater, @Bitwise);
           tkGreaterOrEqual:
-            BinaryOp(opOperatorGreaterOrEqual, @Expr);
+            BinaryOp(opOperatorGreaterOrEqual, @Bitwise);
           tkSmaller:
-            BinaryOp(opOperatorLesser, @Expr);
+            BinaryOp(opOperatorLesser, @Bitwise);
           tkSmallerOrEqual:
-            BinaryOp(opOperatorLesserOrEqual, @Expr);
+            BinaryOp(opOperatorLesserOrEqual, @Bitwise);
           tkAnd:
-            BinaryOp(opOperatorAnd, @Expr);
+            BinaryOp(opOperatorAnd, @Bitwise);
           tkOr:
-            BinaryOp(opOperatorOr, @Expr);
+            BinaryOp(opOperatorOr, @Bitwise);
           tkXor:
-            BinaryOp(opOperatorXor, @Expr);
+            BinaryOp(opOperatorXor, @Bitwise);
           else
             Exit;
         end;
       end;
     end;
+
   begin
     Logic;
   end;
@@ -7477,11 +7481,14 @@ var
     I: Integer;
     Token: TSEToken;
     VarIdent,
+    VarHiddenTargetIdent,
     VarHiddenCountIdent,
     VarHiddenArrayIdent: TSEIdent;
+    VarHiddenTargetName,
     VarHiddenCountName,
     VarHiddenArrayName: String;
     Ind: Integer;
+    Step: Single = 1;
   begin
     ContinueList := TList.Create;
     BreakList := TList.Create;
@@ -7500,23 +7507,42 @@ var
       end;
       Token := NextTokenExpected([tkEqual, tkIn, tkComma]);
 
+      VarHiddenTargetName := '___t' + VarIdent.Name;
+      Token.Value := VarHiddenTargetName;
+      VarHiddenTargetIdent := CreateIdent(ikVariable, Token, True);
+
       if Token.Kind = tkEqual then
       begin
+
         ParseExpr;
         EmitAssignVar(VarIdent);
 
         Token := NextTokenExpected([tkTo, tkDownto]);
+
+        ParseExpr;
+
+        if PeekAtNextToken.Kind = tkStep then
+        begin
+          NextToken;
+          Step := PointStrToFloat(NextTokenExpected([tkNumber]).Value);
+        end;
+
+        if Token.Kind = tkDownto then
+        begin
+          Step := -Step;
+        end;
+        Emit([Pointer(opOperatorInc), Step]);
+        EmitAssignVar(VarHiddenTargetIdent);
+
         StartBlock := Self.Binary.Count;
         EmitPushVar(VarIdent);
-        ParseExpr;
+        EmitPushVar(VarHiddenTargetIdent);
         if Token.Kind = tkTo then
         begin
-          Emit([Pointer(opOperatorInc), 1]);
           JumpEnd := Emit([Pointer(opJumpEqualOrGreater), Pointer(0)]);
         end else
         if Token.Kind = tkDownto then
         begin
-          Emit([Pointer(opOperatorInc), -1]);
           JumpEnd := Emit([Pointer(opJumpEqualOrLesser), Pointer(0)]);
         end;
 
@@ -7524,14 +7550,7 @@ var
 
         ContinueBlock := Self.Binary.Count;
         EmitPushVar(VarIdent);
-        if Token.Kind = tkTo then
-        begin
-          Emit([Pointer(opOperatorInc), 1]);
-        end else
-        if Token.Kind = tkDownto then
-        begin
-          Emit([Pointer(opOperatorInc), -1]);
-        end;
+        Emit([Pointer(opOperatorInc), Step]);
         EmitAssignVar(VarIdent);
         JumpBlock := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
         EndBLock := JumpBlock;
@@ -7556,10 +7575,12 @@ var
         Emit([Pointer(opPushConst), 0]);
         EmitAssignVar(VarHiddenCountIdent);
 
-        StartBlock := Self.Binary.Count;
-
         EmitPushVar(VarHiddenArrayIdent);
         Emit([Pointer(opCallNative), FindFuncNative('length', Ind), Pointer(1), Pointer(0)]);
+        EmitAssignVar(VarHiddenTargetIdent);
+
+        StartBlock := Self.Binary.Count;
+        EmitPushVar(VarHiddenTargetIdent);
         EmitPushVar(VarHiddenCountIdent);
         JumpEnd := Emit([Pointer(opJumpEqualOrLesser), Pointer(0)]);
 
@@ -7572,8 +7593,7 @@ var
 
         ContinueBlock := Self.Binary.Count;
         EmitPushVar(VarHiddenCountIdent);
-        Emit([Pointer(opPushConst), 1]);
-        Emit([Pointer(opOperatorAdd)]);
+        Emit([Pointer(opOperatorInc), 1]);
         EmitAssignVar(VarHiddenCountIdent);
         JumpBlock := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
         EndBLock := JumpBlock;
