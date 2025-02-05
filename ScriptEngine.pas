@@ -7405,6 +7405,7 @@ var
     ContinueList: TList;
     I: Integer;
     IsComparison: Boolean = True;
+    OpCount: Integer;
   begin
     ContinueList := TList.Create;
     BreakList := TList.Create;
@@ -7412,16 +7413,23 @@ var
       ContinueStack.Push(ContinueList);
       BreakStack.Push(BreakList);
       StartBlock := Self.Binary.Count;
-      if PeekAtNextToken.Value = 'true' then
-      begin
-        IsComparison := False;
-        NextToken;
-      end;
       if IsComparison then
       begin
+        OpCount := Self.OpcodeInfoList.Count;
         ParseExpr;
-        Emit([Pointer(opPushConst), False]);
-        JumpEnd := Emit([Pointer(opJumpEqual), Pointer(0)]);
+        if ((Self.OpcodeInfoList.Count - OpCount) = 1) and (Self.OpcodeInfoList[OpCount].Op = opPushConst) then
+        begin
+          if Self.Binary[Self.OpcodeInfoList[OpCount].Pos + 1].VarNumber <> 0 then
+          begin
+            Self.Binary.DeleteRange(Self.Binary.Count - 2, 2);
+            Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 1, 1);
+            IsComparison := False;
+          end;
+        end else
+        begin
+          Emit([Pointer(opPushConst), False]);
+          JumpEnd := Emit([Pointer(opJumpEqual), Pointer(0)]);
+        end;
       end;
       ParseBlock;
       JumpBlock := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
@@ -7452,6 +7460,7 @@ var
     ContinueList: TList;
     I: Integer;
     IsComparison: Boolean = True;
+    OpCount: Integer;
   begin
     ContinueList := TList.Create;
     BreakList := TList.Create;
@@ -7462,16 +7471,23 @@ var
       ParseBlock;
       ContinueBlock := Self.Binary.Count;
       NextTokenExpected([tkWhile]);
-      if PeekAtNextToken.Value = 'true' then
-      begin
-        IsComparison := False;
-        NextToken;
-      end;
       if IsComparison then
       begin
+        OpCount := Self.OpcodeInfoList.Count;
         ParseExpr;
-        Emit([Pointer(opPushConst), False]);
-        JumpEnd := Emit([Pointer(opJumpEqual), Pointer(0)]);
+        if ((Self.OpcodeInfoList.Count - OpCount) = 1) and (Self.OpcodeInfoList[OpCount].Op = opPushConst) then
+        begin
+          if Self.Binary[Self.OpcodeInfoList[OpCount].Pos + 1].VarNumber <> 0 then
+          begin
+            Self.Binary.DeleteRange(Self.Binary.Count - 2, 2);
+            Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 1, 1);
+            IsComparison := False;
+          end;
+        end else
+        begin
+          Emit([Pointer(opPushConst), False]);
+          JumpEnd := Emit([Pointer(opJumpEqual), Pointer(0)]);
+        end;
       end;
       JumpBlock := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
       EndBlock := Self.Binary.Count;
