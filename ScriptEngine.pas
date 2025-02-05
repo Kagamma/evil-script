@@ -7417,7 +7417,8 @@ var
       begin
         OpCount := Self.OpcodeInfoList.Count;
         ParseExpr;
-        if ((Self.OpcodeInfoList.Count - OpCount) = 1) and
+        if (Self.OptimizePeephole) and
+           ((Self.OpcodeInfoList.Count - OpCount) = 1) and
            (Self.OpcodeInfoList[OpCount].Op = opPushConst) and
            (Self.Binary[Self.OpcodeInfoList[OpCount].Pos + 1].VarNumber <> 0) then
         begin
@@ -7474,7 +7475,8 @@ var
       begin
         OpCount := Self.OpcodeInfoList.Count;
         ParseExpr;
-        if ((Self.OpcodeInfoList.Count - OpCount) = 1) and
+        if (Self.OptimizePeephole) and
+           ((Self.OpcodeInfoList.Count - OpCount) = 1) and
            (Self.OpcodeInfoList[OpCount].Op = opPushConst) and
            (Self.Binary[Self.OpcodeInfoList[OpCount].Pos + 1].VarNumber <> 0) then
         begin
