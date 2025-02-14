@@ -909,6 +909,12 @@ begin
   Result := 'linux';
   {$elseif defined(DARWIN)}
   Result := 'darwin';
+  {$elseif defined(FREEBSD)}
+  Result := 'freebsd';
+  {$elseif defined(WASI)}
+  Result := 'wasi';
+  {$elseif defined(GO32v2)}
+  Result := 'dos';
   {$else}
   Result := 'unknown';
   {$endif}
@@ -5734,7 +5740,10 @@ begin
           begin
             PC := Self.Source[Pos - 1];
             NC := PeekAtNextChar;
-            if ((PC = ' ') or (PC = '(') or (PC = '=') or (PC = ',')) and (NC <> ' ') then
+            if ((PC = ' ') or (PC = '(') or (PC = '=') or (PC = ',') or (PC = '[') or
+                (PC = '+') or (PC = '*') or (PC = '/') or (PC = '^') or (PC = '&') or
+                (PC = '|') or (PC = '~') or (PC = '!'))
+              and (NC <> ' ') then
               Token.Kind := tkNegative;
           end;
         end;
@@ -8010,8 +8019,7 @@ var
             Emit([Pointer(opHlt)])
           else
           begin
-            List := ReturnStack.Peek;
-            List.Add(Pointer(Emit([Pointer(opJumpUnconditional), Pointer(0)]) - 1));
+            Emit([Pointer(opPopFrame)])
           end;
         end;
       tkFunctionDecl:
