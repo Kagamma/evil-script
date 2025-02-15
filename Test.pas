@@ -23,16 +23,16 @@ const
 type
   TCustomFunctions = class
   public
-    class function Hello(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
-    class function Add(const VM: TSEVM; const Args: array of TSEValue; const This: TSEValue): TSEValue;
+    class function Hello(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function Add(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: TSEValue): TSEValue;
   end;
 
-class function TCustomFunctions.Hello(const VM: TSEVM; const Args: array of TSEValue): TSEValue;
+class function TCustomFunctions.Hello(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 begin
   Exit('Hello, ' + Args[0]);
 end;
 
-class function TCustomFunctions.Add(const VM: TSEVM; const Args: array of TSEValue; const This: TSEValue): TSEValue;
+class function TCustomFunctions.Add(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: TSEValue): TSEValue;
 var
   V: TSEValue;
 begin
