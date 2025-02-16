@@ -3627,7 +3627,6 @@ procedure TSEVM.Exec;
 var
   A, B, C, V,
   OA, OB, OC, OV: PSEValue;
-  AA: array[0..15] of PSEValue;
   TV, TV2: TSEValue;
   S, S1, S2: String;
   WS, WS1, WS2: UnicodeString;
@@ -4275,13 +4274,14 @@ begin
                 DeepCount := Integer(BinaryLocal.Ptr(CodePtrLocal + 3)^.VarPointer);
                 if DeepCount = 0 then
                   raise Exception.Create('Not a function reference');
-                for I := DeepCount - 1 downto 0 do
-                  AA[I] := Pop;
+                StackPtrLocal := StackPtrLocal - DeepCount;
+                C := StackPtrLocal;
                 for I := 0 to DeepCount - 1 do
                 begin
                   TV2 := A^;
-                  TV := SEMapGet(A^, AA[I]^);
+                  TV := SEMapGet(A^, C^);
                   A := @TV;
+                  Inc(C);
                 end;
               end;
             else
@@ -4969,16 +4969,15 @@ begin
             C := Pop
           else
           begin
-            for I := ArgCount - 1 downto 0 do
-              AA[I] := Pop;
-            C := AA[0];
+            StackPtrLocal := StackPtrLocal - ArgCount;
+            C := StackPtrLocal;
             for I := 1 to ArgCount - 1 do
             begin
               OC := C;
               OV := V;
               TV := SEMapGet(V^, C^);
               V := @TV;
-              C := AA[I];
+              Inc(C);
             end;
           end;
           case B^.Kind of
@@ -5050,16 +5049,15 @@ begin
             C := Pop
           else
           begin
-            for I := ArgCount - 1 downto 0 do
-              AA[I] := Pop;
-            C := AA[0];
+            StackPtrLocal := StackPtrLocal - ArgCount;
+            C := StackPtrLocal;
             for I := 1 to ArgCount - 1 do
             begin
               OC := C;
               OV := V;
               TV := SEMapGet(V^, C^);
               V := @TV;
-              C := AA[I];
+              Inc(C);
             end;
           end;
           case B^.Kind of
