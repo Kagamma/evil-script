@@ -158,7 +158,6 @@ type
   TSEStackTraceSymbolArray = array of TSEStackTraceSymbol;
   TSEStackTraceSymbolProc = procedure(Message: String; Nodes: TSEStackTraceSymbolArray) of object;
 
-  {$mode delphi}
   PSEValue = ^TSEValue;
   TSEValue = record
     Size, Ref: Cardinal;
@@ -201,7 +200,20 @@ type
           VarPascalObject: PSEPascalObject;
         );
   end;
-  {$mode objfpc}
+
+  TSEValueHelper = record helper for TSEValue
+    procedure AllocBuffer(constref Size: Integer); inline; overload;
+    procedure AllocMap; inline; overload;
+    procedure AllocString(const S: String); inline; overload;
+    procedure AllocPascalObject(const Obj: TObject; const IsManaged: Boolean = True); inline; overload;
+    function GetValue(constref I: Integer): TSEValue; inline; overload;
+    function GetValue(constref S: String): TSEValue; inline; overload;
+    function GetValue(constref I: TSEValue): TSEValue; inline; overload;
+    procedure SetValue(constref I: Integer; const A: TSEValue); inline; overload;
+    procedure SetValue(constref S: String; const A: TSEValue); inline; overload;
+    procedure SetValue(I: TSEValue; const A: TSEValue); inline; overload;
+  end;
+
   TSEValueList = specialize TList<TSEValue>;
   TSEValueMap = class(specialize TDictionary<String, TSEValue>)
   private
@@ -1115,6 +1127,56 @@ begin
       Exit;
   end;
   TSEValueMap(V.VarMap).Set2(S, A);
+end;
+
+procedure TSEValueHelper.AllocBuffer(constref Size: Integer); inline; overload;
+begin
+  GC.AllocBuffer(@Self, Size);
+end;
+
+procedure TSEValueHelper.AllocMap; inline; overload;
+begin
+  GC.AllocMap(@Self);
+end;
+
+procedure TSEValueHelper.AllocString(const S: String); inline; overload;
+begin
+  GC.AllocString(@Self, S);
+end;
+
+procedure TSEValueHelper.AllocPascalObject(const Obj: TObject; const IsManaged: Boolean = True); inline; overload;
+begin
+  GC.AllocPascalObject(@Self, Obj, IsManaged);
+end;
+
+function TSEValueHelper.GetValue(constref I: Integer): TSEValue; inline; overload;
+begin
+  Result := SEMapGet(Self, I);
+end;
+
+function TSEValueHelper.GetValue(constref S: String): TSEValue; inline; overload;
+begin
+  Result := SEMapGet(Self, S);
+end;
+
+function TSEValueHelper.GetValue(constref I: TSEValue): TSEValue; inline; overload;
+begin
+  Result := SEMapGet(Self, I);
+end;
+
+procedure TSEValueHelper.SetValue(constref I: Integer; const A: TSEValue); inline; overload;
+begin
+  SEMapSet(Self, I, A);
+end;
+
+procedure TSEValueHelper.SetValue(constref S: String; const A: TSEValue); inline; overload;
+begin
+  SEMapSet(Self, S, A);
+end;
+
+procedure TSEValueHelper.SetValue(I: TSEValue; const A: TSEValue); inline; overload;
+begin
+  SEMapSet(Self, I, A);
 end;
 
 function SEMapIsValidArray(constref V: TSEValue): Boolean; inline;

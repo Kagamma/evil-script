@@ -36,9 +36,9 @@ class function TCustomFunctions.Add(const VM: TSEVM; const Args: PSEValue; const
 var
   V: TSEValue;
 begin
-  V := SEMapGet(This, 'value'); // Get data from "value" property
+  V := This.GetValue('value'); // Get data from "value" property
   V := V + Args[0];
-  SEMapSet(This, 'value', V); // Set new data to "value" property
+  This.SetValue('value', V); // Set new data to "value" property
   Exit(This);
 end;
 
