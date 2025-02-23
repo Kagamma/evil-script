@@ -1569,20 +1569,8 @@ begin
         Result := 'array'
       else
         Result := 'map';
-    sevkNumber:
-      Result := 'number';
-    sevkBoolean:
-      Result := 'boolean';
-    sevkString:
-      Result := 'string';
-    sevkNull:
-      Result := 'null';
-    sevkPointer:
-      Result := 'pointer';
-    sevkBuffer:
-      Result := 'buffer';
-    sevkFunction:
-      Result := 'function';
+    else
+      Result := ValueKindNames[Args[0].Kind];
   end;
 end;
 
@@ -6243,7 +6231,7 @@ var
     OpcodeInfo.Binary := Self.Binary;
     if (Integer(Data[0].VarPointer) = Integer(opPushConst)) and (Data[1].Kind = sevkString) then
     begin
-      // TODO: We have leftover TSEValue with string type here, this should be organized better someday.
+      // Use EmitConstString() instead
       OpcodeInfo.Op := opPushConstString;
       Self.Binary.Add(Pointer(opPushConstString));
       Self.Binary.Add(Pointer(CreateConstString(Data[1].VarString^)));
@@ -6255,6 +6243,22 @@ var
         Self.Binary.Add(Data[I]);
       end;
     end;
+    Self.OpcodeInfoList.Add(OpcodeInfo);
+    Exit(Self.Binary.Count);
+  end;
+
+  function EmitConstString(const AString: String): Integer; inline;
+  var
+    OpcodeInfo: TSEOpcodeInfo;
+  begin
+    if not CanEmit then
+      Exit(Self.Binary.Count);
+    OpcodeInfo.Pos := Self.Binary.Count;
+    OpcodeInfo.Size := 2;
+    OpcodeInfo.Binary := Self.Binary;
+    OpcodeInfo.Op := opPushConstString;
+    Self.Binary.Add(Pointer(opPushConstString));
+    Self.Binary.Add(Pointer(CreateConstString(AString)));
     Self.OpcodeInfoList.Add(OpcodeInfo);
     Exit(Self.Binary.Count);
   end;
@@ -6575,7 +6579,7 @@ var
             Exit;
           Result := True;
           Pop2;
-          Emit([Pointer(opPushConstString), Pointer(CreateConstString(S1 + S2))]);
+          EmitConstString(S1 + S2);
         end;
       end;
 
