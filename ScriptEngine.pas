@@ -202,16 +202,18 @@ type
   end;
 
   TSEValueHelper = record helper for TSEValue
-    procedure AllocBuffer(constref Size: Integer); inline; overload;
-    procedure AllocMap; inline; overload;
-    procedure AllocString(const S: String); inline; overload;
-    procedure AllocPascalObject(const Obj: TObject; const IsManaged: Boolean = True); inline; overload;
+    procedure AllocBuffer(constref Size: Integer); inline;
+    procedure AllocMap; inline;
+    procedure AllocString(const S: String); inline;
+    procedure AllocPascalObject(const Obj: TObject; const IsManaged: Boolean = True); inline;
     function GetValue(constref I: Integer): TSEValue; inline; overload;
     function GetValue(constref S: String): TSEValue; inline; overload;
     function GetValue(constref I: TSEValue): TSEValue; inline; overload;
     procedure SetValue(constref I: Integer; const A: TSEValue); inline; overload;
     procedure SetValue(constref S: String; const A: TSEValue); inline; overload;
     procedure SetValue(I: TSEValue; const A: TSEValue); inline; overload;
+    procedure Lock; inline;
+    procedure Unlock; inline;
   end;
 
   TSEValueList = specialize TList<TSEValue>;
@@ -1129,22 +1131,22 @@ begin
   TSEValueMap(V.VarMap).Set2(S, A);
 end;
 
-procedure TSEValueHelper.AllocBuffer(constref Size: Integer); inline; overload;
+procedure TSEValueHelper.AllocBuffer(constref Size: Integer); inline;
 begin
   GC.AllocBuffer(@Self, Size);
 end;
 
-procedure TSEValueHelper.AllocMap; inline; overload;
+procedure TSEValueHelper.AllocMap; inline;
 begin
   GC.AllocMap(@Self);
 end;
 
-procedure TSEValueHelper.AllocString(const S: String); inline; overload;
+procedure TSEValueHelper.AllocString(const S: String); inline;
 begin
   GC.AllocString(@Self, S);
 end;
 
-procedure TSEValueHelper.AllocPascalObject(const Obj: TObject; const IsManaged: Boolean = True); inline; overload;
+procedure TSEValueHelper.AllocPascalObject(const Obj: TObject; const IsManaged: Boolean = True); inline;
 begin
   GC.AllocPascalObject(@Self, Obj, IsManaged);
 end;
@@ -1177,6 +1179,16 @@ end;
 procedure TSEValueHelper.SetValue(I: TSEValue; const A: TSEValue); inline; overload;
 begin
   SEMapSet(Self, I, A);
+end;
+
+procedure TSEValueHelper.Lock; inline;
+begin
+  GC.Lock(@Self);
+end;
+
+procedure TSEValueHelper.Unlock; inline;
+begin
+  GC.Unlock(@Self);
 end;
 
 function SEMapIsValidArray(constref V: TSEValue): Boolean; inline;
