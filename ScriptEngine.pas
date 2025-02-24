@@ -214,6 +214,10 @@ type
     procedure SetValue(I: TSEValue; const A: TSEValue); inline; overload;
     procedure Lock; inline;
     procedure Unlock; inline;
+    function Clone: TSEValue; inline;
+    function IsValidArray: Boolean; inline;
+    procedure FromJSON(constref S: String);
+    function ToJSON: String;
   end;
 
   TSEValueList = specialize TList<TSEValue>;
@@ -1131,66 +1135,6 @@ begin
   TSEValueMap(V.VarMap).Set2(S, A);
 end;
 
-procedure TSEValueHelper.AllocBuffer(constref Size: Integer); inline;
-begin
-  GC.AllocBuffer(@Self, Size);
-end;
-
-procedure TSEValueHelper.AllocMap; inline;
-begin
-  GC.AllocMap(@Self);
-end;
-
-procedure TSEValueHelper.AllocString(const S: String); inline;
-begin
-  GC.AllocString(@Self, S);
-end;
-
-procedure TSEValueHelper.AllocPascalObject(const Obj: TObject; const IsManaged: Boolean = True); inline;
-begin
-  GC.AllocPascalObject(@Self, Obj, IsManaged);
-end;
-
-function TSEValueHelper.GetValue(constref I: Integer): TSEValue; inline; overload;
-begin
-  Result := SEMapGet(Self, I);
-end;
-
-function TSEValueHelper.GetValue(constref S: String): TSEValue; inline; overload;
-begin
-  Result := SEMapGet(Self, S);
-end;
-
-function TSEValueHelper.GetValue(constref I: TSEValue): TSEValue; inline; overload;
-begin
-  Result := SEMapGet(Self, I);
-end;
-
-procedure TSEValueHelper.SetValue(constref I: Integer; const A: TSEValue); inline; overload;
-begin
-  SEMapSet(Self, I, A);
-end;
-
-procedure TSEValueHelper.SetValue(constref S: String; const A: TSEValue); inline; overload;
-begin
-  SEMapSet(Self, S, A);
-end;
-
-procedure TSEValueHelper.SetValue(I: TSEValue; const A: TSEValue); inline; overload;
-begin
-  SEMapSet(Self, I, A);
-end;
-
-procedure TSEValueHelper.Lock; inline;
-begin
-  GC.Lock(@Self);
-end;
-
-procedure TSEValueHelper.Unlock; inline;
-begin
-  GC.Unlock(@Self);
-end;
-
 function SEMapIsValidArray(constref V: TSEValue): Boolean; inline;
 begin
   if V.Kind <> sevkMap then
@@ -1276,6 +1220,89 @@ begin
           SEMapSet(Result, Key, SEMapGet(V, Key))
       end;
   end;
+end;
+
+procedure TSEValueHelper.AllocBuffer(constref Size: Integer); inline;
+begin
+  GC.AllocBuffer(@Self, Size);
+end;
+
+procedure TSEValueHelper.AllocMap; inline;
+begin
+  GC.AllocMap(@Self);
+end;
+
+procedure TSEValueHelper.AllocString(const S: String); inline;
+begin
+  GC.AllocString(@Self, S);
+end;
+
+procedure TSEValueHelper.AllocPascalObject(const Obj: TObject; const IsManaged: Boolean = True); inline;
+begin
+  GC.AllocPascalObject(@Self, Obj, IsManaged);
+end;
+
+function TSEValueHelper.GetValue(constref I: Integer): TSEValue; inline; overload;
+begin
+  Result := SEMapGet(Self, I);
+end;
+
+function TSEValueHelper.GetValue(constref S: String): TSEValue; inline; overload;
+begin
+  Result := SEMapGet(Self, S);
+end;
+
+function TSEValueHelper.GetValue(constref I: TSEValue): TSEValue; inline; overload;
+begin
+  Result := SEMapGet(Self, I);
+end;
+
+procedure TSEValueHelper.SetValue(constref I: Integer; const A: TSEValue); inline; overload;
+begin
+  SEMapSet(Self, I, A);
+end;
+
+procedure TSEValueHelper.SetValue(constref S: String; const A: TSEValue); inline; overload;
+begin
+  SEMapSet(Self, S, A);
+end;
+
+procedure TSEValueHelper.SetValue(I: TSEValue; const A: TSEValue); inline; overload;
+begin
+  SEMapSet(Self, I, A);
+end;
+
+procedure TSEValueHelper.Lock; inline;
+begin
+  GC.Lock(@Self);
+end;
+
+procedure TSEValueHelper.Unlock; inline;
+begin
+  GC.Unlock(@Self);
+end;
+
+function TSEValueHelper.Clone: TSEValue; inline;
+begin
+  Result := SEClone(Self);
+end;
+
+function TSEValueHelper.IsValidArray: Boolean; inline;
+begin
+  Result := SEMapIsValidArray(Self);
+end;
+
+procedure TSEValueHelper.FromJSON(constref S: String);
+var
+  V: TSEValue;
+begin
+  V := S;
+  Self := TBuiltInFunction(nil).SEJSONParse(nil, @V, 1);
+end;
+
+function TSEValueHelper.ToJSON: String;
+begin
+  Result := TBuiltInFunction(nil).SEJSONStringify(nil, @Self, 1);
 end;
 
 class function TBuiltInFunction.SEBufferCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -2448,7 +2475,6 @@ begin
   Result := DecodeStringBase64(Args[0]);
 end;
 
-{$ifdef SE_HAS_JSON}
 class function TBuiltInFunction.SEJSONParse(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
   procedure QueryForObject(out R: TSEValue; Data: TJSONData); forward;
 
@@ -2657,7 +2683,6 @@ begin
     SB.Free;
   end;
 end;
-{$endif}
 
 function TSEOpcodeInfoList.Ptr(const P: Integer): PSEOpcodeInfo; inline;
 begin
