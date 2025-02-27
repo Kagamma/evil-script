@@ -566,6 +566,9 @@ type
     Kind: TSEIdentKind;
     Addr: Integer;
     IsUsed: Boolean;
+    IsAssigned: Boolean;
+    IsConst: Boolean;
+    ConstValue: TSEValue;
     Local: Integer;
     Ln: Integer;
     Col: Integer;
@@ -3744,7 +3747,6 @@ var
   ImportResultD: TSENumber;
   ImportResultS: Single;
   FuncImport, P, PP, PC: Pointer;
-  BinaryLocalCountMinusOne: Integer;
   LineOfCode: TSELineOfCode;
   StackModulo: QWord;
   {$ifdef SE_LIBFFI}
@@ -4052,7 +4054,6 @@ begin
   StackPtrLocal := Self.StackPtr;
   BinaryPtrLocal := Self.BinaryPtr;
   BinaryLocal := Self.Binaries[Self.BinaryPtr].Ptr(0);
-  BinaryLocalCountMinusOne := Self.Binaries[Self.BinaryPtr].Count - 1;
   GC.CheckForGC;
 
   while True do
@@ -6066,6 +6067,8 @@ begin
               Token.Kind := tkSwitch;
             'case':
               Token.Kind := tkCase;
+            'const':
+              Token.Kind := tkConst;
             'default':
               Token.Kind := tkDefault;
             'continue':
@@ -6296,7 +6299,7 @@ var
     Error(Format('Expected %s but got "%s"', [TokenTypeString(Expected), TokenNames[Result.Kind]]), Result);
   end;
 
-  function CreateIdent(const Kind: TSEIdentKind; const Token: TSEToken; const IsUsed: Boolean = False): TSEIdent; inline;
+  function CreateIdent(const Kind: TSEIdentKind; const Token: TSEToken; const IsUsed: Boolean; const IsConst: Boolean): TSEIdent; inline;
   begin
     if Kind = ikVariable then
     begin
@@ -6311,6 +6314,9 @@ var
     Result.Name := Token.Value;
     Result.Local := Self.FuncTraversal;
     Result.IsUsed := IsUsed;
+    Result.IsConst := IsConst;
+    Result.ConstValue := SENull;
+    Result.IsAssigned := False;
     if Result.Local > 0 then
     begin
       Result.Addr := Self.LocalVarCountList.Last;
@@ -6843,7 +6849,7 @@ var
               begin
                 FuncRefToken.Value := '___f' + Self.InternalIdent;
                 FuncRefToken.Kind := tkIdent;
-                FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True);
+                FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False);
               end;
               IsFirst := False;
               EmitAssignVar(FuncRefIdent);
@@ -6902,34 +6908,40 @@ var
                   begin
                     Ident := FindVar(Token.Value);
                     Ident^.IsUsed := True;
-                    RewindStartAddr := Self.Binary.Count;
-                    case PeekAtNextToken.Kind of
-                      tkSquareBracketOpen:
-                        begin
-                          PushConstCount := 0;
-                          IsTailed := True;
-                          NextToken;
+                    if Ident^.IsConst and (Ident^.ConstValue.Kind <> sevkNull) then
+                    begin
+                      EmitExpr([Pointer(opPushConst), Ident^.ConstValue]);
+                    end else
+                    begin
+                      RewindStartAddr := Self.Binary.Count;
+                      case PeekAtNextToken.Kind of
+                        tkSquareBracketOpen:
+                          begin
+                            PushConstCount := 0;
+                            IsTailed := True;
+                            NextToken;
+                            EmitPushVar(Ident^);
+                            ParseExpr;
+                            Emit([Pointer(opPushArrayPop)]);
+                            NextTokenExpected([tkSquareBracketClose]);
+                            Tail;
+                            FuncTail;
+                          end;
+                        tkDot:
+                          begin
+                            PushConstCount := 0;
+                            IsTailed := True;
+                            NextToken;
+                            Token2 := NextTokenExpected([tkIdent]);
+                            EmitPushVar(Ident^);
+                            EmitExpr([Pointer(opPushConst), Token2.Value]);
+                            Emit([Pointer(opPushArrayPop)]);
+                            Tail;
+                            FuncTail;
+                          end;
+                        else
                           EmitPushVar(Ident^);
-                          ParseExpr;
-                          Emit([Pointer(opPushArrayPop)]);
-                          NextTokenExpected([tkSquareBracketClose]);
-                          Tail;
-                          FuncTail;
-                        end;
-                      tkDot:
-                        begin
-                          PushConstCount := 0;
-                          IsTailed := True;
-                          NextToken;
-                          Token2 := NextTokenExpected([tkIdent]);
-                          EmitPushVar(Ident^);
-                          EmitExpr([Pointer(opPushConst), Token2.Value]);
-                          Emit([Pointer(opPushArrayPop)]);
-                          Tail;
-                          FuncTail;
-                        end;
-                      else
-                        EmitPushVar(Ident^);
+                      end;
                     end;
                   end;
                 end;
@@ -6963,7 +6975,7 @@ var
                   begin
                     FuncRefToken.Value := '___f' + Self.InternalIdent;
                     FuncRefToken.Kind := tkIdent;
-                    FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True);
+                    FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False);
                     EmitAssignVar(FuncRefIdent);
                     RewindStartAddr := Self.Binary.Count;
                     EmitPushVar(FuncRefIdent);
@@ -7328,14 +7340,14 @@ var
 
       TokenResult.Value := 'result';
       TokenResult.Kind := tkIdent;
-      CreateIdent(ikVariable, TokenResult, True);
+      CreateIdent(ikVariable, TokenResult, True, False);
 
       NextTokenExpected([tkBracketOpen]);
       repeat
         if PeekAtNextToken.Kind = tkIdent then
         begin
           Token := NextTokenExpected([tkIdent]);
-          CreateIdent(ikVariable, Token);
+          CreateIdent(ikVariable, Token, False, False);
           Inc(ArgCount);
         end;
         Token := NextTokenExpected([tkComma, tkBracketClose]);
@@ -7343,7 +7355,7 @@ var
 
       Token.Value := 'self';
       Token.Kind := tkIdent;
-      CreateIdent(ikVariable, Token, True);
+      CreateIdent(ikVariable, Token, True, False);
 
       Func^.ArgCount := ArgCount;
       for I := 0 to VarSymbols.Count - 1 do
@@ -7703,7 +7715,7 @@ var
       // FIXME: tkVariable?
       if Token.Kind = tkIdent then
       begin
-        VarIdent := CreateIdent(ikVariable, Token, True);
+        VarIdent := CreateIdent(ikVariable, Token, True, False);
       end else
       begin
         VarIdent := FindVar(Token.Value)^;
@@ -7712,7 +7724,7 @@ var
 
       VarHiddenTargetName := '___t' + VarIdent.Name;
       Token.Value := VarHiddenTargetName;
-      VarHiddenTargetIdent := CreateIdent(ikVariable, Token, True);
+      VarHiddenTargetIdent := CreateIdent(ikVariable, Token, True, False);
 
       if Token.Kind = tkEqual then
       begin
@@ -7768,9 +7780,9 @@ var
           VarHiddenCountName := '___c' + VarIdent.Name;
         VarHiddenArrayName := '___a' + VarIdent.Name;
         Token.Value := VarHiddenCountName;
-        VarHiddenCountIdent := CreateIdent(ikVariable, Token, True);
+        VarHiddenCountIdent := CreateIdent(ikVariable, Token, True, False);
         Token.Value := VarHiddenArrayName;
-        VarHiddenArrayIdent := CreateIdent(ikVariable, Token, True);
+        VarHiddenArrayIdent := CreateIdent(ikVariable, Token, True, False);
 
         ParseExpr;
 
@@ -7859,7 +7871,7 @@ var
   begin
     Token.Kind := tkIdent;
     Token.Value := '___s' + Self.InternalIdent;
-    VarHiddenIdent := CreateIdent(ikVariable, Token, True);
+    VarHiddenIdent := CreateIdent(ikVariable, Token, True, False);
 
     ParseExpr;
     EmitAssignVar(VarHiddenIdent);
@@ -7953,7 +7965,7 @@ var
       begin
         FuncRefToken.Value := '___f' + Self.InternalIdent;
         FuncRefToken.Kind := tkIdent;
-        FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True);
+        FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False);
       end;
       EmitAssignVar(FuncRefIdent);
       RewindStartAddr := Self.Binary.Count;
@@ -7996,6 +8008,8 @@ var
     VarEndTokenPos: Integer;
   begin
     Ident := FindVar(Name);
+    if Ident^.IsAssigned and Ident^.IsConst then
+      Error(Format('Cannot reassign value to constant "%s"', [Name]), PeekAtNextToken);
     RewindStartAddr := Self.Binary.Count;
     VarStartTokenPos := Pos;
     while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
@@ -8067,6 +8081,7 @@ var
           ParseAssignTail;
         end;
     end;
+    Ident^.IsAssigned := True;
   end;
 
   procedure ParseTrap;
@@ -8092,7 +8107,7 @@ var
     PVarIdent := FindVar(Token.Value);
     if PVarIdent = nil then
     begin
-      VarIdent := CreateIdent(ikVariable, Token, True);
+      VarIdent := CreateIdent(ikVariable, Token, True, False);
       EmitAssignVar(VarIdent);
     end else
       EmitAssignVar(PVarIdent^);
@@ -8111,6 +8126,62 @@ var
     Emit([Pointer(opThrow)]);
   end;
 
+  procedure ParseIdent(const Token: TSEToken; const IsConst: Boolean);
+  var
+    OpCountBefore,
+    OpCountAfter: Integer;
+    Ident: TSEIdent;
+  begin
+    case IdentifyIdent(Token.Value) of
+      tkUnknown:
+        begin
+          NextToken;
+          CreateIdent(ikVariable, Token, False, IsConst);
+          OpCountBefore := Self.OpcodeInfoList.Count;
+          ParseVarAssign(Token.Value, True);
+          OpCountAfter := Self.OpcodeInfoList.Count;
+          if (IsConst) and
+            (Self.OptimizePeephole) and
+            ((OpCountAfter - OpCountBefore) = 2) and
+            (Self.OpcodeInfoList[OpCountAfter - 2].Op = opPushConst) and
+            ((Self.OpcodeInfoList[OpCountAfter - 1].Op = opAssignLocalVar) or (Self.OpcodeInfoList[OpCountAfter - 1].Op = opAssignGlobalVar)) and
+            (Self.Binary[Self.OpcodeInfoList[OpCountAfter - 2].Pos + 1].Kind = sevkNumber) then
+          begin
+            Ident := Self.VarList[Self.VarList.Count - 1];
+            Ident.ConstValue := Self.Binary[Self.OpcodeInfoList[OpCountAfter - 2].Pos + 1];
+            Self.VarList[Self.VarList.Count - 1] := Ident;
+            if Self.OpcodeInfoList[OpCountAfter - 1].Op = opAssignLocalVar then
+              Self.Binary.DeleteRange(Self.Binary.Count - 5, 5)
+            else
+              Self.Binary.DeleteRange(Self.Binary.Count - 4, 4);
+            Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 2);
+          end;
+        end;
+      tkVariable:
+        begin
+          NextToken;
+          if PeekAtNextToken.Kind = tkBracketOpen then // Likely function ref
+          begin
+            ParseFuncRefCallByName(Token.Value);
+            ParseAssignTail;
+          end else
+            ParseVarAssign(Token.Value);
+        end;
+      tkFunction:
+        begin
+          if Self.OptimizeAsserts and (Token.Value = 'assert') then
+            CanEmit := False;
+          NextToken;
+          ParseFuncCall(Token.Value);
+          ParseAssignTail;
+          if Self.OptimizeAsserts and (Token.Value = 'assert') then
+            CanEmit := True;
+        end;
+      else
+        Error('Invalid statement', Token);
+    end;
+  end;
+
   procedure ParseBlock(const IsCase: Boolean = False);
   var
     Token: TSEToken;
@@ -8120,6 +8191,12 @@ var
   begin
     Token := PeekAtNextToken;
     case Token.Kind of
+      tkConst:
+        begin
+          NextToken;
+          Token := PeekAtNextTokenExpected([tkIdent]);
+          ParseIdent(Token, True);
+        end;
       tkIf:
         begin
           NextToken;
@@ -8246,36 +8323,7 @@ var
         end;
       tkIdent:
         begin
-          case IdentifyIdent(Token.Value) of
-            tkUnknown:
-              begin
-                NextToken;
-                CreateIdent(ikVariable, Token);
-                ParseVarAssign(Token.Value, True);
-              end;
-            tkVariable:
-              begin
-                NextToken;
-                if PeekAtNextToken.Kind = tkBracketOpen then // Likely function ref
-                begin
-                  ParseFuncRefCallByName(Token.Value);
-                  ParseAssignTail;
-                end else
-                  ParseVarAssign(Token.Value);
-              end;
-            tkFunction:
-              begin
-                if Self.OptimizeAsserts and (Token.Value = 'assert') then
-                  CanEmit := False;
-                NextToken;
-                ParseFuncCall(Token.Value);
-                ParseAssignTail;
-                if Self.OptimizeAsserts and (Token.Value = 'assert') then
-                  CanEmit := True;
-              end;
-            else
-              Error('Invalid statement', Token);
-          end;
+          ParseIdent(Token, False);
         end;
       tkImport:
         begin
