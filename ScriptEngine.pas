@@ -646,6 +646,11 @@ type
     procedure RegisterImportFunc(const Name, ActualName, LibName: String; const Args: TSEAtomKindArray; const Return: TSEAtomKind; const CC: TSECallingConvention = seccAuto);
     function Backup: TSECache;
     procedure Restore(const Cache: TSECache);
+    function FindFunc(const Name: String): Pointer; inline; overload;
+    function FindFuncNative(const Name: String; var Ind: Integer): PSEFuncNativeInfo; inline;
+    function FindFuncScript(const Name: String; var Ind: Integer): PSEFuncScriptInfo; inline;
+    function FindFuncImport(const Name: String; var Ind: Integer): PSEFuncImportInfo; inline;
+    function FindFunc(const Name: String; var Kind: TSEFuncKind; var Ind: Integer): Pointer; inline; overload;
 
     property IsPaused: Boolean read GetIsPaused write SetIsPaused;
     property Source: String read FSource write SetSource;
@@ -6097,6 +6102,96 @@ EndLabel:
   Self.IsLex := True;
 end;
 
+function TEvilC.FindFunc(const Name: String): Pointer; inline; overload;
+var
+  I: Integer;
+begin
+  for I := Self.FuncScriptList.Count - 1 downto 0 do
+  begin
+    Result := Self.FuncScriptList.Ptr(I);
+    if PSEFuncScriptInfo(Result)^.Name = Name then
+      Exit(Result);
+  end;
+  for I := Self.FuncImportList.Count - 1 downto 0 do
+  begin
+    Result := Self.FuncImportList.Ptr(I);
+    if PSEFuncImportInfo(Result)^.Name = Name then
+      Exit(Result);
+  end;
+  for I := Self.FuncNativeList.Count - 1 downto 0 do
+  begin
+    Result := Self.FuncNativeList.Ptr(I);
+    if PSEFuncNativeInfo(Result)^.Name = Name then
+      Exit(Result);
+  end;
+  Exit(nil);
+end;
+
+function TEvilC.FindFuncNative(const Name: String; var Ind: Integer): PSEFuncNativeInfo; inline;
+var
+  I: Integer;
+begin
+  for I := Self.FuncNativeList.Count - 1 downto 0 do
+  begin
+    Result := Self.FuncNativeList.Ptr(I);
+    if Result^.Name = Name then
+    begin
+      Ind := I;
+      Exit(Result);
+    end;
+  end;
+  Exit(nil);
+end;
+
+function TEvilC.FindFuncScript(const Name: String; var Ind: Integer): PSEFuncScriptInfo; inline;
+var
+  I: Integer;
+begin
+  for I := Self.FuncScriptList.Count - 1 downto 0 do
+  begin
+    Result := Self.FuncScriptList.Ptr(I);
+    if Result^.Name = Name then
+    begin
+      Ind := I;
+      Exit(Result);
+    end;
+  end;
+  Exit(nil);
+end;
+
+function TEvilC.FindFuncImport(const Name: String; var Ind: Integer): PSEFuncImportInfo; inline;
+var
+  I: Integer;
+begin
+  for I := Self.FuncImportList.Count - 1 downto 0 do
+  begin
+    Result := Self.FuncImportList.Ptr(I);
+    if Result^.Name = Name then
+    begin
+      Ind := I;
+      Exit(Result);
+    end;
+  end;
+  Exit(nil);
+end;
+
+function TEvilC.FindFunc(const Name: String; var Kind: TSEFuncKind; var Ind: Integer): Pointer; inline; overload;
+begin
+  Result := FindFuncScript(Name, Ind);
+  if Result = nil then
+  begin
+    Result := FindFuncNative(Name, Ind);
+    if Result = nil then
+    begin
+      Result := FindFuncImport(Name, Ind);
+      if Result <> nil then
+        Kind := sefkImport;
+    end else
+      Kind := sefkNative;
+  end else
+    Kind := sefkScript;
+end;
+
 procedure TEvilC.Parse;
 var
   Pos: Integer = -1;
@@ -6115,96 +6210,6 @@ var
       raise Exception.CreateFmt('[%d:%d] %s', [Token.Ln, Token.Col, S])
     else
       raise Exception.CreateFmt('[%s:%d:%d] %s', [Token.BelongedFileName, Token.Ln, Token.Col, S]);
-  end;
-
-  function FindFunc(const Name: String): Pointer; inline; overload;
-  var
-    I: Integer;
-  begin
-    for I := Self.FuncScriptList.Count - 1 downto 0 do
-    begin
-      Result := Self.FuncScriptList.Ptr(I);
-      if PSEFuncScriptInfo(Result)^.Name = Name then
-        Exit(Result);
-    end;
-    for I := Self.FuncImportList.Count - 1 downto 0 do
-    begin
-      Result := Self.FuncImportList.Ptr(I);
-      if PSEFuncImportInfo(Result)^.Name = Name then
-        Exit(Result);
-    end;
-    for I := Self.FuncNativeList.Count - 1 downto 0 do
-    begin
-      Result := Self.FuncNativeList.Ptr(I);
-      if PSEFuncNativeInfo(Result)^.Name = Name then
-        Exit(Result);
-    end;
-    Exit(nil);
-  end;
-
-  function FindFuncNative(const Name: String; var Ind: Integer): PSEFuncNativeInfo; inline;
-  var
-    I: Integer;
-  begin
-    for I := Self.FuncNativeList.Count - 1 downto 0 do
-    begin
-      Result := Self.FuncNativeList.Ptr(I);
-      if Result^.Name = Name then
-      begin
-        Ind := I;
-        Exit(Result);
-      end;
-    end;
-    Exit(nil);
-  end;
-
-  function FindFuncScript(const Name: String; var Ind: Integer): PSEFuncScriptInfo; inline;
-  var
-    I: Integer;
-  begin
-    for I := Self.FuncScriptList.Count - 1 downto 0 do
-    begin
-      Result := Self.FuncScriptList.Ptr(I);
-      if Result^.Name = Name then
-      begin
-        Ind := I;
-        Exit(Result);
-      end;
-    end;
-    Exit(nil);
-  end;
-
-  function FindFuncImport(const Name: String; var Ind: Integer): PSEFuncImportInfo; inline;
-  var
-    I: Integer;
-  begin
-    for I := Self.FuncImportList.Count - 1 downto 0 do
-    begin
-      Result := Self.FuncImportList.Ptr(I);
-      if Result^.Name = Name then
-      begin
-        Ind := I;
-        Exit(Result);
-      end;
-    end;
-    Exit(nil);
-  end;
-
-  function FindFunc(const Name: String; var Kind: TSEFuncKind; var Ind: Integer): Pointer; inline; overload;
-  begin
-    Result := FindFuncScript(Name, Ind);
-    if Result = nil then
-    begin
-      Result := FindFuncNative(Name, Ind);
-      if Result = nil then
-      begin
-        Result := FindFuncImport(Name, Ind);
-        if Result <> nil then
-          Kind := sefkImport;
-      end else
-        Kind := sefkNative;
-    end else
-      Kind := sefkScript;
   end;
 
   function FindVar(const Name: String): PSEIdent; inline;
