@@ -40,8 +40,8 @@ uses
   {$ifdef SE_PROFILER}
   CastleTimeUtils,
   {$endif}
-  base64
-  {$ifdef SE_HAS_JSON}, fpjson, jsonparser{$endif}
+  base64,
+  fpjson, jsonparser
   {$ifdef SE_HAS_FILEUTIL}, FileUtil{$endif}
   {$ifdef SE_LIBFFI}, ffi{$endif}
   {$ifdef SE_STRING_UTF8},LazUTF8{$endif}{$ifdef SE_DYNLIBS}, dynlibs{$endif};
@@ -382,6 +382,7 @@ type
   TEvilC = class;
   TSEVM = class
   public
+    IsPaused: Boolean;
     IsDone: Boolean;
     IsYielded: Boolean;
     Global: array of TSEValue;
@@ -628,6 +629,8 @@ type
     destructor Destroy; override;
     procedure AddDefaultConsts;
     function IsWaited: Boolean; inline;
+    function GetIsPaused: Boolean;
+    procedure SetIsPaused(V: Boolean);
     function IsYielded: Boolean;
     procedure Lex(const IsIncluded: Boolean = False);
     procedure Parse;
@@ -644,6 +647,7 @@ type
     function Backup: TSECache;
     procedure Restore(const Cache: TSECache);
 
+    property IsPaused: Boolean read GetIsPaused write SetIsPaused;
     property Source: String read FSource write SetSource;
   end;
 
@@ -853,10 +857,8 @@ type
     class function SEBase64Encode(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEBase64Decode(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 
-    {$ifdef SE_HAS_JSON}
     class function SEJSONParse(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEJSONStringify(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-    {$endif}
   end;
 
   TDynlibMap = specialize TDictionary<String, TLibHandle>;
@@ -3655,6 +3657,7 @@ constructor TSEVM.Create;
 begin
   inherited;
   Self.CodePtr := 0;
+  Self.IsPaused := False;
   Self.IsDone := True;
   Self.WaitTime := 0;
   Self.StackSize := 65536;
@@ -3692,6 +3695,7 @@ procedure TSEVM.Reset;
 begin
   Self.CodePtr := 0;
   Self.BinaryPtr := 0;
+  Self.IsPaused := False;
   Self.IsDone := False;
   Self.Parent.IsDone := False;
   Self.WaitTime := 0;
@@ -3888,7 +3892,7 @@ var
 {$ifdef SE_COMPUTED_GOTO}
   {$if defined(CPUX86_64) or defined(CPUi386)}
     {$define DispatchGoto :=
-      if Self.IsWaited then
+      if Self.IsPaused or Self.IsWaited then
       begin
         Self.CodePtr := CodePtrLocal;
         Self.StackPtr := StackPtrLocal;
@@ -3902,7 +3906,7 @@ var
     }
   {$elseif defined(CPUARM) or defined(CPUAARCH64)}
     {$define DispatchGoto :=
-      if Self.IsWaited then
+      if Self.IsPaused or Self.IsWaited then
       begin
         Self.CodePtr := CodePtrLocal;
         Self.StackPtr := StackPtrLocal;
@@ -4037,7 +4041,7 @@ begin
   if Self.IsDone then
     Self.Reset;
   Self.IsYielded := False;
-  if Self.IsWaited then
+  if Self.IsPaused or Self.IsWaited then
     Exit;
   CodePtrLocal := Self.CodePtr;
   StackPtrLocal := Self.StackPtr;
@@ -5266,7 +5270,7 @@ begin
         end;
       {$ifndef SE_COMPUTED_GOTO}
       end;
-      if Self.IsWaited then
+      if Self.IsPaused or Self.IsWaited then
       begin
         Self.CodePtr := CodePtrLocal;
         Self.StackPtr := StackPtrLocal;
@@ -5556,6 +5560,16 @@ end;
 function TEvilC.IsWaited: Boolean;
 begin
   Exit(Self.VM.IsWaited);
+end;
+
+function TEvilC.GetIsPaused: Boolean;
+begin
+  Exit(Self.VM.IsPaused);
+end;
+
+procedure TEvilC.SetIsPaused(V: Boolean);
+begin
+  Self.VM.IsPaused := V;
 end;
 
 function TEvilC.IsYielded: Boolean;
@@ -6540,6 +6554,8 @@ var
               OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar]);
               if OpInfoPrev2 = nil then
                 OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushLocalVar]);
+              if OpInfoPrev2 = nil then
+                OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushArrayPop]);
               if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
               begin
                 A := Self.Binary[OpInfoPrev1^.Pos + 1];
@@ -6561,6 +6577,7 @@ var
                 OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushConst]);
                 if OpInfoPrev1 = nil then
                   OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushLocalVar]);
+                // TODO: Handle opPushArrayPop
                 if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
                 begin
                   A := Self.Binary[OpInfoPrev2^.Pos + 1];
@@ -8313,6 +8330,7 @@ begin
   Self.VM.BinaryClear;
   Self.VM.ConstStrings.Clear;
   Self.VM.IsDone := True;
+  Self.Vm.IsPaused := False;
   Self.BinaryPos := 0;
   Self.IsDone := False;
   Self.IsParsed := False;
@@ -8377,6 +8395,7 @@ begin
   end;
   Self.VM.CodePtr := 0;
   Self.VM.BinaryPtr := 0;
+  Self.VM.IsPaused := False;
   Self.VM.IsDone := False;
   Self.VM.WaitTime := 0;
   Self.VM.FramePtr := @Self.VM.Frame[0];
@@ -8416,7 +8435,7 @@ begin
   {$endif}
   try
     Result := SENull;
-    if Self.VM.IsWaited or Self.VM.IsYielded then
+    if Self.VM.IsPaused or Self.VM.IsWaited or Self.VM.IsYielded then
     begin
       Stack := PSEValue(@Self.VM.Stack[0]) + 8;
       for I := 0 to Self.FuncScriptList.Count - 1 do
@@ -8432,6 +8451,7 @@ begin
     begin
       Self.VM.CodePtr := 0;
       Self.VM.BinaryPtr := 0;
+      Self.VM.IsPaused := False;
       Self.VM.IsDone := False;
       Self.VM.WaitTime := 0;
       Self.VM.FramePtr := @Self.VM.Frame[0];
@@ -8681,3 +8701,4 @@ finalization
   ScriptCacheMap.Free;
 
 end.
+
