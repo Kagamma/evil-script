@@ -6525,6 +6525,58 @@ var
         end;
       end;
 
+      function PeepholeIncOptimization: Boolean;
+      var
+        A, B: TSEValue;
+        I: Integer;
+        P: Pointer;
+      begin
+        Result := False;
+        case Op of
+          opOperatorAdd,
+          opOperatorSub:
+            begin
+              OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushConst]);
+              OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar]);
+              if OpInfoPrev2 = nil then
+                OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushLocalVar]);
+              if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
+              begin
+                A := Self.Binary[OpInfoPrev1^.Pos + 1];
+                if A.Kind <> sevkNumber then
+                  Exit;
+                Self.Binary.DeleteRange(Self.Binary.Count - 2, 2);
+                Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 1, 1);
+                if Op = opOperatorAdd then
+                  Emit([Pointer(Integer(opOperatorInc)), A.VarNumber])
+                else
+                  Emit([Pointer(Integer(opOperatorInc)), -A.VarNumber]);
+                Result := True;
+                PushConstCount := 0;
+              end else
+              begin
+                if Op <> opOperatorAdd then
+                  Exit;
+                OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushGlobalVar]);
+                OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushConst]);
+                if OpInfoPrev1 = nil then
+                  OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushLocalVar]);
+                if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
+                begin
+                  A := Self.Binary[OpInfoPrev2^.Pos + 1];
+                  if A.Kind <> sevkNumber then
+                    Exit;
+                  Self.Binary.DeleteRange(Self.Binary.Count - 4, 2);
+                  Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 1);
+                  Emit([Pointer(Integer(opOperatorInc)), A.VarNumber]);
+                  Result := True;
+                  PushConstCount := 0;
+                end;
+              end;
+            end;
+        end;
+      end;
+
       function ConstantFoldingNumberOptimization: Boolean;
         function SameKind: Boolean; inline;
         begin
@@ -6690,7 +6742,7 @@ var
           Emit(Data);
           Inc(PushConstCount)
         end else
-        if Self.OptimizePeephole and PeepholeOptimization then
+        if Self.OptimizePeephole and (PeepholeIncOptimization or PeepholeOptimization) then
         else
         if Self.OptimizeConstantFolding and (ConstantFoldingNumberOptimization or ConstantFoldingStringOptimization) then
         else
