@@ -70,6 +70,11 @@ type
     opJumpEqualOrGreater,
     opJumpEqualOrLesser,
 
+    opOperatorAdd1,
+    opOperatorSub1,
+    opOperatorMul1,
+    opOperatorDiv1,
+
     opOperatorAdd2,
     opOperatorSub2,
     opOperatorMul2,
@@ -520,6 +525,11 @@ const
     2, // opJumpUnconditional,
     2, // opJumpEqualOrGreater,
     2, // opJumpEqualOrLesser,
+
+    3, // opOperatorAdd1,
+    3, // opOperatorSub1,
+    3, // opOperatorMul1,
+    3, // opOperatorDiv1,
 
     5, // opOperatorAdd2,
     5, // opOperatorSub2,
@@ -3998,6 +4008,11 @@ label
   labelJumpEqualOrGreater,
   labelJumpEqualOrLesser,
 
+  labelOperatorAdd1,
+  labelOperatorSub1,
+  labelOperatorMul1,
+  labelOperatorDiv1,
+
   labelOperatorAdd2,
   labelOperatorSub2,
   labelOperatorMul2,
@@ -4053,6 +4068,11 @@ var
     @labelJumpUnconditional,
     @labelJumpEqualOrGreater,
     @labelJumpEqualOrLesser,
+
+    @labelOperatorAdd1,
+    @labelOperatorSub1,
+    @labelOperatorMul1,
+    @labelOperatorDiv1,
 
     @labelOperatorAdd2,
     @labelOperatorSub2,
@@ -4278,6 +4298,58 @@ begin
           SEValueNeg(StackPtrLocal^, A^);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal);
+          DispatchGoto;
+        end;
+      {$ifdef SE_COMPUTED_GOTO}labelOperatorAdd1{$else}opOperatorAdd1{$endif}:
+        begin
+          A := Pop;
+          P := BinaryLocal[CodePtrLocal + 2].VarPointer;
+          if P = Pointer($FFFFFFFF) then
+            B := GetGlobal(BinaryLocal[CodePtrLocal + 1])
+          else
+            B := GetLocal(BinaryLocal[CodePtrLocal + 1], Integer(P));
+          SEValueAdd(StackPtrLocal^, A^, B^);
+          Inc(StackPtrLocal);
+          Inc(CodePtrLocal, 3);
+          DispatchGoto;
+        end;
+      {$ifdef SE_COMPUTED_GOTO}labelOperatorSub1{$else}opOperatorSub1{$endif}:
+        begin
+          A := Pop;
+          P := BinaryLocal[CodePtrLocal + 2].VarPointer;
+          if P = Pointer($FFFFFFFF) then
+            B := GetGlobal(BinaryLocal[CodePtrLocal + 1])
+          else
+            B := GetLocal(BinaryLocal[CodePtrLocal + 1], Integer(P));
+          SEValueSub(StackPtrLocal^, A^, B^);
+          Inc(StackPtrLocal);
+          Inc(CodePtrLocal, 3);
+          DispatchGoto;
+        end;
+      {$ifdef SE_COMPUTED_GOTO}labelOperatorMul1{$else}opOperatorMul1{$endif}:
+        begin
+          A := Pop;
+          P := BinaryLocal[CodePtrLocal + 2].VarPointer;
+          if P = Pointer($FFFFFFFF) then
+            B := GetGlobal(BinaryLocal[CodePtrLocal + 1])
+          else
+            B := GetLocal(BinaryLocal[CodePtrLocal + 1], Integer(P));
+          SEValueMul(StackPtrLocal^, A^, B^);
+          Inc(StackPtrLocal);
+          Inc(CodePtrLocal, 3);
+          DispatchGoto;
+        end;
+      {$ifdef SE_COMPUTED_GOTO}labelOperatorDiv1{$else}opOperatorDiv1{$endif}:
+        begin
+          A := Pop;
+          P := BinaryLocal[CodePtrLocal + 2].VarPointer;
+          if P = Pointer($FFFFFFFF) then
+            B := GetGlobal(BinaryLocal[CodePtrLocal + 1])
+          else
+            B := GetLocal(BinaryLocal[CodePtrLocal + 1], Integer(P));
+          SEValueDiv(StackPtrLocal^, A^, B^);
+          Inc(StackPtrLocal);
+          Inc(CodePtrLocal, 3);
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelOperatorAdd2{$else}opOperatorAdd2{$endif}:
@@ -6520,6 +6592,7 @@ var
     TProc = TSENestedProc;
   var
     PushConstCount: Integer = 0;
+    OpCountStart: Integer;
     IsTailed: Boolean = False;
 
     procedure Logic; forward;
@@ -6554,6 +6627,20 @@ var
         Result := nil;
       end;
 
+      function OpToOp1(const Op: TSEOpcode): TSEOpcode; inline;
+      begin
+        case Op of
+          opOperatorAdd:
+            Result := opOperatorAdd1;
+          opOperatorSub:
+            Result := opOperatorSub1;
+          opOperatorMul:
+            Result := opOperatorMul1;
+          opOperatorDiv:
+            Result := opOperatorDiv1;
+        end;
+      end;
+
       function OpToOp2(const Op: TSEOpcode): TSEOpcode; inline;
       begin
         case Op of
@@ -6565,6 +6652,42 @@ var
             Result := opOperatorMul2;
           opOperatorDiv:
             Result := opOperatorDiv2;
+        end;
+      end;
+
+      function PeepholeOp1Optimization: Boolean;
+      var
+        A: TSEValue;
+        I: Integer;
+        P: Pointer;
+      begin
+        Result := False;
+        case Op of
+          opOperatorAdd,
+          opOperatorSub,
+          opOperatorMul,
+          opOperatorDiv:
+            begin
+              OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushGlobalVar]);
+              if OpInfoPrev1 = nil then
+                OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushLocalVar]);
+              if (OpInfoPrev1 <> nil) then
+              begin
+                if OpInfoPrev1^.Binary <> Pointer(Self.Binary) then
+                  Exit;
+                if PeekAtPrevOpExpected(0, [opPushLocalVar]) <> nil then
+                  P := Self.Binary[OpInfoPrev1^.Pos + 2].VarPointer
+                else
+                  P := Pointer($FFFFFFFF);
+                A := Self.Binary[OpInfoPrev1^.Pos + 1];
+                Op := OpToOp1(Op);
+                Self.Binary.DeleteRange(Self.Binary.Count - OpInfoPrev1^.Size, OpInfoPrev1^.Size);
+                Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 1, 1);
+                Emit([Pointer(Integer(Op)), A.VarPointer, Pointer(P)]);
+                Result := True;
+                PushConstCount := 0;
+              end;
+            end;
         end;
       end;
 
@@ -6602,7 +6725,7 @@ var
                 B := Self.Binary[OpInfoPrev1^.Pos + 1];
                 A := Self.Binary[OpInfoPrev2^.Pos + 1];
                 Op := OpToOp2(Op);
-                Self.Binary.DeleteRange(Self.Binary.Count - 4, 4);
+                Self.Binary.DeleteRange(Self.Binary.Count - (OpInfoPrev1^.Size + OpInfoPrev2^.Size), OpInfoPrev1^.Size + OpInfoPrev2^.Size);
                 Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 2);
                 Emit([Pointer(Integer(Op)), A.VarPointer, B.VarPointer, Pointer(P), Pointer(PP)]);
                 Result := True;
@@ -6832,7 +6955,7 @@ var
           Emit(Data);
           Inc(PushConstCount)
         end else
-        if Self.OptimizePeephole and (PeepholeIncOptimization or PeepholeOp2Optimization) then
+        if Self.OptimizePeephole and (PeepholeIncOptimization or PeepholeOp2Optimization or PeepholeOp1Optimization) then
         else
         if Self.OptimizeConstantFolding and (ConstantFoldingNumberOptimization or ConstantFoldingStringOptimization) then
         else
@@ -7188,6 +7311,7 @@ var
     end;
 
   begin
+    OpCountStart := Self.OpcodeInfoList.Count;
     Logic;
   end;
 
