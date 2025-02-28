@@ -32,6 +32,7 @@ unit ScriptEngine;
 // enable this if you want to include this incastle game engine's profiler report
 {.$define SE_PROFILER}
 {$align 16}
+{$packenum 4}
 
 interface
 
@@ -203,7 +204,7 @@ type
       sevkFunction:
         (
           VarFuncKind: TSEFuncKind;
-          VarFuncIndx: QWord;
+          VarFuncIndx: DWord;
         );
       sevkPascalObject:
         (
@@ -3441,10 +3442,10 @@ var
 begin
   inherited;
   Self.FValueList := TSEGCValueList.Create;
-  Self.FValueList.Capacity := 65536;
+  Self.FValueList.Capacity := 4096;
   Self.FValueList.Add(Ref0);
   Self.FValueAvailStack := TSEGCValueAvailStack.Create;
-  Self.FValueAvailStack.Capacity := 65536;
+  Self.FValueAvailStack.Capacity := 4096;
   Self.FTicks := GetTickCount64;
   Self.FAllocatedMem := 0;
   Self.CeilMem := SE_MEM_CEIL;
@@ -3735,7 +3736,7 @@ begin
   Self.IsPaused := False;
   Self.IsDone := True;
   Self.WaitTime := 0;
-  Self.StackSize := 65536;
+  Self.StackSize := 2048;
   Self.FrameSize := 1024;
   Self.TrapSize := 1024;
   if VMList = nil then
@@ -4588,7 +4589,7 @@ begin
       {$ifdef SE_COMPUTED_GOTO}labelCallNative{$else}opCallNative{$endif}:
         begin
         CallNative:
-          FuncNativeInfo := PSEFuncNativeInfo(BinaryLocal[CodePtrLocal + 1].VarPointer);
+          FuncNativeInfo := Self.Parent.FuncNativeList.Ptr(Integer(BinaryLocal[CodePtrLocal + 1].VarPointer));
           ArgCount := Integer(BinaryLocal[CodePtrLocal + 2].VarPointer);
           StackPtrLocal := StackPtrLocal - ArgCount;
           if FuncNativeInfo^.Kind = sefnkNormal then
@@ -7227,12 +7228,7 @@ var
                     P := FindFunc(Token.Value, FuncValue.VarFuncKind, Ind);
                     if P = nil then
                       Error(Format('Function "%s" not found', [Token.Value]), Token);
-                    case FuncValue.VarFuncKind of
-                      sefkScript, sefkImport:
-                        FuncValue.VarFuncIndx := Ind;
-                      sefkNative:
-                        FuncValue.VarFuncIndx := QWord(P);
-                    end;
+                    FuncValue.VarFuncIndx := Ind;
                     FuncValue.Kind := sevkFunction;
                     PushConstCount := 0;
                     EmitExpr([Pointer(opPushConst), FuncValue]);
@@ -7559,7 +7555,7 @@ var
     end;
     if FuncNativeInfo <> nil then
     begin
-      Emit([Pointer(opCallNative), Pointer(FuncNativeInfo), Pointer(ArgCount), Pointer(0)]);
+      Emit([Pointer(opCallNative), Pointer(Ind), Pointer(ArgCount), Pointer(0)]);
     end else
     if FuncScriptInfo <> nil then
     begin
@@ -8061,7 +8057,8 @@ var
         EmitAssignVar(VarHiddenCountIdent);
 
         EmitPushVar(VarHiddenArrayIdent);
-        Emit([Pointer(opCallNative), FindFuncNative('length', Ind), Pointer(1), Pointer(0)]);
+        FindFuncNative('length', Ind);
+        Emit([Pointer(opCallNative), Pointer(Ind), Pointer(1), Pointer(0)]);
         EmitAssignVar(VarHiddenTargetIdent);
 
         StartBlock := Self.Binary.Count;
@@ -8220,7 +8217,7 @@ var
       end;
       Token := NextTokenExpected([tkComma, tkSquareBracketClose]);
     until Token.Kind = tkSquareBracketClose;
-    Emit([Pointer(opCallNative), Pointer(FuncNativeInfo), Pointer(ArgCount), Pointer(0)]);
+    Emit([Pointer(opCallNative), Pointer(Ind), Pointer(ArgCount), Pointer(0)]);
   end;
 
   procedure ParseAssignTail;
@@ -8672,6 +8669,9 @@ begin
   Ident.Addr := 0;
   Ident.Name := 'result';
   Ident.Local := 0;
+  Ident.ConstValue := False;
+  Ident.IsUsed := False;
+  Ident.IsAssigned := False;
   Self.VarList[0] := Ident;
   Ident.Name := '___result';
   Self.VarList[1] := Ident;
