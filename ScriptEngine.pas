@@ -171,7 +171,7 @@ type
 
   PSEValue = ^TSEValue;
   TSEValue = record
-    Size, Ref: Cardinal;
+    Ref: Cardinal;
     case Kind: TSEValueKind of
       sevkNumber:
         (
@@ -204,7 +204,7 @@ type
       sevkFunction:
         (
           VarFuncKind: TSEFuncKind;
-          VarFuncIndx: DWord;
+          VarFuncIndx: Cardinal;
         );
       sevkPascalObject:
         (
@@ -1072,8 +1072,12 @@ begin
       begin
         Result := MemSize(Value.VarBuffer^.Base) - 16;
       end;
+    sevkString:
+      begin
+        Result := Length(Value.VarString^);
+      end;
     else
-      Result := Value.Size;
+      Result := -1;
   end;
 end;
 
@@ -3658,7 +3662,6 @@ begin
   begin
     GetMem(PValue^.VarBuffer^.Base, Size + 16);
     PValue^.VarBuffer^.Ptr := Pointer(QWord(PValue^.VarBuffer^.Base) + QWord(PValue^.VarBuffer^.Base) mod 16);
-    PValue^.Size := Size;
   end else
   begin
     PValue^.VarBuffer^.Base := nil;
@@ -3672,7 +3675,6 @@ procedure TSEGarbageCollector.AllocMap(const PValue: PSEValue);
 begin
   PValue^.Kind := sevkMap;
   PValue^.VarMap := TSEValueMap.Create;
-  PValue^.Size := 0;
   Self.AddToList(PValue);
 end;
 
@@ -3681,7 +3683,6 @@ begin
   PValue^.Kind := sevkString;
   New(PValue^.VarString);
   PValue^.VarString^ := S;
-  PValue^.Size := Length(S);
   Self.FAllocatedMem := Self.FAllocatedMem + Length(PValue^.VarString^);
   Self.AddToList(PValue);
 end;
@@ -3692,8 +3693,7 @@ begin
   New(PValue^.VarPascalObject);
   PValue^.VarPascalObject^.Value := Obj;
   PValue^.VarPascalObject^.IsManaged := IsManaged;
-  PValue^.Size := SizeOf(TSEPascalObject);
-  Self.FAllocatedMem := PValue^.Size;
+  Self.FAllocatedMem := Self.FAllocatedMem + SizeOf(TSEPascalObject);
   Self.AddToList(PValue);
 end;
 
@@ -9005,6 +9005,7 @@ begin
 end;
 
 initialization
+  Writeln(SizeOf(TSEValue));
   InitCriticalSection(CS);
   FS := FormatSettings;
   FS.DecimalSeparator := '.';
