@@ -229,9 +229,12 @@ type
     constructor Create;
     destructor Destroy; override;
     procedure ToMap;
-    procedure Set2(const Key: String; const AValue: TSEValue);
-    procedure Del2(const Key: String);
-    function Get2(const Key: String): TSEValue;
+    procedure Set2(const Key: String; const AValue: TSEValue); overload;
+    procedure Set2(const Index: Int64; const AValue: TSEValue); overload;
+    function Get2(const Key: String): TSEValue; overload;
+    function Get2(const Index: Int64): TSEValue; overload;
+    procedure Del2(const Key: String); overload;
+    procedure Del2(const Index: Int64); overload;
     property List: TSEValueList read FList;
     property IsValidArray: Boolean read FIsValidArray;
   end;
@@ -1057,7 +1060,7 @@ end;
 
 procedure SEMapDelete(constref V: TSEValue; constref I: Integer); inline; overload;
 begin
-  TSEValueMap(V.VarMap).Del2(IntToStr(I));
+  TSEValueMap(V.VarMap).Del2(I);
 end;
 
 procedure SEMapDelete(constref V: TSEValue; constref S: String); inline; overload;
@@ -1066,19 +1069,15 @@ begin
 end;
 
 procedure SEMapDelete(constref V, I: TSEValue); inline; overload;
-var
-  S: String;
 begin
   case I.Kind of
     sevkString:
       begin
-        S := I.VarString^;
-        TSEValueMap(V.VarMap).Del2(S);
+        TSEValueMap(V.VarMap).Del2(I.VarString^);
       end;
     sevkNumber, sevkBoolean:
       begin
-        S := IntToStr(Round(I.VarNumber));
-        TSEValueMap(V.VarMap).Del2(S);
+        TSEValueMap(V.VarMap).Del2(Round(I.VarNumber));
       end;
   end;
 end;
@@ -1086,7 +1085,7 @@ end;
 function SEMapGet(constref V: TSEValue; constref I: Integer): TSEValue; inline; overload;
 begin
   try
-    Result := TSEValueMap(V.VarMap).Get2(IntToStr(I));
+    Result := TSEValueMap(V.VarMap).Get2(I);
   except
     Result := SENull;
   end;
@@ -1102,19 +1101,20 @@ begin
 end;
 
 function SEMapGet(constref V, I: TSEValue): TSEValue; inline; overload;
-var
-  S: String;
 begin
   try
     case I.Kind of
       sevkString:
-        S := I.VarString^;
+        begin
+          Result := TSEValueMap(V.VarMap).Get2(I.VarString^);
+        end;
       sevkNumber, sevkBoolean:
-        S := IntToStr(Round(I.VarNumber));
+        begin
+          Result := TSEValueMap(V.VarMap).Get2(Round(I.VarNumber));
+        end;
       else
         Exit(SENull);
     end;
-    Result := TSEValueMap(V.VarMap).Get2(S);
   except
     Result := SENull;
   end;
@@ -1122,7 +1122,7 @@ end;
 
 procedure SEMapSet(constref V: TSEValue; constref I: Integer; const A: TSEValue); inline; overload;
 begin
-  TSEValueMap(V.VarMap).Set2(IntToStr(I), A);
+  TSEValueMap(V.VarMap).Set2(I, A);
 end;
 
 procedure SEMapSet(constref V: TSEValue; constref S: String; const A: TSEValue); inline; overload;
@@ -1136,13 +1136,12 @@ var
 begin
   case I.Kind of
     sevkString:
-      S := I.VarString^;
+      TSEValueMap(V.VarMap).Set2(I.VarString^, A);
     sevkNumber, sevkBoolean:
-      S := IntToStr(Round(I.VarNumber));
+      TSEValueMap(V.VarMap).Set2(Round(I.VarNumber), A);
     else
       Exit;
   end;
-  TSEValueMap(V.VarMap).Set2(S, A);
 end;
 
 function SEMapIsValidArray(constref V: TSEValue): Boolean; inline;
@@ -3331,6 +3330,27 @@ begin
   end;
 end;
 
+procedure TSEValueMap.Set2(const Index: Int64; const AValue: TSEValue);
+var
+  I: Integer;
+begin
+  if Self.FIsValidArray and (Index >= 0) then
+  begin
+    GC.AllocatedMem := GC.AllocatedMem - Self.FList.Count * SizeOf(TSEValue);
+    if Index > Self.FList.Count - 1 then
+      Self.FList.Count := Index + 1;
+    Self.FList[Index] := AValue;
+    GC.AllocatedMem := GC.AllocatedMem + Self.FList.Count * SizeOf(TSEValue);
+  end else
+  begin
+    Self.ToMap;
+  end;
+  if not Self.IsValidArray then
+  begin
+    Self.AddOrSetValue(IntToStr(Index), AValue);
+  end;
+end;
+
 procedure TSEValueMap.Del2(const Key: String);
 var
   Index: Integer;
@@ -3350,6 +3370,21 @@ begin
   end;
 end;
 
+procedure TSEValueMap.Del2(const Index: Int64);
+begin
+  if Self.FIsValidArray and (Index >= 0) then
+  begin
+    if Index <= Self.FList.Count - 1 then
+    begin
+      Self.FList.Delete(Index);
+      GC.AllocatedMem := GC.AllocatedMem - SizeOf(TSEValue);
+    end;
+  end else
+  begin
+    Self.Remove(IntToStr(Index));
+  end;
+end;
+
 function TSEValueMap.Get2(const Key: String): TSEValue;
 var
   Index: Integer;
@@ -3365,6 +3400,20 @@ begin
   end else
   begin
     Result := Self[Key];
+  end;
+end;
+
+function TSEValueMap.Get2(const Index: Int64): TSEValue;
+begin
+  if Self.FIsValidArray and (Index >= 0) then
+  begin
+    if Index <= Self.FList.Count - 1 then
+      Result := Self.FList[Index]
+    else
+      Result := SENull;
+  end else
+  begin
+    Result := Self[IntToStr(Index)];
   end;
 end;
 
@@ -6501,7 +6550,7 @@ var
         end;
       end;
 
-      function PeepholeOptimization: Boolean;
+      function PeepholeOp2Optimization: Boolean;
       var
         A, B: TSEValue;
         I: Integer;
@@ -6773,7 +6822,7 @@ var
           Emit(Data);
           Inc(PushConstCount)
         end else
-        if Self.OptimizePeephole and (PeepholeIncOptimization or PeepholeOptimization) then
+        if Self.OptimizePeephole and (PeepholeIncOptimization or PeepholeOp2Optimization) then
         else
         if Self.OptimizeConstantFolding and (ConstantFoldingNumberOptimization or ConstantFoldingStringOptimization) then
         else
