@@ -1,0 +1,18 @@
+t = ticks()
+
+fn is_prime(n) {
+  for i = 2 to sqrt(n)
+    if n % i == 0
+      return (false)
+  return (true)
+}
+
+fn search_primes(start, end) {
+  for i = start to end
+    if is_prime(i)
+      write(i, ' ')
+}
+
+search_primes(3, 4096)
+
+writeln('\nTime: ', ticks() - t, 'ms')

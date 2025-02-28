@@ -1,0 +1,12 @@
+t = ticks()
+
+fn fib(n) {
+  if n < 2
+    result = n
+  else
+    result = fib(n-1) + fib(n-2)
+}
+
+writeln(fib(36))
+
+writeln('\nTime: ', ticks() - t, 'ms')
