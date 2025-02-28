@@ -48,7 +48,9 @@ uses
 
 const
   // Maximum memory in bytes before GC starts acting aggressive
-  SE_MEM_CEIL = 1024 * 1024 * 256;
+  SE_MEM_CEIL = 1024 * 1024 * 2048;
+  // Time in miliseconds before GC starts collecting memory
+  SE_MEM_TIME = 1000 * 60 * 2;
 
 type
   TSENumber = Double;
@@ -3489,7 +3491,7 @@ var
   Ticks: QWord;
 begin
   Ticks := GetTickCount64 - Self.FTicks;
-  if (Ticks > 1000 * 60 * 2) or
+  if (Ticks > SE_MEM_TIME) or
     ((Self.FAllocatedMem > Self.CeilMem) and (Ticks > 1000 * 2)) then
   begin
     Self.GC;
@@ -6807,7 +6809,7 @@ var
                   A := Self.Binary[OpInfoPrev2^.Pos + 1];
                   if A.Kind <> sevkNumber then
                     Exit;
-                  Self.Binary.DeleteRange(Self.Binary.Count - 4, 2);
+                  Self.Binary.DeleteRange(Self.Binary.Count - (OpInfoPrev1^.Size + OpInfoPrev2^.Size), 2);
                   Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 1);
                   Emit([Pointer(Integer(opOperatorAdd0)), A.VarNumber]);
                   Result := True;
@@ -6844,7 +6846,7 @@ var
                   A := Self.Binary[OpInfoPrev2^.Pos + 1];
                   if A.Kind <> sevkNumber then
                     Exit;
-                  Self.Binary.DeleteRange(Self.Binary.Count - 4, 2);
+                  Self.Binary.DeleteRange(Self.Binary.Count - (OpInfoPrev1^.Size + OpInfoPrev2^.Size), 2);
                   Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 1);
                   Emit([Pointer(Integer(opOperatorMul0)), A.VarNumber]);
                   Result := True;
