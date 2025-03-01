@@ -522,7 +522,7 @@ const
     2, // opPushConstString,
     2, // opPushGlobalVar,
     3, // opPushLocalVar,
-    1, // opPushArrayPop,
+    2, // opPushArrayPop,
     1, // opPopConst,
     1, // opPopFrame,
     2, // opAssignGlobalVar,
@@ -4475,7 +4475,9 @@ begin
         end;
       {$ifdef SE_COMPUTED_GOTO}labelPushArrayPop{$else}opPushArrayPop{$endif}:
         begin
-          A := Pop;
+          A := @BinaryLocal[CodePtrLocal + 1];
+          if A^.Kind = sevkNull then
+            A := Pop;
           B := Pop;
           case B^.Kind of
             sevkString:
@@ -4489,7 +4491,7 @@ begin
             else
               Push(0);
           end;
-          Inc(CodePtrLocal);
+          Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelPopConst{$else}opPopConst{$endif}:
@@ -6685,6 +6687,31 @@ var
     end;
   end;
 
+  function PeepholeArrayAssignOptimization: Boolean;
+  var
+    A: TSEValue;
+    Size,
+    I: Integer;
+    P: Pointer;
+    OpInfoPrev1,
+    OpInfoPrev2: PSEOpcodeInfo;
+  begin
+    Result := False;
+    if not Self.OptimizePeephole then
+      Exit;
+    OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushArrayPop]);
+    OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushConst]);
+    if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
+    begin
+      Size := OpInfoPrev1^.Size + OpInfoPrev2^.Size;
+      A := Self.Binary[OpInfoPrev2^.Pos + 1];
+      Self.Binary.DeleteRange(Self.Binary.Count - Size, Size);
+      Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 2);
+      Emit([Pointer(opPushArrayPop), A]);
+      Result := True;
+    end;
+  end;
+
   function PeepholeIncOptimization: Boolean;
   var
     A: TSEValue;
@@ -6696,6 +6723,8 @@ var
     OpInfoPrev2: PSEOpcodeInfo;
   begin
     Result := False;
+    if not Self.OptimizePeephole then
+      Exit;
     OpInfoPrev1 := PeekAtPrevOpExpected(0, [opOperatorAdd0]);
     OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar, opPushLocalVar]);
     if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
@@ -6710,7 +6739,7 @@ var
         VarAddr := Pointer($FFFFFFFF);
       Size := OpInfoPrev1^.Size + OpInfoPrev2^.Size;
       Self.Binary.DeleteRange(Self.Binary.Count - Size, Size);
-      Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 3, 3);
+      Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 2);
       Emit([Pointer(opOperatorInc), VarBase, VarAddr, A]);
       Result := True;
     end;
@@ -7107,7 +7136,8 @@ var
             NextToken;
             ParseExpr;
             NextTokenExpected([tkSquareBracketClose]);
-            EmitExpr([Pointer(opPushArrayPop)]);
+            EmitExpr([Pointer(opPushArrayPop), SENull]);
+            PeepholeArrayAssignOptimization;
             Tail;
           end;
         tkDot:
@@ -7116,8 +7146,7 @@ var
             IsTailed := True;
             NextToken;
             Token := NextTokenExpected([tkIdent]);
-            EmitExpr([Pointer(opPushConst), Token.Value]);
-            EmitExpr([Pointer(opPushArrayPop)]);
+            EmitExpr([Pointer(opPushArrayPop), Token.Value]);
             Tail;
           end;
       end;
@@ -7225,7 +7254,8 @@ var
                             NextToken;
                             EmitPushVar(Ident^);
                             ParseExpr;
-                            Emit([Pointer(opPushArrayPop)]);
+                            Emit([Pointer(opPushArrayPop), SENull]);
+                            PeepholeArrayAssignOptimization;
                             NextTokenExpected([tkSquareBracketClose]);
                             Tail;
                             FuncTail;
@@ -7237,8 +7267,7 @@ var
                             NextToken;
                             Token2 := NextTokenExpected([tkIdent]);
                             EmitPushVar(Ident^);
-                            EmitExpr([Pointer(opPushConst), Token2.Value]);
-                            Emit([Pointer(opPushArrayPop)]);
+                            Emit([Pointer(opPushArrayPop), Token2.Value]);
                             Tail;
                             FuncTail;
                           end;
@@ -8099,7 +8128,8 @@ var
 
         EmitPushVar(VarHiddenArrayIdent);
         EmitPushVar(VarHiddenCountIdent);
-        Emit([Pointer(opPushArrayPop)]);
+        Emit([Pointer(opPushArrayPop), SENull]);
+        PeepholeArrayAssignOptimization;
         EmitAssignVar(VarIdent);
 
         ParseBlock;
@@ -8274,14 +8304,14 @@ var
               NextToken;
               ParseExpr;
               NextTokenExpected([tkSquareBracketClose]);
-              Emit([Pointer(opPushArrayPop)]);
+              Emit([Pointer(opPushArrayPop), SENull]);
+              PeepholeArrayAssignOptimization;
             end;
           tkDot:
             begin
               NextToken;
               Token := NextTokenExpected([tkIdent]);
-              Emit([Pointer(opPushConst), Token.Value]);
-              Emit([Pointer(opPushArrayPop)]);
+              Emit([Pointer(opPushArrayPop), Token.Value]);
             end;
         end;
       end;
