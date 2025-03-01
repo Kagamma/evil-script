@@ -73,6 +73,8 @@ type
     opJumpEqualOrGreater,
     opJumpEqualOrLesser,
 
+    opOperatorInc,
+
     opOperatorAdd0,
     opOperatorMul0,
     opOperatorDiv0,
@@ -531,6 +533,8 @@ const
     2, // opJumpUnconditional,
     2, // opJumpEqualOrGreater,
     2, // opJumpEqualOrLesser,
+
+    4, // opOperatorInc,
 
     2, // opOperatorAdd0,
     2, // opOperatorMul0,
@@ -3963,6 +3967,22 @@ var
     ((Self.FramePtr - F)^.Stack + Integer(I))^ := Value^;
   end;
 
+  function GetVariable(const I: Pointer; const F: Pointer): PSEValue; inline;
+  begin
+    if F = Pointer($FFFFFFFF) then
+      Exit(@Self.Global[Integer(I)])
+    else
+      Exit((Self.FramePtr - Integer(F))^.Stack + Integer(I));
+  end;
+
+  procedure SetVariable(const I: Pointer; const F: Pointer; const Value: PSEValue); inline;
+  begin
+    if F = Pointer($FFFFFFFF) then
+      Self.Global[Integer(I)] := Value^
+    else
+      ((Self.FramePtr - Integer(F))^.Stack + Integer(I))^ := Value^;
+  end;
+
 {$ifdef SE_COMPUTED_GOTO}
   {$if defined(CPUX86_64) or defined(CPUi386)}
     {$define DispatchGoto :=
@@ -4015,6 +4035,8 @@ label
   labelJumpUnconditional,
   labelJumpEqualOrGreater,
   labelJumpEqualOrLesser,
+
+  labelOperatorInc,
 
   labelOperatorAdd0,
   labelOperatorMul0,
@@ -4079,6 +4101,8 @@ var
     @labelJumpUnconditional,
     @labelJumpEqualOrGreater,
     @labelJumpEqualOrLesser,
+
+    @labelOperatorInc,
 
     @labelOperatorAdd0,
     @labelOperatorMul0,
@@ -4147,6 +4171,15 @@ begin
       {$ifndef SE_COMPUTED_GOTO}
       case TSEOpcode(Integer(BinaryLocal[CodePtrLocal].VarPointer)) of
       {$endif}
+      {$ifdef SE_COMPUTED_GOTO}labelOperatorInc{$else}opOperatorInc{$endif}:
+        begin
+          P  := BinaryLocal[CodePtrLocal + 1].VarPointer;
+          PP := BinaryLocal[CodePtrLocal + 2].VarPointer;
+          V  := GetVariable(P, PP);
+          V^.VarNumber := V^.VarNumber + BinaryLocal[CodePtrLocal + 3].VarNumber;
+          Inc(CodePtrLocal, 4);
+          DispatchGoto;
+        end;
       {$ifdef SE_COMPUTED_GOTO}labelOperatorAdd0{$else}opOperatorAdd0{$endif}:
         begin
           A := Pop;
@@ -4343,10 +4376,7 @@ begin
         begin
           A := Pop;
           P := BinaryLocal[CodePtrLocal + 2].VarPointer;
-          if P = Pointer($FFFFFFFF) then
-            B := GetGlobal(BinaryLocal[CodePtrLocal + 1])
-          else
-            B := GetLocal(BinaryLocal[CodePtrLocal + 1], Integer(P));
+          B := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
           if A^.Kind = sevkNumber then
             StackPtrLocal^.VarNumber := A^.VarNumber + B^.VarNumber
           else
@@ -4359,10 +4389,7 @@ begin
         begin
           A := Pop;
           P := BinaryLocal[CodePtrLocal + 2].VarPointer;
-          if P = Pointer($FFFFFFFF) then
-            B := GetGlobal(BinaryLocal[CodePtrLocal + 1])
-          else
-            B := GetLocal(BinaryLocal[CodePtrLocal + 1], Integer(P));
+          B := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
           if A^.Kind = sevkNumber then
             StackPtrLocal^.VarNumber := A^.VarNumber - B^.VarNumber
           else
@@ -4375,10 +4402,7 @@ begin
         begin
           A := Pop;
           P := BinaryLocal[CodePtrLocal + 2].VarPointer;
-          if P = Pointer($FFFFFFFF) then
-            B := GetGlobal(BinaryLocal[CodePtrLocal + 1])
-          else
-            B := GetLocal(BinaryLocal[CodePtrLocal + 1], Integer(P));
+          B := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
           StackPtrLocal^.VarNumber := A^.VArNumber * B^.VArNumber;
           Inc(StackPtrLocal);
           Inc(CodePtrLocal, 3);
@@ -4388,10 +4412,7 @@ begin
         begin
           A := Pop;
           P := BinaryLocal[CodePtrLocal + 2].VarPointer;
-          if P = Pointer($FFFFFFFF) then
-            B := GetGlobal(BinaryLocal[CodePtrLocal + 1])
-          else
-            B := GetLocal(BinaryLocal[CodePtrLocal + 1], Integer(P));
+          B := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
           StackPtrLocal^.VarNumber := A^.VArNumber / B^.VArNumber;
           Inc(StackPtrLocal);
           Inc(CodePtrLocal, 3);
@@ -4401,14 +4422,8 @@ begin
         begin
           P  := BinaryLocal[CodePtrLocal + 3].VarPointer;
           PP := BinaryLocal[CodePtrLocal + 4].VarPointer;
-          if P = Pointer($FFFFFFFF) then
-            A := GetGlobal(BinaryLocal[CodePtrLocal + 1])
-          else
-            A := GetLocal(BinaryLocal[CodePtrLocal + 1], Integer(P));
-          if PP = Pointer($FFFFFFFF) then
-            B := GetGlobal(BinaryLocal[CodePtrLocal + 2])
-          else
-            B := GetLocal(BinaryLocal[CodePtrLocal + 2], Integer(P));
+          A := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
+          B := GetVariable(BinaryLocal[CodePtrLocal + 2], PP);
           if A^.Kind = sevkNumber then
             StackPtrLocal^.VarNumber := A^.VarNumber + B^.VarNumber
           else
@@ -4421,14 +4436,8 @@ begin
         begin
           P  := BinaryLocal[CodePtrLocal + 3].VarPointer;
           PP := BinaryLocal[CodePtrLocal + 4].VarPointer;
-          if P = Pointer($FFFFFFFF) then
-            A := GetGlobal(BinaryLocal[CodePtrLocal + 1])
-          else
-            A := GetLocal(BinaryLocal[CodePtrLocal + 1], Integer(P));
-          if PP = Pointer($FFFFFFFF) then
-            B := GetGlobal(BinaryLocal[CodePtrLocal + 2])
-          else
-            B := GetLocal(BinaryLocal[CodePtrLocal + 2], Integer(P));
+          A := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
+          B := GetVariable(BinaryLocal[CodePtrLocal + 2], PP);
           if A^.Kind = sevkNumber then
             StackPtrLocal^.VarNumber := A^.VarNumber - B^.VarNumber
           else
@@ -4441,14 +4450,8 @@ begin
         begin
           P  := BinaryLocal[CodePtrLocal + 3].VarPointer;
           PP := BinaryLocal[CodePtrLocal + 4].VarPointer;
-          if P = Pointer($FFFFFFFF) then
-            A := GetGlobal(BinaryLocal[CodePtrLocal + 1])
-          else
-            A := GetLocal(BinaryLocal[CodePtrLocal + 1], Integer(P));
-          if PP = Pointer($FFFFFFFF) then
-            B := GetGlobal(BinaryLocal[CodePtrLocal + 2])
-          else
-            B := GetLocal(BinaryLocal[CodePtrLocal + 2], Integer(P));
+          A := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
+          B := GetVariable(BinaryLocal[CodePtrLocal + 2], PP);
           StackPtrLocal^.VarNumber := A^.VArNumber * B^.VArNumber;
           Inc(StackPtrLocal);
           Inc(CodePtrLocal, 5);
@@ -4458,14 +4461,8 @@ begin
         begin
           P  := BinaryLocal[CodePtrLocal + 3].VarPointer;
           PP := BinaryLocal[CodePtrLocal + 4].VarPointer;
-          if P = Pointer($FFFFFFFF) then
-            A := GetGlobal(BinaryLocal[CodePtrLocal + 1])
-          else
-            A := GetLocal(BinaryLocal[CodePtrLocal + 1], Integer(P));
-          if PP = Pointer($FFFFFFFF) then
-            B := GetGlobal(BinaryLocal[CodePtrLocal + 2])
-          else
-            B := GetLocal(BinaryLocal[CodePtrLocal + 2], Integer(P));
+          A := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
+          B := GetVariable(BinaryLocal[CodePtrLocal + 2], PP);
           StackPtrLocal^.VarNumber := A^.VArNumber / B^.VArNumber;
           Inc(StackPtrLocal);
           Inc(CodePtrLocal, 5);
@@ -6201,6 +6198,14 @@ var
     Exit(Self.Binary.Count);
   end;
 
+  function GetVarFrame(const Ident: TSEIdent): Pointer; inline;
+  begin
+    if Ident.Local > 0 then
+      Result := Pointer(Self.FuncTraversal - Ident.Local)
+    else
+      Result := Pointer($FFFFFFFF);
+  end;
+
   function EmitPushVar(const Ident: TSEIdent): Integer; inline;
   begin
     if Ident.Local > 0 then
@@ -7671,9 +7676,7 @@ var
         ParseBlock;
 
         ContinueBlock := Self.Binary.Count;
-        EmitPushVar(VarIdent);
-        Emit([Pointer(opOperatorAdd0), Step]);
-        EmitAssignVar(VarIdent);
+        Emit([Pointer(opOperatorInc), Pointer(VarIdent.Addr), GetVarFrame(VarIdent), Step]);
         JumpBlock := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
         EndBLock := JumpBlock;
       end else
@@ -7715,9 +7718,7 @@ var
         ParseBlock;
 
         ContinueBlock := Self.Binary.Count;
-        EmitPushVar(VarHiddenCountIdent);
-        Emit([Pointer(opOperatorAdd0), 1]);
-        EmitAssignVar(VarHiddenCountIdent);
+        Emit([Pointer(opOperatorInc), Pointer(VarHiddenCountIdent.Addr), GetVarFrame(VarHiddenCountIdent), 1]);
         JumpBlock := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
         EndBLock := JumpBlock;
       end;
