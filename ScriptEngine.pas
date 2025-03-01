@@ -6725,6 +6725,8 @@ var
     OpInfoPrev2: PSEOpcodeInfo;
   begin
     Result := False;
+    if not Self.OptimizePeephole then
+      Exit;
     case Op of
       opOperatorAdd,
       opOperatorSub:
@@ -6818,6 +6820,8 @@ var
     OpInfoPrev2: PSEOpcodeInfo;
   begin
     Result := False;
+    if not Self.OptimizePeephole then
+      Exit;
     case Op of
       opOperatorAdd,
       opOperatorSub,
@@ -6851,6 +6855,8 @@ var
     OpInfoPrev2: PSEOpcodeInfo;
   begin
     Result := False;
+    if not Self.OptimizePeephole then
+      Exit;
     case Op of
       opOperatorAdd,
       opOperatorSub,
@@ -7069,7 +7075,7 @@ var
           Emit(Data);
           Inc(PushConstCount)
         end else
-        if Self.OptimizePeephole and (PeepholeOp0Optimization(Op) or PeepholeOp2Optimization(Op) or PeepholeOp1Optimization(Op)) then
+        if (PeepholeOp0Optimization(Op) or PeepholeOp2Optimization(Op) or PeepholeOp1Optimization(Op)) then
           PushConstCount := 0
         else
         if Self.OptimizeConstantFolding and (ConstantFoldingNumberOptimization or ConstantFoldingStringOptimization) then
