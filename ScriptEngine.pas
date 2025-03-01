@@ -4246,7 +4246,7 @@ begin
         begin
           B := Pop;
           A := Pop;
-          StackPtrLocal.VarNumber := Round(A^.VarNumber) shl Round(B^.VarNumber);
+          StackPtrLocal^.VarNumber := Round(A^.VarNumber) shl Round(B^.VarNumber);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -4255,7 +4255,7 @@ begin
         begin
           B := Pop;
           A := Pop;
-          StackPtrLocal.VarNumber := Round(A^.VarNumber) shr Round(B^.VarNumber);
+          StackPtrLocal^.VarNumber := Round(A^.VarNumber) shr Round(B^.VarNumber);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal);
           DispatchGoto;
