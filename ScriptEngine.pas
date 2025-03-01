@@ -4645,8 +4645,8 @@ begin
       {$ifdef SE_COMPUTED_GOTO}labelCallImport{$else}opCallImport{$endif}:
         begin
         CallImport:
-          {$ifdef SE_LIBFFI}
           FuncImportInfo := Self.Parent.FuncImportList.Ptr(Integer(BinaryLocal[CodePtrLocal + 1].VarPointer));
+          {$ifdef SE_LIBFFI}
           FuncImport := FuncImportInfo^.Func;
           if FuncImport = nil then
             raise Exception.Create(Format('Function "%s" is null', [FuncImportInfo^.Name]));
