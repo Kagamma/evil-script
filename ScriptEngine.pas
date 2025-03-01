@@ -4151,9 +4151,9 @@ begin
         begin
           A := Pop;
           if A^.Kind = sevkNumber then
-            A^.VarNumber := A^.VarNumber + BinaryLocal[CodePtrLocal + 1].VarNumber
+            StackPtrLocal^.VarNumber := A^.VarNumber + BinaryLocal[CodePtrLocal + 1].VarNumber
           else
-            SEValueAdd(A^, A^, BinaryLocal[CodePtrLocal + 1]);
+            SEValueAdd(StackPtrLocal^, A^, BinaryLocal[CodePtrLocal + 1]);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
@@ -4161,7 +4161,7 @@ begin
       {$ifdef SE_COMPUTED_GOTO}labelOperatorMul0{$else}opOperatorMul0{$endif}:
         begin
           A := Pop;
-          A^.VarNumber := A^.VarNumber * BinaryLocal[CodePtrLocal + 1].VarNumber;
+          StackPtrLocal^.VarNumber := A^.VarNumber * BinaryLocal[CodePtrLocal + 1].VarNumber;
           Inc(StackPtrLocal);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
@@ -4169,7 +4169,7 @@ begin
       {$ifdef SE_COMPUTED_GOTO}labelOperatorDiv0{$else}opOperatorDiv0{$endif}:
         begin
           A := Pop;
-          A^.VarNumber := A^.VarNumber / BinaryLocal[CodePtrLocal + 1].VarNumber;
+          StackPtrLocal^.VarNumber := A^.VarNumber / BinaryLocal[CodePtrLocal + 1].VarNumber;
           Inc(StackPtrLocal);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
@@ -4179,7 +4179,7 @@ begin
           B := Pop;
           A := Pop;
           if A^.Kind = sevkNumber then
-            A^.VarNumber := A^.VarNumber + B^.VarNumber
+            StackPtrLocal^.VarNumber := A^.VarNumber + B^.VarNumber
           else
             SEValueAdd(StackPtrLocal^, A^, B^);
           Inc(StackPtrLocal);
@@ -4191,7 +4191,7 @@ begin
           B := Pop;
           A := Pop;
           if A^.Kind = sevkNumber then
-            A^.VarNumber := A^.VarNumber - B^.VarNumber
+            StackPtrLocal^.VarNumber := A^.VarNumber - B^.VarNumber
           else
             SEValueSub(StackPtrLocal^, A^, B^);
           Inc(StackPtrLocal);
@@ -4220,7 +4220,7 @@ begin
         begin
           B := Pop;
           A := Pop;
-          Push(A^ - B^ * Int(TSENumber(A^ / B^)));
+          Push(A^.VarNumber - B^.VarNumber * Int(TSENumber(A^.VarNumber / B^.VarNumber)));
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
@@ -4348,7 +4348,7 @@ begin
           else
             B := GetLocal(BinaryLocal[CodePtrLocal + 1], Integer(P));
           if A^.Kind = sevkNumber then
-            A^.VarNumber := A^.VarNumber + B^.VarNumber
+            StackPtrLocal^.VarNumber := A^.VarNumber + B^.VarNumber
           else
             SEValueAdd(StackPtrLocal^, A^, B^);
           Inc(StackPtrLocal);
@@ -4364,7 +4364,7 @@ begin
           else
             B := GetLocal(BinaryLocal[CodePtrLocal + 1], Integer(P));
           if A^.Kind = sevkNumber then
-            A^.VarNumber := A^.VarNumber - B^.VarNumber
+            StackPtrLocal^.VarNumber := A^.VarNumber - B^.VarNumber
           else
             SEValueSub(StackPtrLocal^, A^, B^);
           Inc(StackPtrLocal);
@@ -4410,7 +4410,7 @@ begin
           else
             B := GetLocal(BinaryLocal[CodePtrLocal + 2], Integer(P));
           if A^.Kind = sevkNumber then
-            A^.VarNumber := A^.VarNumber + B^.VarNumber
+            StackPtrLocal^.VarNumber := A^.VarNumber + B^.VarNumber
           else
             SEValueAdd(StackPtrLocal^, A^, B^);
           Inc(StackPtrLocal);
@@ -4430,7 +4430,7 @@ begin
           else
             B := GetLocal(BinaryLocal[CodePtrLocal + 2], Integer(P));
           if A^.Kind = sevkNumber then
-            A^.VarNumber := A^.VarNumber - B^.VarNumber
+            StackPtrLocal^.VarNumber := A^.VarNumber - B^.VarNumber
           else
             SEValueSub(StackPtrLocal^, A^, B^);
           Inc(StackPtrLocal);
