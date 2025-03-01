@@ -6386,7 +6386,7 @@ var
                 OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushLocalVar]);
               OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar]);
               if OpInfoPrev2 = nil then
-                OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar]);
+                OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushLocalVar]);
               if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
               begin
                 if (OpInfoPrev1^.Binary <> Pointer(Self.Binary)) or (OpInfoPrev2^.Binary <> Pointer(Self.Binary)) then
