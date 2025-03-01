@@ -6466,6 +6466,29 @@ var
     Error(Format('Expected %s but got "%s"', [TokenTypeString(Expected), TokenNames[Result.Kind]]), Result);
   end;
 
+  function PeekAtPrevOp(const Ind: Integer): PSEOpcodeInfo; inline;
+  var
+    I: Integer;
+  begin
+    I := Self.OpcodeInfoList.Count - 1 - Ind;
+    if I >= 0 then
+      Result := Self.OpcodeInfoList.Ptr(I)
+    else
+      Result := nil;
+  end;
+
+  function PeekAtPrevOpExpected(const Ind: Integer; const Expected: TSEOpcodes): PSEOpcodeInfo; inline;
+  var
+    Op: TSEOpcode;
+  begin
+    Result := PeekAtPrevOp(Ind);
+    if Result <> nil then
+      for Op in Expected do
+        if Op = Result^.Op then
+          Exit;
+    Result := nil;
+  end;
+
   function CreateIdent(const Kind: TSEIdentKind; const Token: TSEToken; const IsUsed: Boolean; const IsConst: Boolean): TSEIdent; inline;
   begin
     if Kind = ikVariable then
@@ -6638,30 +6661,9 @@ var
       Op: TSEOpcode;
       V1, V2, V: TSEValue;
       OpInfoPrev1,
-      OpInfoPrev2: PSEOpcodeInfo;
-
-      function PeekAtPrevOp(const Ind: Integer): PSEOpcodeInfo; inline;
-      var
-        I: Integer;
-      begin
-        I := Self.OpcodeInfoList.Count - 1 - Ind;
-        if I >= 0 then
-          Result := Self.OpcodeInfoList.Ptr(I)
-        else
-          Result := nil;
-      end;
-
-      function PeekAtPrevOpExpected(const Ind: Integer; const Expected: TSEOpcodes): PSEOpcodeInfo; inline;
-      var
-        Op: TSEOpcode;
-      begin
-        Result := PeekAtPrevOp(Ind);
-        if Result <> nil then
-          for Op in Expected do
-            if Op = Result^.Op then
-              Exit;
-        Result := nil;
-      end;
+      OpInfoPrev2,
+      OpInfoPrev3,
+      OpInfoPrev4: PSEOpcodeInfo;
 
       function OpToOp1(const Op: TSEOpcode): TSEOpcode; inline;
       begin
@@ -6704,14 +6706,10 @@ var
           opOperatorMul,
           opOperatorDiv:
             begin
-              OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushGlobalVar]);
-              if OpInfoPrev1 = nil then
-                OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushLocalVar]);
+              OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushGlobalVar, opPushLocalVar]);
               if (OpInfoPrev1 <> nil) then
               begin
-                if OpInfoPrev1^.Binary <> Pointer(Self.Binary) then
-                  Exit;
-                if PeekAtPrevOpExpected(0, [opPushLocalVar]) <> nil then
+                if OpInfoPrev1^.Op = opPushLocalVar then
                   P := Self.Binary[OpInfoPrev1^.Pos + 2].VarPointer
                 else
                   P := Pointer($FFFFFFFF);
@@ -6740,21 +6738,17 @@ var
           opOperatorMul,
           opOperatorDiv:
             begin
-              OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushGlobalVar]);
-              if OpInfoPrev1 = nil then
-                OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushLocalVar]);
-              OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar]);
-              if OpInfoPrev2 = nil then
-                OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushLocalVar]);
+              OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushGlobalVar, opPushLocalVar]);
+              OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar, opPushLocalVar]);
               if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
               begin
                 if (OpInfoPrev1^.Binary <> Pointer(Self.Binary)) or (OpInfoPrev2^.Binary <> Pointer(Self.Binary)) then
                   Exit;
-                if PeekAtPrevOpExpected(0, [opPushLocalVar]) <> nil then
+                if OpInfoPrev1^.Op = opPushLocalVar then
                   PP:= Self.Binary[OpInfoPrev1^.Pos + 2].VarPointer
                 else
                   PP := Pointer($FFFFFFFF);
-                if PeekAtPrevOpExpected(1, [opPushLocalVar]) <> nil then
+                if OpInfoPrev2^.Op = opPushLocalVar then
                   P := Self.Binary[OpInfoPrev2^.Pos + 2].VarPointer
                 else
                   P := Pointer($FFFFFFFF);
@@ -6783,11 +6777,7 @@ var
           opOperatorSub:
             begin
               OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushConst]);
-              OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar]);
-              if OpInfoPrev2 = nil then
-                OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushLocalVar]);
-              if OpInfoPrev2 = nil then
-                OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushArrayPop]);
+              OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar, opPushLocalVar, opPushArrayPop]);
               if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
               begin
                 A := Self.Binary[OpInfoPrev1^.Pos + 1];
@@ -6805,10 +6795,8 @@ var
               begin
                 if Op <> opOperatorAdd then
                   Exit;
-                OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushGlobalVar]);
+                OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushGlobalVar, opPushLocalVar]);
                 OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushConst]);
-                if OpInfoPrev1 = nil then
-                  OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushLocalVar]);
                 // TODO: Handle opPushArrayPop
                 if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
                 begin
@@ -6826,11 +6814,7 @@ var
           opOperatorMul:
             begin
               OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushConst]);
-              OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar]);
-              if OpInfoPrev2 = nil then
-                OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushLocalVar]);
-              if OpInfoPrev2 = nil then
-                OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushArrayPop]);
+              OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar, opPushLocalVar, opPushArrayPop]);
               if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
               begin
                 A := Self.Binary[OpInfoPrev1^.Pos + 1];
@@ -6843,10 +6827,8 @@ var
                 PushConstCount := 0;
               end else
               begin
-                OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushGlobalVar]);
+                OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushGlobalVar, opPushLocalVar]);
                 OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushConst]);
-                if OpInfoPrev1 = nil then
-                  OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushLocalVar]);
                 if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
                 begin
                   A := Self.Binary[OpInfoPrev2^.Pos + 1];
@@ -6863,11 +6845,7 @@ var
           opOperatorDiv:
             begin
               OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushConst]);
-              OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar]);
-              if OpInfoPrev2 = nil then
-                OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushLocalVar]);
-              if OpInfoPrev2 = nil then
-                OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushArrayPop]);
+              OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar, opPushLocalVar, opPushArrayPop]);
               if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
               begin
                 A := Self.Binary[OpInfoPrev1^.Pos + 1];
