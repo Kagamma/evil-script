@@ -19,4 +19,6 @@ By default `import` feature (allows to import external functions from DLLs direc
 #### About compiler
 - The compiler itself is a one-pass compiler. It follows Niklaus Wirth’s design, completely skips AST generation and generates binary directly.
 - Due to the lack of AST, only constant folding and peephole optimizations are implemented.
-- The performance of its virtual machine should be better than CPython.
+
+![image](https://github.com/user-attachments/assets/78634137-9a8b-4a24-ab43-4f72dbe911c0)
+
