@@ -4169,13 +4169,15 @@ var
     end;
     case FuncImportInfo^.CallingConvention of
       seccAuto:
-        ffiAbi := ffi_abi({$ifdef WINDOWS}1{$else}2{$endif});
+        ffiAbi := FFI_DEFAULT_ABI;
       {$ifdef CPUI386}
       seccStdcall:
         ffiAbi := FFI_STDCALL;
       seccCdecl:
         ffiAbi := FFI_MS_CDECL;
       {$endif}
+      else
+        ffiAbi := FFI_DEFAULT_ABI;
     end;
     I := Integer(ffi_prep_cif(@ffiCif, ffiAbi, ArgCount, @ffiResultType, @ffiArgTypes[0]));
     if I <> Integer(FFI_OK) then
