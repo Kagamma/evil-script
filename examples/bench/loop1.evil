@@ -5,4 +5,5 @@ for i = 0 to 9999
   for j = 0 to 9999
     total += i * j
 
-writeln('\nTime: ', ticks() - t, 'ms')
+writeln('\nTime: ', ticks() - t, 'ms') 
+writeln('Total: ', total)

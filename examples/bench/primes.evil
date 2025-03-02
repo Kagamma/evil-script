@@ -1,18 +1,17 @@
 t = ticks()
 
-fn is_prime(n) {
+last_prime = 0
+
+for n = 3 to 1000000 {
+  is_prime = true
   for i = 2 to sqrt(n)
-    if n % i == 0
-      return (false)
-  return (true)
+    if n % i == 0 {
+      is_prime = false
+      break
+    }
+  if is_prime
+    last_prime = n
 }
-
-fn search_primes(start, end) {
-  for i = start to end
-    if is_prime(i)
-      write(i, ' ')
-}
-
-search_primes(3, 4096)
 
 writeln('\nTime: ', ticks() - t, 'ms')
+writeln('Last prime found: ', last_prime)

@@ -7,6 +7,6 @@ fn fib(n) {
     result = fib(n-1) + fib(n-2)
 }
 
-writeln(fib(36))
-
+f = fib(36)
 writeln('\nTime: ', ticks() - t, 'ms')
+writeln('Fib(36): ', f)

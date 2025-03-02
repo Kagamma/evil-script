@@ -1,23 +1,22 @@
 // Leibniz formula
-fn calc_pi(n) {
-  pi = 0
-  denom = 1
-  sgn = 1
 
-  for i = 0 to n - 1 {
-    pi += sgn * (1 / denom);
-    denom += 2;
-    sgn *= -1;
-  }
-
-  return (4 * pi)
-}
+t = ticks()
 
 const n = 100000000
-t = ticks()
-const pi = calc_pi(n)
+pi = 0
+denom = 1
+sgn = 1
+
+for i = 0 to n - 1 {
+  pi += sgn * (1 / denom);
+  denom += 2;
+  sgn *= -1;
+}
+
+pi = 4 * pi
+
 writeln('\nTime: ', ticks() - t, 'ms')
-writeln('Approximation of pi after ${n} iterations: ${pi}')
-writeln('Built-in pi: ${PI}')
-writeln('Difference: ${abs(PI - pi)}')
+writeln('Actual pi: ${PI}')
+writeln('Calculated pi: ${pi}')
+writeln('Error: ${abs(PI - pi)}')
 
