@@ -4276,7 +4276,7 @@ begin
         begin
           B := Pop;
           A := Pop;
-          Push(A^ - B^ * Int(TSENumber(A^ / B^)));
+          Push(A^.VarNumber - B^.VarNumber * Int(TSENumber(A^.VarNumber / B^.VarNumber)));
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
