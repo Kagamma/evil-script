@@ -29,7 +29,7 @@ unit ScriptEngine;
 {.$define SE_LOG}
 // enable this if you need json support
 {$define SE_HAS_JSON}
-// enable this if you want to include this incastle game engine's profiler report
+// enable this if you want to include this in castle game engine's profiler report
 {.$define SE_PROFILER}
 {$align 16}
 {$packenum 4}
@@ -366,6 +366,23 @@ type
     function Ptr(const P: Integer): PSEValue;
   end;
 
+  TSESymbolKind = (
+    sesConst
+  );
+
+  TSESymbol = record
+    Name: String;
+    Kind: TSESymbolKind;
+    Binary: Integer;
+    Code: Integer;
+  end;
+  PSESymbol = ^TSESymbol;
+  TSESymbolListAncestor = specialize TList<TSESymbol>;
+  TSESymbolList = class(TSESymbolListAncestor)
+  public
+    function Ptr(const P: Integer): PSESymbol;
+  end;
+
   TSELineOfCode = record
     BinaryCount: Integer;
     BinaryPtr: Integer;
@@ -417,6 +434,7 @@ type
     Parent: TEvilC;
     Binaries: array of TSEBinary;
     WaitTime: LongWord;
+    SymbolList: TSESymbolList;
 
     constructor Create;
     destructor Destroy; override;
@@ -434,6 +452,7 @@ type
     FuncScriptList: TSEFuncScriptList;
     FuncImportList: TSEFuncImportList;
     ConstStrings: TStringList;
+    SymbolList: TSESymbolList;
   end;
   TSECacheMapAncestor = specialize TDictionary<String, TSECache>;
   TSECacheMap = class(TSECacheMapAncestor)
@@ -478,6 +497,7 @@ type
     tkFunctionDecl,
     tkVariable,
     tkConst,
+    tkLocal,
     tkUnknown,
     tkElse,
     tkWhile,
@@ -509,7 +529,7 @@ const
   TokenNames: array[TSETokenKind] of String = (
     'EOF', '.', '+', '-', '*', 'div', 'mod', '^', '<<', '>>', 'operator assign', '=', '!=', '<',
     '>', '<=', '>=', '{', '}', ':', '(', ')', 'neg', 'number', 'string',
-    ',', 'if', 'switch', 'case', 'default', 'identity', 'function', 'fn', 'variable', 'const',
+    ',', 'if', 'switch', 'case', 'default', 'identity', 'function', 'fn', 'variable', 'const', 'local',
     'unknown', 'else', 'while', 'break', 'continue', 'yield',
     '[', ']', 'and', 'or', 'xor', 'not', 'for', 'in', 'to', 'downto', 'step', 'return',
     'atom', 'import', 'do', 'try', 'catch', 'throw'
@@ -680,6 +700,7 @@ type
     function FindFuncScript(const Name: String; var Ind: Integer): PSEFuncScriptInfo; inline;
     function FindFuncImport(const Name: String; var Ind: Integer): PSEFuncImportInfo; inline;
     function FindFunc(const Name: String; var Kind: TSEFuncKind; var Ind: Integer): Pointer; inline; overload;
+    procedure PatchSymbols;
 
     property IsPaused: Boolean read GetIsPaused write SetIsPaused;
     property Source: String read FSource write SetSource;
@@ -2750,6 +2771,11 @@ begin
   Result := @FItems[P];
 end;
 
+function TSESymbolList.Ptr(const P: Integer): PSESymbol; inline;
+begin
+  Result := @FItems[P];
+end;
+
 // ----- Fast inline TSEValue operations -----
 
 procedure SEValueAdd(out R: TSEValue; constref V1, V2: TSEValue); inline; overload;
@@ -3752,6 +3778,7 @@ begin
   Self.Binaries[0] := TSEBinary.Create;
   Self.ConstStrings := TStringList.Create;
   Self.ConstStrings.Capacity := 64;
+  Self.SymbolList := TSESymbolList.Create;
 end;
 
 destructor TSEVM.Destroy;
@@ -3763,6 +3790,7 @@ begin
   if VMList <> nil then
     VMList.Delete(VMList.IndexOf(Self));
   Self.ConstStrings.Free;
+  Self.SymbolList.Free;
   inherited;
 end;
 
@@ -6238,6 +6266,8 @@ begin
               Token.Kind := tkCase;
             'const':
               Token.Kind := tkConst;
+            'local':
+              Token.Kind := tkLocal;
             'default':
               Token.Kind := tkDefault;
             'continue':
@@ -6384,7 +6414,7 @@ var
       raise Exception.CreateFmt('[%s:%d:%d] %s', [Token.BelongedFileName, Token.Ln, Token.Col, S]);
   end;
 
-  function FindVar(const Name: String): PSEIdent; inline;
+  function FindVar(const Name: String; const IsSameLocal: Boolean = False): PSEIdent; inline;
   var
     I: Integer;
   begin
@@ -6392,9 +6422,21 @@ var
     begin
       Result := Self.VarList.Ptr(I);
       if Result^.Name = Name then
-        Exit(Result);
+        if (not IsSameLocal) or (IsSameLocal and (Result^.Local = Self.FuncTraversal)) then
+          Exit(Result);
     end;
     Exit(nil);
+  end;
+
+  procedure AddSymbol(Kind: TSESymbolKind; Name: String; Code: Integer);
+  var
+    Symbol: TSESymbol;
+  begin
+    Symbol.Binary := Self.BinaryPos;
+    Symbol.Code := Code;
+    Symbol.Kind := Kind;
+    Symbol.Name := Name;
+    Self.VM.SymbolList.Add(Symbol);
   end;
 
   function PeekAtNextToken: TSEToken; inline;
@@ -6641,9 +6683,9 @@ var
     Exit(Addr + I + 1);
   end;
 
-  function IdentifyIdent(const Ident: String): TSETokenKind; inline;
+  function IdentifyIdent(const Ident: String; const IsLocal: Boolean = False): TSETokenKind; inline;
   begin
-    if FindVar(Ident) <> nil then
+    if FindVar(Ident, IsLocal) <> nil then
       Exit(tkVariable);
     if FindFunc(Ident) <> nil then
       Exit(tkFunction);
@@ -6718,28 +6760,41 @@ var
     Size,
     I: Integer;
     P: Pointer;
-    VarBase, VarAddr: Pointer;
+    VarBase, VarAddr, VarBasePush, VarBaseAddr: Pointer;
     OpInfoPrev1,
-    OpInfoPrev2: PSEOpcodeInfo;
+    OpInfoPrev2,
+    OpInfoPrev3: PSEOpcodeInfo;
   begin
     Result := False;
     if not Self.OptimizePeephole then
       Exit;
-    OpInfoPrev1 := PeekAtPrevOpExpected(0, [opOperatorAdd0]);
-    OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar, opPushLocalVar]);
-    if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
+    OpInfoPrev1 := PeekAtPrevOpExpected(0, [opAssignGlobalVar, opAssignLocalVar]);
+    OpInfoPrev2 := PeekAtPrevOpExpected(1, [opOperatorAdd0]);
+    OpInfoPrev3 := PeekAtPrevOpExpected(2, [opPushGlobalVar, opPushLocalVar]);
+    if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) and (OpInfoPrev3 <> nil) then
     begin
-      A := Self.Binary[OpInfoPrev1^.Pos + 1];
-      if OpInfoPrev1^.Op = opOperatorSub then
-        A := -A;
-      VarBase := Self.Binary[OpInfoPrev2^.Pos + 1];
-      if OpInfoPrev2^.Op = opPushLocalVar then
-        VarAddr := Self.Binary[OpInfoPrev2^.Pos + 2]
+      VarBase := Self.Binary[OpInfoPrev1^.Pos + 1];
+      VarBasePush := Self.Binary[OpInfoPrev3^.Pos + 1];
+      if VarBasePush <> VarBase then
+        Exit;
+
+      if OpInfoPrev1^.Op = opAssignLocalVar then
+        VarAddr := Self.Binary[OpInfoPrev1^.Pos + 2]
       else
         VarAddr := Pointer($FFFFFFFF);
-      Size := OpInfoPrev1^.Size + OpInfoPrev2^.Size;
+      if OpInfoPrev3^.Op = opPushLocalVar then
+        VarBaseAddr := Self.Binary[OpInfoPrev3^.Pos + 2]
+      else
+        VarBaseAddr := Pointer($FFFFFFFF);
+      if VarBaseAddr <> VarAddr then
+        Exit;
+
+      A := Self.Binary[OpInfoPrev2^.Pos + 1];
+      if OpInfoPrev2^.Op = opOperatorSub then
+        A := -A;
+      Size := OpInfoPrev1^.Size + OpInfoPrev2^.Size + OpInfoPrev3^.Size;;
       Self.Binary.DeleteRange(Self.Binary.Count - Size, Size);
-      Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 2);
+      Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 3, 3);
       Emit([Pointer(opOperatorInc), VarBase, VarAddr, A]);
       Result := True;
     end;
@@ -7281,6 +7336,7 @@ var
                 begin
                   NextToken;
                   EmitExpr([Pointer(opPushConst), Self.ConstMap[Token.Value]]);
+                  AddSymbol(sesConst, Token.Value, Self.Binary.Count - 1);
                 end;
               tkFunction:
                 begin
@@ -8401,8 +8457,10 @@ var
           if ArgCount > 0 then
             EmitAssignArray(Ident^, ArgCount)
           else
-            if not PeepholeIncOptimization then
-              EmitAssignVar(Ident^);
+          begin
+            EmitAssignVar(Ident^);
+            PeepholeIncOptimization;
+          end;
         end;
       tkBracketOpen:
         begin
@@ -8457,13 +8515,13 @@ var
     Emit([Pointer(opThrow)]);
   end;
 
-  procedure ParseIdent(const Token: TSEToken; const IsConst: Boolean);
+  procedure ParseIdent(const Token: TSEToken; const IsConst, IsLocal: Boolean);
   var
     OpCountBefore,
     OpCountAfter: Integer;
     Ident: TSEIdent;
   begin
-    case IdentifyIdent(Token.Value) of
+    case IdentifyIdent(Token.Value, IsLocal) of
       tkUnknown:
         begin
           NextToken;
@@ -8515,6 +8573,7 @@ var
 
   procedure ParseBlock(const IsCase: Boolean = False);
   var
+    IsConst: Boolean = False;
     Token: TSEToken;
     Ident: TSEIdent;
     List: TList;
@@ -8526,7 +8585,18 @@ var
         begin
           NextToken;
           Token := PeekAtNextTokenExpected([tkIdent]);
-          ParseIdent(Token, True);
+          ParseIdent(Token, True, False);
+        end;
+      tkLocal:
+        begin
+          NextToken;
+          if PeekAtNextToken.Kind = tkConst then
+          begin
+            IsConst := True;
+            NextToken;
+          end;
+          Token := PeekAtNextTokenExpected([tkIdent]);
+          ParseIdent(Token, IsConst, True);
         end;
       tkIf:
         begin
@@ -8654,7 +8724,7 @@ var
         end;
       tkIdent:
         begin
-          ParseIdent(Token, False);
+          ParseIdent(Token, False, False);
         end;
       tkImport:
         begin
@@ -8961,6 +9031,7 @@ begin
   Result.FuncImportList := TSEFuncImportList.Create;
   Result.GlobalVarSymbols := TStringList.Create;
   Result.ConstStrings := TStringList.Create;
+  Result.SymbolList := TSESymbolList.Create;
   SetLength(Result.Binaries, Length(Self.VM.Binaries));
   for J := 0 to High(Self.VM.Binaries) do
   begin
@@ -8987,6 +9058,10 @@ begin
   begin
     Result.FuncImportList.Add(Self.FuncImportList[I]);
   end;
+  for I := 0 to Self.VM.SymbolList.Count - 1 do
+  begin
+    Result.SymbolList.Add(Self.VM.SymbolList[I]);
+  end;
   Result.GlobalVarSymbols.Assign(Self.GlobalVarSymbols);
   Result.GlobalVarCount := Self.GlobalVarCount;
   Result.ConstStrings.Assign(Self.VM.ConstStrings);
@@ -8999,6 +9074,7 @@ var
   FuncScriptInfo: TSEFuncScriptInfo;
 begin
   Self.VM.BinaryClear;
+  Self.VM.SymbolList.Clear;
   Self.LineOfCodeList.Clear;
   Self.GlobalVarSymbols.Clear;
   for I := 0 to Cache.LineOfCodeList.Count - 1 do
@@ -9021,10 +9097,31 @@ begin
   end;
   for I := 0 to Cache.FuncImportList.Count - 1 do
     Self.FuncImportList.Add(Cache.FuncImportList[I]);
+  for I := 0 to Cache.SymbolList.Count - 1 do
+    Self.VM.SymbolList.Add(Cache.SymbolList[I]);
   Self.GlobalVarSymbols.Assign(Cache.GlobalVarSymbols);
   Self.GlobalVarCount := Cache.GlobalVarCount;
   Self.VM.ConstStrings.Assign(Cache.ConstStrings);
   Self.IsParsed := True;
+end;
+
+procedure TEvilC.PatchSymbols;
+var
+  I: Integer;
+  P: PSESymbol;
+  Bin: TSEBinary;
+begin
+  for I := 0 to Self.VM.SymbolList - 1 do
+  begin
+    P := Self.VM.SymbolList.Ptr(I);
+    case P^.Kind of
+      sesConst:
+        begin
+          Bin := Self.VM.Binaries[P^.Binary];
+          Bin[P^.Code] := Self.ConstMap[P^.Name];
+        end;
+    end;
+  end;
 end;
 
 procedure TSECacheMap.ClearSingle(const AName: String);
@@ -9043,6 +9140,7 @@ begin
     Cache.FuncImportList.Free;
     Cache.GlobalVarSymbols.Free;
     Cache.ConstStrings.Free;
+    Cache.SymbolList.Free;
     Self.Remove(AName);
   except
   end;
@@ -9064,6 +9162,7 @@ begin
     Cache.FuncImportList.Free;
     Cache.GlobalVarSymbols.Free;
     Cache.ConstStrings.Free;
+    Cache.SymbolList.Free;
   end;
   inherited;
 end;
