@@ -21,5 +21,6 @@ By default `import` feature (allows to import external functions from DLLs direc
 - Due to the lack of AST, only constant folding and peephole optimizations are implemented.
 - The virtual machine is stack-based, with super instructions to speed up certain operations.
 
-![image](https://github.com/user-attachments/assets/78634137-9a8b-4a24-ab43-4f72dbe911c0)
+![image](https://github.com/user-attachments/assets/2aca63ae-bbd8-4746-b26e-d33038db419c)
+
 
