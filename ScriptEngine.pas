@@ -780,7 +780,7 @@ uses
   Math, Strings;
 
 const
-  SE_REG_GLOBAL = $0;
+  SE_REG_GLOBAL = $FFFFFFFF;
 
 type
   TBuiltInFunction = class
@@ -6343,6 +6343,14 @@ var
     Exit(tkUnknown);
   end;
 
+  function GetIdentLocalValue(const Ident: TSEIdent): Pointer;
+  begin
+    if Ident.Local = 0 then
+      Result := Pointer(SE_REG_GLOBAL)
+    else
+      Result := Pointer(Ident.Local - 1);
+  end;
+
   procedure ParseFuncCall(const Name: String); forward;
   procedure ParseFuncRefCallByRewind(const RewindStartAdd: Integer; const ThisRefIdent: PSEIdent = nil); forward;
   procedure ParseFuncRefCallByName(const Name: String); forward;
@@ -7836,11 +7844,11 @@ var
         //EmitPushVar(VarHiddenTargetIdent);
         if Token.Kind = tkTo then
         begin
-          JumpEnd := Emit([Pointer(opJumpEqualOrGreater), Pointer(VarIdent.Addr), Pointer(VarIdent.Local), Pointer(VarHiddenTargetIdent.Addr), Pointer(VarHiddenTargetIdent.Local), Pointer(0)]);
+          JumpEnd := Emit([Pointer(opJumpEqualOrGreater), Pointer(VarIdent.Addr), GetIdentLocalValue(VarIdent), Pointer(VarHiddenTargetIdent.Addr), GetIdentLocalValue(VarHiddenTargetIdent), Pointer(0)]);
         end else
         if Token.Kind = tkDownto then
         begin
-          JumpEnd := Emit([Pointer(opJumpEqualOrLesser), Pointer(VarIdent.Addr), Pointer(VarIdent.Local), Pointer(VarHiddenTargetIdent.Addr), Pointer(VarHiddenTargetIdent.Local), Pointer(0)]);
+          JumpEnd := Emit([Pointer(opJumpEqualOrLesser), Pointer(VarIdent.Addr), GetIdentLocalValue(VarIdent), Pointer(VarHiddenTargetIdent.Addr), GetIdentLocalValue(VarHiddenTargetIdent), Pointer(0)]);
         end;
 
         ParseBlock;
@@ -7878,7 +7886,7 @@ var
         StartBlock := Self.Binary.Count;
         //EmitPushVar(VarHiddenTargetIdent);
         //EmitPushVar(VarHiddenCountIdent);
-        JumpEnd := Emit([Pointer(opJumpEqualOrLesser), Pointer(VarHiddenTargetIdent.Addr), Pointer(VarHiddenTargetIdent.Local), Pointer(VarHiddenCountIdent.Addr), Pointer(VarHiddenCountIdent.Local), Pointer(0)]);
+        JumpEnd := Emit([Pointer(opJumpEqualOrLesser), Pointer(VarHiddenTargetIdent.Addr), GetIdentLocalValue(VarHiddenTargetIdent), Pointer(VarHiddenCountIdent.Addr), GetIdentLocalValue(VarHiddenCountIdent), Pointer(0)]);
 
         EmitPushVar(VarHiddenArrayIdent);
         EmitPushVar(VarHiddenCountIdent);
