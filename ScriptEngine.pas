@@ -6448,7 +6448,7 @@ var
       opOperatorSub:
         begin
           OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushConst]);
-          OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar, opPushLocalVar, opPushArrayPop]);
+          OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar, opPushLocalVar, opPushArrayPop, opCallScript, opCallNative, opCallImport]);
           if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
           begin
             A := Self.Binary[OpInfoPrev1^.Pos + 1];
@@ -6483,7 +6483,7 @@ var
       opOperatorMul:
         begin
           OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushConst]);
-          OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar, opPushLocalVar, opPushArrayPop]);
+          OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar, opPushLocalVar, opPushArrayPop, opCallScript, opCallNative, opCallImport]);
           if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
           begin
             A := Self.Binary[OpInfoPrev1^.Pos + 1];
@@ -6512,7 +6512,7 @@ var
       opOperatorDiv:
         begin
           OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushConst]);
-          OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar, opPushLocalVar, opPushArrayPop]);
+          OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar, opPushLocalVar, opPushArrayPop, opCallScript, opCallNative, opCallImport]);
           if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
           begin
             A := Self.Binary[OpInfoPrev1^.Pos + 1];
