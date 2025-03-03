@@ -22,6 +22,7 @@ By default `import` feature (allows to import external functions from DLLs direc
 - The virtual machine is stack-based, with super instructions to speed up certain operations.
 
 ![image](https://github.com/user-attachments/assets/1b7ca45f-43c6-44fc-9fbc-9850d07c4637)
+Well there's no super instruction for modulo so `primes` slower than python (local vars) is kinda expected :)
 
 
 
