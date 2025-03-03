@@ -1,6 +1,6 @@
 import time
-import math 
-        
+import math
+
 start = time.time()
 
 last_prime = 0
@@ -12,5 +12,5 @@ for n in range(3, 1000000):
   else:
     last_prime = n
 
-print("Time: ", time.time() - start, "s")  
+print("Time: ", time.time() - start, "s")
 print("Last prime found: ", last_prime)
