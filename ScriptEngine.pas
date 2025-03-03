@@ -6345,10 +6345,10 @@ var
 
   function GetIdentLocalValue(const Ident: TSEIdent): Pointer;
   begin
-    if Ident.Local = 0 then
+    if Ident.Local <= 0 then
       Result := Pointer(SE_REG_GLOBAL)
     else
-      Result := Pointer(Ident.Local - 1);
+      Result := Pointer(Self.FuncTraversal - Ident.Local);
   end;
 
   procedure ParseFuncCall(const Name: String); forward;
