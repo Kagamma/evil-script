@@ -6448,7 +6448,13 @@ var
       opOperatorSub:
         begin
           OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushConst]);
-          OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar, opPushLocalVar, opPushArrayPop, opCallScript, opCallNative, opCallImport]);
+          OpInfoPrev2 := PeekAtPrevOpExpected(1, [
+            opPushGlobalVar, opPushLocalVar, opPushArrayPop,
+            opOperatorAdd0, opOperatorMul0, opOperatorDiv0,
+            opOperatorAdd1, opOperatorSub1, opOperatorMul1, opOperatorDiv1,
+            opOperatorAdd2, opOperatorSub2, opOperatorMul2, opOperatorDiv2,
+            opCallScript, opCallNative, opCallImport
+          ]);
           if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
           begin
             A := Self.Binary[OpInfoPrev1^.Pos + 1];
@@ -6483,7 +6489,13 @@ var
       opOperatorMul:
         begin
           OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushConst]);
-          OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar, opPushLocalVar, opPushArrayPop, opCallScript, opCallNative, opCallImport]);
+          OpInfoPrev2 := PeekAtPrevOpExpected(1, [
+            opPushGlobalVar, opPushLocalVar, opPushArrayPop,
+            opOperatorAdd0, opOperatorMul0, opOperatorDiv0,
+            opOperatorAdd1, opOperatorSub1, opOperatorMul1, opOperatorDiv1,
+            opOperatorAdd2, opOperatorSub2, opOperatorMul2, opOperatorDiv2,
+            opCallScript, opCallNative, opCallImport
+          ]);
           if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
           begin
             A := Self.Binary[OpInfoPrev1^.Pos + 1];
@@ -6512,7 +6524,13 @@ var
       opOperatorDiv:
         begin
           OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushConst]);
-          OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar, opPushLocalVar, opPushArrayPop, opCallScript, opCallNative, opCallImport]);
+          OpInfoPrev2 := PeekAtPrevOpExpected(1, [
+            opPushGlobalVar, opPushLocalVar,
+            opOperatorAdd0, opOperatorMul0, opOperatorDiv0,
+            opOperatorAdd1, opOperatorSub1, opOperatorMul1, opOperatorDiv1,
+            opOperatorAdd2, opOperatorSub2, opOperatorMul2, opOperatorDiv2,
+            opPushArrayPop, opCallScript, opCallNative, opCallImport
+          ]);
           if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
           begin
             A := Self.Binary[OpInfoPrev1^.Pos + 1];
@@ -6603,6 +6621,37 @@ var
           end;
         end;
     end;
+  end;
+
+  function PeepholeOpXOptimization(Op: TSEOpcode): Boolean;
+  var
+    IsOptimized: Boolean;
+  begin
+    Result := False;
+    repeat
+      IsOptimized := False;
+      IsOptimized := PeepholeOp0Optimization(Op);
+      if IsOptimized then
+      begin
+        Result := True;
+        Op := PeekAtPrevOp(0)^.Op;
+        continue;
+      end;
+      IsOptimized := PeepholeOp2Optimization(Op);
+      if IsOptimized then
+      begin
+        Result := True;
+        Op := PeekAtPrevOp(0)^.Op;
+        continue;
+      end;
+      IsOptimized := PeepholeOp1Optimization(Op);
+      if IsOptimized then
+      begin
+        Result := True;
+        Op := PeekAtPrevOp(0)^.Op;
+        continue;
+      end;
+    until not IsOptimized;
   end;
 
   procedure ParseExpr;
@@ -6791,7 +6840,7 @@ var
           Emit(Data);
           Inc(PushConstCount)
         end else
-        if (PeepholeOp0Optimization(Op) or PeepholeOp2Optimization(Op) or PeepholeOp1Optimization(Op)) then
+        if (PeepholeOp0Optimization(Op) or PeepholeOpXOptimization(Op)) then
           PushConstCount := 0
         else
         if Self.OptimizeConstantFolding and (ConstantFoldingNumberOptimization or ConstantFoldingStringOptimization) then
@@ -8073,16 +8122,16 @@ var
           begin
             case Token.Value of
               '+':
-                if not (PeepholeOp0Optimization(opOperatorAdd) or PeepholeOp2Optimization(opOperatorAdd) or PeepholeOp1Optimization(opOperatorAdd)) then
+                if not PeepholeOpXOptimization(opOperatorAdd) then
                   Emit([Pointer(opOperatorAdd)]);
               '-':
-                if not (PeepholeOp0Optimization(opOperatorSub) or PeepholeOp2Optimization(opOperatorSub) or PeepholeOp1Optimization(opOperatorSub)) then
+                if not PeepholeOpXOptimization(opOperatorSub) then
                   Emit([Pointer(opOperatorSub)]);
               '*':
-                if not (PeepholeOp0Optimization(opOperatorMul) or PeepholeOp2Optimization(opOperatorMul) or PeepholeOp1Optimization(opOperatorMul)) then
+                if not PeepholeOpXOptimization(opOperatorMul) then
                   Emit([Pointer(opOperatorMul)]);
               '/':
-                if not (PeepholeOp0Optimization(opOperatorDiv) or PeepholeOp2Optimization(opOperatorDiv) or PeepholeOp1Optimization(opOperatorDiv)) then
+                if not PeepholeOpXOptimization(opOperatorDiv) then
                   Emit([Pointer(opOperatorDiv)]);
             end;
           end;
