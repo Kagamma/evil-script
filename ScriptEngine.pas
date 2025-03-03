@@ -554,8 +554,8 @@ const
     4, // opAssignLocalArray,
     2, // opJumpEqual,
     2, // opJumpUnconditional,
-    2, // opJumpEqualOrGreater,
-    2, // opJumpEqualOrLesser,
+    6, // opJumpEqualOrGreater,
+    6, // opJumpEqualOrLesser,
 
     4, // opOperatorInc,
 
@@ -778,6 +778,9 @@ implementation
 
 uses
   Math, Strings;
+
+const
+  SE_REG_GLOBAL = $0;
 
 type
   TBuiltInFunction = class
@@ -3980,7 +3983,7 @@ var
 
   function GetVariable(const I: Pointer; const F: Pointer): PSEValue; inline;
   begin
-    if F = Pointer($FFFFFFFF) then
+    if F = Pointer(SE_REG_GLOBAL) then
       Exit(@Self.Global[Integer(I)])
     else
       Exit((Self.FramePtr - Integer(F))^.Stack + Integer(I));
@@ -3988,7 +3991,7 @@ var
 
   procedure SetVariable(const I: Pointer; const F: Pointer; const Value: PSEValue); inline;
   begin
-    if F = Pointer($FFFFFFFF) then
+    if F = Pointer(SE_REG_GLOBAL) then
       Self.Global[Integer(I)] := Value^
     else
       ((Self.FramePtr - Integer(F))^.Stack + Integer(I))^ := Value^;
@@ -4746,22 +4749,22 @@ begin
         end;
       {$ifdef SE_COMPUTED_GOTO}labelJumpEqualOrGreater{$else}opJumpEqualOrGreater{$endif}:
         begin
-          B := Pop;
-          A := Pop;
+          B := GetVariable(BinaryLocal[CodePtrLocal + 3].VarPointer, BinaryLocal[CodePtrLocal + 4].VarPointer);
+          A := GetVariable(BinaryLocal[CodePtrLocal + 1].VarPointer, BinaryLocal[CodePtrLocal + 2].VarPointer);
           if SEValueGreaterOrEqual(A^, B^) then
-            CodePtrLocal := Integer(BinaryLocal[CodePtrLocal + 1].VarPointer)
+            CodePtrLocal := Integer(BinaryLocal[CodePtrLocal + 5].VarPointer)
           else
-            Inc(CodePtrLocal, 2);
+            Inc(CodePtrLocal, 6);
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelJumpEqualOrLesser{$else}opJumpEqualOrLesser{$endif}:
         begin
-          B := Pop;
-          A := Pop;
+          B := GetVariable(BinaryLocal[CodePtrLocal + 3].VarPointer, BinaryLocal[CodePtrLocal + 4].VarPointer);
+          A := GetVariable(BinaryLocal[CodePtrLocal + 1].VarPointer, BinaryLocal[CodePtrLocal + 2].VarPointer);
           if SEValueLesserOrEqual(A^, B^) then
-            CodePtrLocal := Integer(BinaryLocal[CodePtrLocal + 1].VarPointer)
+            CodePtrLocal := Integer(BinaryLocal[CodePtrLocal + 5].VarPointer)
           else
-            Inc(CodePtrLocal, 2);
+            Inc(CodePtrLocal, 6);
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelCallRef{$else}opCallRef{$endif}:
@@ -6286,7 +6289,7 @@ var
     if Ident.Local > 0 then
       Result := Pointer(Self.FuncTraversal - Ident.Local)
     else
-      Result := Pointer($FFFFFFFF);
+      Result := Pointer(SE_REG_GLOBAL);
   end;
 
   function EmitPushVar(const Ident: TSEIdent): Integer; inline;
@@ -6427,11 +6430,11 @@ var
       if OpInfoPrev1^.Op = opAssignLocalVar then
         VarAddr := Self.Binary[OpInfoPrev1^.Pos + 2]
       else
-        VarAddr := Pointer($FFFFFFFF);
+        VarAddr := Pointer(SE_REG_GLOBAL);
       if OpInfoPrev3^.Op = opPushLocalVar then
         VarBaseAddr := Self.Binary[OpInfoPrev3^.Pos + 2]
       else
-        VarBaseAddr := Pointer($FFFFFFFF);
+        VarBaseAddr := Pointer(SE_REG_GLOBAL);
       if VarBaseAddr <> VarAddr then
         Exit;
 
@@ -6582,7 +6585,7 @@ var
             if OpInfoPrev1^.Op = opPushLocalVar then
               P := Self.Binary[OpInfoPrev1^.Pos + 2].VarPointer
             else
-              P := Pointer($FFFFFFFF);
+              P := Pointer(SE_REG_GLOBAL);
             A := Self.Binary[OpInfoPrev1^.Pos + 1];
             Op := OpToOp1(Op);
             Self.Binary.DeleteRange(Self.Binary.Count - OpInfoPrev1^.Size, OpInfoPrev1^.Size);
@@ -6620,11 +6623,11 @@ var
             if OpInfoPrev1^.Op = opPushLocalVar then
               PP:= Self.Binary[OpInfoPrev1^.Pos + 2].VarPointer
             else
-              PP := Pointer($FFFFFFFF);
+              PP := Pointer(SE_REG_GLOBAL);
             if OpInfoPrev2^.Op = opPushLocalVar then
               P := Self.Binary[OpInfoPrev2^.Pos + 2].VarPointer
             else
-              P := Pointer($FFFFFFFF);
+              P := Pointer(SE_REG_GLOBAL);
             B := Self.Binary[OpInfoPrev1^.Pos + 1];
             A := Self.Binary[OpInfoPrev2^.Pos + 1];
             Op := OpToOp2(Op);
@@ -7829,15 +7832,15 @@ var
         EmitAssignVar(VarHiddenTargetIdent);
 
         StartBlock := Self.Binary.Count;
-        EmitPushVar(VarIdent);
-        EmitPushVar(VarHiddenTargetIdent);
+        //EmitPushVar(VarIdent);
+        //EmitPushVar(VarHiddenTargetIdent);
         if Token.Kind = tkTo then
         begin
-          JumpEnd := Emit([Pointer(opJumpEqualOrGreater), Pointer(0)]);
+          JumpEnd := Emit([Pointer(opJumpEqualOrGreater), Pointer(VarIdent.Addr), Pointer(VarIdent.Local), Pointer(VarHiddenTargetIdent.Addr), Pointer(VarHiddenTargetIdent.Local), Pointer(0)]);
         end else
         if Token.Kind = tkDownto then
         begin
-          JumpEnd := Emit([Pointer(opJumpEqualOrLesser), Pointer(0)]);
+          JumpEnd := Emit([Pointer(opJumpEqualOrLesser), Pointer(VarIdent.Addr), Pointer(VarIdent.Local), Pointer(VarHiddenTargetIdent.Addr), Pointer(VarHiddenTargetIdent.Local), Pointer(0)]);
         end;
 
         ParseBlock;
@@ -7873,9 +7876,9 @@ var
         EmitAssignVar(VarHiddenTargetIdent);
 
         StartBlock := Self.Binary.Count;
-        EmitPushVar(VarHiddenTargetIdent);
-        EmitPushVar(VarHiddenCountIdent);
-        JumpEnd := Emit([Pointer(opJumpEqualOrLesser), Pointer(0)]);
+        //EmitPushVar(VarHiddenTargetIdent);
+        //EmitPushVar(VarHiddenCountIdent);
+        JumpEnd := Emit([Pointer(opJumpEqualOrLesser), Pointer(VarHiddenTargetIdent.Addr), Pointer(VarHiddenTargetIdent.Local), Pointer(VarHiddenCountIdent.Addr), Pointer(VarHiddenCountIdent.Local), Pointer(0)]);
 
         EmitPushVar(VarHiddenArrayIdent);
         EmitPushVar(VarHiddenCountIdent);
