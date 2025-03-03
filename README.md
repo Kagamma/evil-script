@@ -21,7 +21,7 @@ By default `import` feature (allows to import external functions from DLLs direc
 - Due to the lack of AST, only constant folding and peephole optimizations are implemented.
 - The virtual machine is stack-based, with super instructions to speed up certain operations.
 
-![image](https://github.com/user-attachments/assets/7bf21171-6344-436f-8afc-02756a82ae1d)
+![image](https://github.com/user-attachments/assets/57163232-2beb-4508-a60d-17ab4762cee1)
 
 Well there's no super instruction for modulo so `primes` is slightly slower than python (local vars) is kinda expected :)
 
