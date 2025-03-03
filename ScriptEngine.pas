@@ -4444,7 +4444,10 @@ begin
         begin
           B := Pop;
           A := Pop;
-          SEValueAdd(StackPtrLocal^, A^, B^);
+          if A^.Kind = sevkNumber then
+            StackPtrLocal^.VarNumber := A^.VarNumber + B^.VarNumber
+          else
+            SEValueAdd(StackPtrLocal^, A^, B^);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -4453,7 +4456,10 @@ begin
         begin
           B := Pop;
           A := Pop;
-          SEValueSub(StackPtrLocal^, A^, B^);
+          if A^.Kind = sevkNumber then
+            StackPtrLocal^.VarNumber := A^.VarNumber - B^.VarNumber
+          else
+            SEValueSub(StackPtrLocal^, A^, B^);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -4601,7 +4607,10 @@ begin
           A := Pop;
           P := BinaryLocal[CodePtrLocal + 2].VarPointer;
           B := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
-          SEValueAdd(StackPtrLocal^, A^, B^);
+          if A^.Kind = sevkNumber then
+            StackPtrLocal^.VarNumber := A^.VarNumber + B^.VarNumber
+          else
+            SEValueAdd(StackPtrLocal^, A^, B^);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal, 3);
           DispatchGoto;
@@ -4611,7 +4620,10 @@ begin
           A := Pop;
           P := BinaryLocal[CodePtrLocal + 2].VarPointer;
           B := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
-          SEValueSub(StackPtrLocal^, A^, B^);
+          if A^.Kind = sevkNumber then
+            StackPtrLocal^.VarNumber := A^.VarNumber - B^.VarNumber
+          else
+            SEValueSub(StackPtrLocal^, A^, B^);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal, 3);
           DispatchGoto;
@@ -4642,7 +4654,10 @@ begin
           PP := BinaryLocal[CodePtrLocal + 4].VarPointer;
           A := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
           B := GetVariable(BinaryLocal[CodePtrLocal + 2], PP);
-          SEValueAdd(StackPtrLocal^, A^, B^);
+          if A^.Kind = sevkNumber then
+            StackPtrLocal^.VarNumber := A^.VarNumber + B^.VarNumber
+          else
+            SEValueAdd(StackPtrLocal^, A^, B^);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal, 5);
           DispatchGoto;
@@ -4653,7 +4668,10 @@ begin
           PP := BinaryLocal[CodePtrLocal + 4].VarPointer;
           A := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
           B := GetVariable(BinaryLocal[CodePtrLocal + 2], PP);
-          SEValueSub(StackPtrLocal^, A^, B^);
+          if A^.Kind = sevkNumber then
+            StackPtrLocal^.VarNumber := A^.VarNumber - B^.VarNumber
+          else
+            SEValueSub(StackPtrLocal^, A^, B^);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal, 5);
           DispatchGoto;
