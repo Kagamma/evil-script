@@ -1,0 +1,15 @@
+let ta = DateTime.now();
+
+fastfunction fib(n) {
+  if (n < 2)
+    return n;
+  else
+    return fib(n-1) + fib(n-2);
+}
+
+let f = fib(36);
+
+let tb = DateTime.now();
+
+puts("\nTime: ", Math.round(DateTime.milliseconds(tb - ta)), "ms");
+puts("Fib(36): ", f);

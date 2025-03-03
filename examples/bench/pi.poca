@@ -1,0 +1,22 @@
+// Leibniz formula
+
+let ta = DateTime.now();
+
+const n = 100000000;
+let pi = 0;
+let denom = 1;
+let sgn = 1;
+
+for (let i = 0; i < n; i++) {
+  pi += sgn * (1 / denom);
+  denom += 2;
+  sgn *= -1;
+}
+
+pi = 4 * pi;
+
+let tb = DateTime.now();
+
+puts("\nTime: ", Math.round(DateTime.milliseconds(tb - ta)), "ms");
+puts("Calculated pi: ", pi);
+

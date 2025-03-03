@@ -1,0 +1,20 @@
+let ta = DateTime.now();
+
+let last_prime = 0;
+
+for (let n = 3; n < 1000000; n++) {
+  let is_prime = true;
+  for (let i = 2; i < Math.sqrt(n); i++) {
+    if (n % i == 0) {
+      is_prime = false;
+      break;
+    }
+  }
+  if (is_prime)
+    last_prime = n;
+}
+
+let tb = DateTime.now();
+
+puts("\nTime: ", Math.round(DateTime.milliseconds(tb - ta)), "ms");
+puts("Last prime found: ", last_prime);
