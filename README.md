@@ -20,8 +20,8 @@ By default `import` feature (allows to import external functions from DLLs direc
 - The compiler itself is a one-pass compiler. It follows Niklaus Wirth’s design, completely skips AST generation and generates binary directly.
 - Due to the lack of AST, only constant folding and peephole optimizations are implemented.
 - The virtual machine is stack-based, with super instructions to speed up certain operations.
-
-![image](https://github.com/user-attachments/assets/d5c7190e-babe-4ca4-845d-de63e3a05a46)
+- 
+![image](https://github.com/user-attachments/assets/de9a7711-c977-4ae7-81fe-7b82e3cf7092)
 
 poca: https://github.com/BeRo1985/poca
 
