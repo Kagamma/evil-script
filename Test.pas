@@ -15,6 +15,7 @@ const
   ArrayTest = 'a = [] i = 0 while i < 2 { a[i] = 1 + i * 2 i = i + 1 } a[2] = ''text'' writeln(a[0], '' '', a[1], '' '', a[2])';
   CustomFunctionTest = 'writeln(hello(''Satania''))';
   CustomFunctionWithSelfTest = 'a = [ func: add, value: 1 ] writeln(a.func(3).value)';
+  ReturnAnotherNativeFunction = 'f = return_another_native_function() writeln(f())';
   YieldTest = 'i = 0 while i < 3 { i = i + 1 yield }';
   FibTest = 'fn fib(n) { if n < 2 result = n else result = fib(n-1) + fib(n-2) } writeln(fib(36))';
   AssertTest = 'assert(false, "Assert triggered")';
@@ -25,6 +26,8 @@ type
   public
     class function Hello(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function Add(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: TSEValue): TSEValue;
+    class function ReturnAnotherNativeFunction(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function ReturnMe(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
   end;
 
 class function TCustomFunctions.Hello(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -40,6 +43,26 @@ begin
   V := V + Args[0];
   This.SetValue('value', V); // Set new data to "value" property
   Exit(This);
+end;
+
+class function TCustomFunctions.ReturnAnotherNativeFunction(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+var
+  Ind: Integer;
+begin
+  if VM.Parent.FindFuncNative('return_me', Ind) <> nil then
+  begin
+    Result.Kind := sevkFunction;
+    Result.VarFuncKind := sefkNative;
+    Result.VarFuncIndx := Ind;
+  end else
+  begin
+    Result := SENull;
+  end;
+end;
+
+class function TCustomFunctions.ReturnMe(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+begin
+  Exit('You called ReturnMe()!');
 end;
 
 var
@@ -111,6 +134,15 @@ begin
   SE.Exec;
 end;
 
+procedure ReturnAnotherNativeFunctionTestRun;
+begin
+  Writeln('--- ReturnAnotherNativeFunction ---');
+  SE.RegisterFunc('return_another_native_function', @TCustomFunctions(nil).ReturnAnotherNativeFunction, 0);
+  SE.RegisterFunc('return_me', @TCustomFunctions(nil).ReturnMe, 0);
+  SE.Source := ReturnAnotherNativeFunction;
+  SE.Exec;
+end;
+
 procedure YieldTestRun;
 begin
   Writeln('--- YieldTestRun ---');
@@ -161,11 +193,12 @@ begin
   HelloWorldRun;
   IfTestRun;
   StringTestRun;
-  PerformanceWhileTestRun;   
+  PerformanceWhileTestRun;
   PerformanceForTestRun;
   ArrayTestRun;
   CustomFunctionTestRun;
   CustomFunctionWithSelfTestRun;
+  ReturnAnotherNativeFunctionTestRun;
   YieldTestRun;
   FibTestRun;
   AssertTestRun;
