@@ -61,6 +61,7 @@ type
     opPushConstString,
     opPushGlobalVar,
     opPushLocalVar,
+    opPushVar2,
     opPushArrayPop,
     opPopConst,
     opPopFrame,
@@ -546,6 +547,7 @@ const
     2, // opPushConstString,
     2, // opPushGlobalVar,
     3, // opPushLocalVar,
+    5, // opPushVar2,
     2, // opPushArrayPop,
     1, // opPopConst,
     1, // opPopFrame,
@@ -4255,6 +4257,7 @@ label
   labelPushConstString,
   labelPushGlobalVar,
   labelPushLocalVar,
+  labelPushVar2,
   labelPushArrayPop,
   labelPopConst,
   labelPopFrame,
@@ -4324,6 +4327,7 @@ var
     @labelPushConstString,
     @labelPushGlobalVar,
     @labelPushLocalVar,
+    @labelPushVar2,
     @labelPushArrayPop,
     @labelPopConst,
     @labelPopFrame,
@@ -4490,7 +4494,7 @@ begin
         begin
           B := Pop;
           A := Pop;
-          Push(A^.VarNumber - B^.VarNumber * Int(TSENumber(A^.VarNumber / B^.VarNumber)));
+          Push(A^.VarNumber - B^.VarNumber * Int(A^.VarNumber / B^.VarNumber));
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
@@ -4717,14 +4721,21 @@ begin
         end;
       {$ifdef SE_COMPUTED_GOTO}labelPushGlobalVar{$else}opPushGlobalVar{$endif}:
         begin
-          Push(GetGlobal(BinaryLocal[CodePtrLocal + 1])^);
+          Push(GetGlobal(BinaryLocal[CodePtrLocal + 1].VarPointer)^);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelPushLocalVar{$else}opPushLocalVar{$endif}:
         begin
-          Push(GetLocal(BinaryLocal[CodePtrLocal + 1], Integer(BinaryLocal[CodePtrLocal + 2].VarPointer))^);
+          Push(GetLocal(BinaryLocal[CodePtrLocal + 1].VarPointer, Integer(BinaryLocal[CodePtrLocal + 2].VarPointer))^);
           Inc(CodePtrLocal, 3);
+          DispatchGoto;
+        end;
+      {$ifdef SE_COMPUTED_GOTO}labelPushVar2{$else}opPushVar2{$endif}:
+        begin
+          Push(GetVariable(BinaryLocal[CodePtrLocal + 1].VarPointer, BinaryLocal[CodePtrLocal + 3].VarPointer)^);
+          Push(GetVariable(BinaryLocal[CodePtrLocal + 2].VarPointer, BinaryLocal[CodePtrLocal + 4].VarPointer)^);
+          Inc(CodePtrLocal, 5);
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelPushArrayPop{$else}opPushArrayPop{$endif}:
@@ -6323,12 +6334,47 @@ var
       Result := Pointer(SE_REG_GLOBAL);
   end;
 
+  function PeepholePushVar2Optimization: Boolean;
+  var
+    A, B: TSEValue;
+    I: Integer;
+    P, PP: Pointer;
+    OpInfoPrev1,
+    OpInfoPrev2: PSEOpcodeInfo;
+  begin
+    Result := False;
+    if not Self.OptimizePeephole then
+      Exit;
+    OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushGlobalVar, opPushLocalVar]);
+    OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar, opPushLocalVar]);
+    if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
+    begin
+      if (OpInfoPrev1^.Binary <> Pointer(Self.Binary)) or (OpInfoPrev2^.Binary <> Pointer(Self.Binary)) then
+        Exit;
+      if OpInfoPrev1^.Op = opPushLocalVar then
+        PP := Self.Binary[OpInfoPrev1^.Pos + 2].VarPointer
+      else
+        PP := Pointer(SE_REG_GLOBAL);
+      if OpInfoPrev2^.Op = opPushLocalVar then
+        P := Self.Binary[OpInfoPrev2^.Pos + 2].VarPointer
+      else
+        P := Pointer(SE_REG_GLOBAL);
+      A := Self.Binary[OpInfoPrev2^.Pos + 1];
+      B := Self.Binary[OpInfoPrev1^.Pos + 1];
+      Self.Binary.DeleteRange(Self.Binary.Count - (OpInfoPrev1^.Size + OpInfoPrev2^.Size), OpInfoPrev1^.Size + OpInfoPrev2^.Size);
+      Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 2);
+      Emit([Pointer(Integer(opPushVar2)), A.VarPointer, B.VarPointer, Pointer(P), Pointer(PP)]);
+      Result := True;
+    end;
+  end;
+
   function EmitPushVar(const Ident: TSEIdent): Integer; inline;
   begin
     if Ident.Local > 0 then
       Result := Emit([Pointer(opPushLocalVar), Pointer(Ident.Addr), Pointer(Self.FuncTraversal - Ident.Local)])
     else
       Result := Emit([Pointer(opPushGlobalVar), Pointer(Ident.Addr)]);
+    PeepholePushVar2Optimization;
   end;
 
   function EmitAssignVar(const Ident: TSEIdent): Integer; inline;
