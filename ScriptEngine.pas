@@ -30,7 +30,7 @@ unit ScriptEngine;
 // enable this if you need json support
 {$define SE_HAS_JSON}
 // enable this if you want to include this in castle game engine's profiler report
-{.$define SE_PROFILER}
+{$define SE_PROFILER}
 {$align 16}
 {$packenum 4}
 
@@ -844,6 +844,7 @@ type
     class function SENumber(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SELength(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEMapCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SEMapClone(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEMapKeyDelete(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEMapKeysGet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEArrayResize(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -1264,6 +1265,7 @@ end;
 
 function SEClone(constref V: TSEValue): TSEValue;
 var
+  I: Integer;
   S, Key: String;
 begin
   case V.Kind of
@@ -1285,8 +1287,19 @@ begin
     sevkMap:
       begin
         GC.AllocMap(@Result);
-        for Key in TSEValueMap(V.VarMap).Keys do
-          SEMapSet(Result, Key, SEMapGet(V, Key))
+        if not SEMapIsValidArray(V) then
+        begin
+          for Key in TSEValueMap(V.VarMap).Keys do
+          begin
+            SEMapSet(Result, Key, TSEValueMap(V.VarMap).Get2(Key));
+          end;
+        end else
+        begin
+          for I := 0 to TSEValueMap(V.VarMap).List.Count - 1 do
+          begin
+            SEMapSet(Result, I, TSEValueMap(V.VarMap).Get2(I));
+          end;
+        end;
       end;
   end;
 end;
@@ -1854,6 +1867,11 @@ begin
       SEMapSet(Result, Round(Args[I].VarNumber), Args[I + 1]);
     Inc(I, 2);
   end;
+end;
+
+class function TBuiltInFunction.SEMapClone(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+begin
+  Exit(SEClone(Args[0]));
 end;
 
 class function TBuiltInFunction.SEMapKeyDelete(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -5301,6 +5319,7 @@ begin
   Self.RegisterFunc('length', @TBuiltInFunction(nil).SELength, 1);
   Self.RegisterFunc('map_create', @TBuiltInFunction(nil).SEMapCreate, -1);
   Self.RegisterFunc('___map_create', @TBuiltInFunction(nil).SEMapCreate, -1);
+  Self.RegisterFunc('map_clone', @TBuiltInFunction(nil).SEMapClone, 1);
   Self.RegisterFunc('map_key_delete', @TBuiltInFunction(nil).SEMapKeyDelete, 2);
   Self.RegisterFunc('map_keys_get', @TBuiltInFunction(nil).SEMapKeysGet, 1);
   Self.RegisterFunc('array_resize', @TBuiltInFunction(nil).SEArrayResize, 2);
