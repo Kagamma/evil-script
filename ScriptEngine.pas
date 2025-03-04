@@ -31,6 +31,7 @@ unit ScriptEngine;
 {$define SE_HAS_JSON}
 // enable this if you want to include this in castle game engine's profiler report
 {.$define SE_PROFILER}
+{$define SE_FASTMAP}
 {$align 16}
 {$packenum 4}
 
@@ -38,6 +39,7 @@ interface
 
 uses
   SysUtils, Classes, Generics.Collections, StrUtils, Types, DateUtils, RegExpr,
+  contnrs,
   {$ifdef SE_PROFILER}
   CastleTimeUtils,
   {$endif}
@@ -238,10 +240,12 @@ type
   end;
 
   TSEValueList = specialize TList<TSEValue>;
-  TSEValueMap = class(specialize TDictionary<String, TSEValue>)
+  TSEValueDict = specialize TDictionary<{$ifdef SE_FASTMAP}ShortString{$else}String{$endif}, TSEValue>;
+  TSEValueMap = class
   private
     FIsValidArray: Boolean;
     FList: TSEValueList;
+    FMap: TSEValueDict;
   public
     constructor Create;
     destructor Destroy; override;
@@ -253,6 +257,7 @@ type
     procedure Del2(const Key: String); overload; inline;
     procedure Del2(const Index: Int64); overload; inline;
     property List: TSEValueList read FList;
+    property Map: TSEValueDict read FMap;
     property IsValidArray: Boolean read FIsValidArray;
   end;
   TSEValueArray = array of TSEValue;
@@ -1058,7 +1063,7 @@ begin
           end;
         end else
         begin
-          for Key in TSEValueMap(Value.VarMap).Keys do
+          for Key in TSEValueMap(Value.VarMap).Map.Keys do
           begin
             if I > 0 then
               Result := Result + ', ';
@@ -1104,7 +1109,7 @@ begin
         if SEMapIsValidArray(Value) then
           Result := TSEValueMap(Value.VarMap).List.Count
         else
-          Result := TSEValueMap(Value.VarMap).Count;
+          Result := TSEValueMap(Value.VarMap).Map.Count;
       end;
     sevkBuffer:
       begin
@@ -1289,7 +1294,7 @@ begin
         GC.AllocMap(@Result);
         if not SEMapIsValidArray(V) then
         begin
-          for Key in TSEValueMap(V.VarMap).Keys do
+          for Key in TSEValueMap(V.VarMap).Map.Keys do
           begin
             SEMapSet(Result, Key, TSEValueMap(V.VarMap).Get2(Key));
           end;
@@ -1888,7 +1893,7 @@ begin
   GC.AllocMap(@Result);
   if not SEMapIsValidArray(Args[0]) then
   begin
-    for Key in TSEValueMap(Args[0].VarMap).Keys do
+    for Key in TSEValueMap(Args[0].VarMap).Map.Keys do
     begin
       SEMapSet(Result, I, Key);
       Inc(I);
@@ -2723,7 +2728,7 @@ class function TBuiltInFunction.SEJSONStringify(const VM: TSEVM; const Args: PSE
     Key: String;
   begin
     SB.Append('{');
-    for Key in TSEValueMap(Map.VarMap).Keys do
+    for Key in TSEValueMap(Map.VarMap).Map.Keys do
     begin
       if (I > 0) then
         SB.Append(',');
@@ -2824,9 +2829,9 @@ begin
         GC.AllocMap(@Temp);
         if (not SEMapIsValidArray(V1)) and (not SEMapIsValidArray(V2)) then
         begin
-          for S in TSEValueMap(V1.VarMap).Keys do
+          for S in TSEValueMap(V1.VarMap).Map.Keys do
             SEMapSet(Temp, S, SEMapGet(V1, S));
-          for S in TSEValueMap(V2.VarMap).Keys do
+          for S in TSEValueMap(V2.VarMap).Map.Keys do
             SEMapSet(Temp, S, SEMapGet(V2, S));
         end else
         begin
@@ -3198,9 +3203,9 @@ begin
         GC.AllocMap(@R);
         if (not SEMapIsValidArray(V1)) and (not SEMapIsValidArray(V2)) then
         begin
-          for S in TSEValueMap(V1.VarMap).Keys do
+          for S in TSEValueMap(V1.VarMap).Map.Keys do
             SEMapSet(R, S, SEMapGet(V1, S));
-          for S in TSEValueMap(V2.VarMap).Keys do
+          for S in TSEValueMap(V2.VarMap).Map.Keys do
             SEMapSet(R, S, SEMapGet(V2, S));
         end else
         begin
@@ -3367,6 +3372,8 @@ begin
     GC.AllocatedMem := GC.AllocatedMem - 1024;
   if Self.FList <> nil then
     Self.FList.Free;
+  if Self.FMap <> nil then
+    Self.FMap.Free;
   inherited;
 end;
 
@@ -3376,8 +3383,9 @@ var
 begin
   if Self.FIsValidArray then
   begin
+    Self.FMap := TSEValueDict.Create;
     for I := 0 to Self.FList.Count - 1 do
-      Self.AddOrSetValue(IntToStr(I), Self.FList[I]);
+      Self.FMap.AddOrSetValue(IntToStr(I), Self.FList[I]);
     GC.AllocatedMem := GC.AllocatedMem - Self.FList.Count * SizeOf(TSEValue) + 1024;
     FreeAndNil(Self.FList);
     Self.FIsValidArray := False;
@@ -3405,7 +3413,7 @@ begin
   end;
   if not Self.IsValidArray then
   begin
-    Self.AddOrSetValue(Key, AValue);
+    Self.FMap.AddOrSetValue(Key, AValue);
   end;
 end;
 
@@ -3428,7 +3436,7 @@ begin
   end;
   if not Self.IsValidArray then
   begin
-    Self.AddOrSetValue(IntToStr(Index), AValue);
+    Self.FMap.AddOrSetValue(IntToStr(Index), AValue);
   end;
 end;
 
@@ -3447,7 +3455,7 @@ begin
     end;
   end else
   begin
-    Self.Remove(Key);
+    Self.FMap.Remove(Key);
   end;
 end;
 
@@ -3462,7 +3470,7 @@ begin
     end;
   end else
   begin
-    Self.Remove(IntToStr(Index));
+    Self.FMap.Remove(IntToStr(Index));
   end;
 end;
 
@@ -3480,7 +3488,7 @@ begin
       Result := SENull;
   end else
   begin
-    Result := Self[Key];
+    Result := Self.FMap[Key];
   end;
 end;
 
@@ -3494,7 +3502,7 @@ begin
       Result := SENull;
   end else
   begin
-    Result := Self[IntToStr(Index)];
+    Result := Self.FMap[IntToStr(Index)];
   end;
 end;
 
@@ -3652,7 +3660,7 @@ procedure TSEGarbageCollector.GC;
             end else
             begin
               try
-                for Key in TSEValueMap(PValue^.VarMap).Keys do
+                for Key in TSEValueMap(PValue^.VarMap).Map.Keys do
                 begin
                   RValue := SEMapGet(PValue^, Key);
                   Mark(@RValue);
@@ -3892,7 +3900,7 @@ var
               end;
             end else
             begin
-              for Key in TSEValueMap(AValue.VarMap).Keys do
+              for Key in TSEValueMap(AValue.VarMap).Map.Keys do
               begin
                 AddChildNode(Node, Key, SEMapGet(AValue, Key));
               end;
