@@ -6390,13 +6390,14 @@ var
     end;
   end;
 
-  function EmitPushVar(const Ident: TSEIdent): Integer; inline;
+  function EmitPushVar(const Ident: TSEIdent; const IsPotentialRewind: Boolean = False): Integer; inline;
   begin
     if Ident.Local > 0 then
       Result := Emit([Pointer(opPushLocalVar), Pointer(Ident.Addr), Pointer(Self.FuncTraversal - Ident.Local)])
     else
       Result := Emit([Pointer(opPushGlobalVar), Pointer(Ident.Addr)]);
-    PeepholePushVar2Optimization;
+    if not IsPotentialRewind then
+      PeepholePushVar2Optimization;
   end;
 
   function EmitAssignVar(const Ident: TSEIdent): Integer; inline;
@@ -7047,7 +7048,7 @@ var
               EmitAssignVar(FuncRefIdent);
               RewindStartAddr := Self.Binary.Count;
             end;
-            EmitPushVar(FuncRefIdent);
+            EmitPushVar(FuncRefIdent, True);
             Tail;
           end;
         end;
@@ -7112,7 +7113,7 @@ var
                             PushConstCount := 0;
                             IsTailed := True;
                             NextToken;
-                            EmitPushVar(Ident^);
+                            EmitPushVar(Ident^, True);
                             ParseExpr;
                             Emit([Pointer(opPushArrayPop), SENull]);
                             PeepholeArrayAssignOptimization;
@@ -7126,7 +7127,7 @@ var
                             IsTailed := True;
                             NextToken;
                             Token2 := NextTokenExpected([tkIdent]);
-                            EmitPushVar(Ident^);
+                            EmitPushVar(Ident^, True);
                             Emit([Pointer(opPushArrayPop), Token2.Value]);
                             Tail;
                             FuncTail;
@@ -7166,7 +7167,7 @@ var
                     FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False);
                     EmitAssignVar(FuncRefIdent);
                     RewindStartAddr := Self.Binary.Count;
-                    EmitPushVar(FuncRefIdent);
+                    EmitPushVar(FuncRefIdent, True);
                     Tail;
                     FuncTail;
                   end;
@@ -7363,7 +7364,7 @@ var
     end;
     // Allocate stack for this
     if ThisRefIdent <> nil then
-      EmitPushVar(ThisRefIdent^)
+      EmitPushVar(ThisRefIdent^, True)
     else
     begin
       This := FindVar('self');
@@ -7374,7 +7375,7 @@ var
     end;
     // Push map to stack
     Rewind(RewindStartAdd, RewindCount);
-    EmitPushVar(Ident);
+    EmitPushVar(Ident, True);
     Emit([Pointer(opCallRef), Pointer(0), Pointer(ArgCount), Pointer(DeepCount)]);
   end;
 
@@ -7400,7 +7401,7 @@ var
     end;
     // Allocate stack for this
     if ThisRefIdent <> nil then
-      EmitPushVar(ThisRefIdent^)
+      EmitPushVar(ThisRefIdent^, True)
     else
     begin
       This := FindVar('self');
@@ -8173,7 +8174,7 @@ var
       end;
       EmitAssignVar(FuncRefIdent);
       RewindStartAddr := Self.Binary.Count;
-      EmitPushVar(FuncRefIdent);
+      EmitPushVar(FuncRefIdent, True);
       while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
       begin
         case PeekAtNextToken.Kind of
