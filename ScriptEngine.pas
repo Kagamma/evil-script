@@ -69,9 +69,10 @@ type
     opAssignLocalVar,
     opAssignLocalArray,
     opJumpEqual,
+    opJumpEqual1,
     opJumpUnconditional,
-    opJumpEqualOrGreater,
-    opJumpEqualOrLesser,
+    opJumpEqualOrGreater2,
+    opJumpEqualOrLesser2,
 
     opOperatorInc,
 
@@ -553,9 +554,10 @@ const
     3, // opAssignLocalVar,
     4, // opAssignLocalArray,
     2, // opJumpEqual,
+    3, // opJumpEqual1,
     2, // opJumpUnconditional,
-    6, // opJumpEqualOrGreater,
-    6, // opJumpEqualOrLesser,
+    6, // opJumpEqualOrGreater2,
+    6, // opJumpEqualOrLesser2,
 
     4, // opOperatorInc,
 
@@ -4261,9 +4263,10 @@ label
   labelAssignLocalVar,
   labelAssignLocalArray,
   labelJumpEqual,
+  labelJumpEqual1,
   labelJumpUnconditional,
-  labelJumpEqualOrGreater,
-  labelJumpEqualOrLesser,
+  labelJumpEqualOrGreater2,
+  labelJumpEqualOrLesser2,
 
   labelOperatorInc,
 
@@ -4329,9 +4332,10 @@ var
     @labelAssignLocalVar,
     @labelAssignLocalArray,
     @labelJumpEqual,
+    @labelJumpEqual1,
     @labelJumpUnconditional,
-    @labelJumpEqualOrGreater,
-    @labelJumpEqualOrLesser,
+    @labelJumpEqualOrGreater2,
+    @labelJumpEqualOrLesser2,
 
     @labelOperatorInc,
 
@@ -4760,12 +4764,21 @@ begin
             Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
+      {$ifdef SE_COMPUTED_GOTO}labelJumpEqual1{$else}opJumpEqual1{$endif}:
+        begin
+          A := Pop;
+          if SEValueEqual(A^, BinaryLocal[CodePtrLocal + 1]) then
+            CodePtrLocal := Integer(BinaryLocal[CodePtrLocal + 2].VarPointer)
+          else
+            Inc(CodePtrLocal, 3);
+          DispatchGoto;
+        end;
       {$ifdef SE_COMPUTED_GOTO}labelJumpUnconditional{$else}opJumpUnconditional{$endif}:
         begin
           CodePtrLocal := Integer(BinaryLocal[CodePtrLocal + 1].VarPointer);
           DispatchGoto;
         end;
-      {$ifdef SE_COMPUTED_GOTO}labelJumpEqualOrGreater{$else}opJumpEqualOrGreater{$endif}:
+      {$ifdef SE_COMPUTED_GOTO}labelJumpEqualOrGreater2{$else}opJumpEqualOrGreater2{$endif}:
         begin
           B := GetVariable(BinaryLocal[CodePtrLocal + 3].VarPointer, BinaryLocal[CodePtrLocal + 4].VarPointer);
           A := GetVariable(BinaryLocal[CodePtrLocal + 1].VarPointer, BinaryLocal[CodePtrLocal + 2].VarPointer);
@@ -4775,7 +4788,7 @@ begin
             Inc(CodePtrLocal, 6);
           DispatchGoto;
         end;
-      {$ifdef SE_COMPUTED_GOTO}labelJumpEqualOrLesser{$else}opJumpEqualOrLesser{$endif}:
+      {$ifdef SE_COMPUTED_GOTO}labelJumpEqualOrLesser2{$else}opJumpEqualOrLesser2{$endif}:
         begin
           B := GetVariable(BinaryLocal[CodePtrLocal + 3].VarPointer, BinaryLocal[CodePtrLocal + 4].VarPointer);
           A := GetVariable(BinaryLocal[CodePtrLocal + 1].VarPointer, BinaryLocal[CodePtrLocal + 2].VarPointer);
@@ -7713,8 +7726,7 @@ var
           IsComparison := False;
         end else
         begin
-          Emit([Pointer(opPushConst), False]);
-          JumpEnd := Emit([Pointer(opJumpEqual), Pointer(0)]);
+          JumpEnd := Emit([Pointer(opJumpEqual1), False, Pointer(0)]);
         end;
       end;
       ParseBlock;
@@ -7771,8 +7783,7 @@ var
           IsComparison := False;
         end else
         begin
-          Emit([Pointer(opPushConst), False]);
-          JumpEnd := Emit([Pointer(opJumpEqual), Pointer(0)]);
+          JumpEnd := Emit([Pointer(opJumpEqual1), False, Pointer(0)]);
         end;
       end;
       JumpBlock := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
@@ -7862,11 +7873,11 @@ var
         //EmitPushVar(VarHiddenTargetIdent);
         if Token.Kind = tkTo then
         begin
-          JumpEnd := Emit([Pointer(opJumpEqualOrGreater), Pointer(VarIdent.Addr), GetIdentLocalValue(VarIdent), Pointer(VarHiddenTargetIdent.Addr), GetIdentLocalValue(VarHiddenTargetIdent), Pointer(0)]);
+          JumpEnd := Emit([Pointer(opJumpEqualOrGreater2), Pointer(VarIdent.Addr), GetIdentLocalValue(VarIdent), Pointer(VarHiddenTargetIdent.Addr), GetIdentLocalValue(VarHiddenTargetIdent), Pointer(0)]);
         end else
         if Token.Kind = tkDownto then
         begin
-          JumpEnd := Emit([Pointer(opJumpEqualOrLesser), Pointer(VarIdent.Addr), GetIdentLocalValue(VarIdent), Pointer(VarHiddenTargetIdent.Addr), GetIdentLocalValue(VarHiddenTargetIdent), Pointer(0)]);
+          JumpEnd := Emit([Pointer(opJumpEqualOrLesser2), Pointer(VarIdent.Addr), GetIdentLocalValue(VarIdent), Pointer(VarHiddenTargetIdent.Addr), GetIdentLocalValue(VarHiddenTargetIdent), Pointer(0)]);
         end;
 
         ParseBlock;
@@ -7904,7 +7915,7 @@ var
         StartBlock := Self.Binary.Count;
         //EmitPushVar(VarHiddenTargetIdent);
         //EmitPushVar(VarHiddenCountIdent);
-        JumpEnd := Emit([Pointer(opJumpEqualOrLesser), Pointer(VarHiddenTargetIdent.Addr), GetIdentLocalValue(VarHiddenTargetIdent), Pointer(VarHiddenCountIdent.Addr), GetIdentLocalValue(VarHiddenCountIdent), Pointer(0)]);
+        JumpEnd := Emit([Pointer(opJumpEqualOrLesser2), Pointer(VarHiddenTargetIdent.Addr), GetIdentLocalValue(VarHiddenTargetIdent), Pointer(VarHiddenCountIdent.Addr), GetIdentLocalValue(VarHiddenCountIdent), Pointer(0)]);
 
         EmitPushVar(VarHiddenArrayIdent);
         EmitPushVar(VarHiddenCountIdent);
@@ -7944,8 +7955,7 @@ var
     JumpEnd: Integer;
   begin
     ParseExpr;
-    Emit([Pointer(opPushConst), True]);
-    JumpBlock1 := Emit([Pointer(opJumpEqual), Pointer(0)]);
+    JumpBlock1 := Emit([Pointer(opJumpEqual1), True, Pointer(0)]);
     JumpBlock2 := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
     StartBlock1 := Self.Binary.Count;
     ParseBlock;
