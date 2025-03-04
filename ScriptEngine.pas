@@ -31,6 +31,7 @@ unit ScriptEngine;
 {$define SE_HAS_JSON}
 // enable this if you want to include this in castle game engine's profiler report
 {.$define SE_PROFILER}
+// enable this if you dont need to store map's keys as (utf8)strings. It will be stored as shortstrings instead.
 {$define SE_FASTMAP}
 {$align 16}
 {$packenum 4}
