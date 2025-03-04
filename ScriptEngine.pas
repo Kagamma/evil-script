@@ -30,7 +30,7 @@ unit ScriptEngine;
 // enable this if you need json support
 {$define SE_HAS_JSON}
 // enable this if you want to include this in castle game engine's profiler report
-{$define SE_PROFILER}
+{.$define SE_PROFILER}
 {$align 16}
 {$packenum 4}
 
