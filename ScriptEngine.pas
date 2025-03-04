@@ -3392,11 +3392,13 @@ begin
   IsNumber := TryStrToInt(Key, Index);
   if IsNumber and Self.FIsValidArray and (Index >= 0) then
   begin
-    GC.AllocatedMem := GC.AllocatedMem - Self.FList.Count * SizeOf(TSEValue);
     if Index > Self.FList.Count - 1 then
+    begin
+      GC.AllocatedMem := GC.AllocatedMem - Self.FList.Count * SizeOf(TSEValue);
       Self.FList.Count := Index + 1;
+      GC.AllocatedMem := GC.AllocatedMem + Self.FList.Count * SizeOf(TSEValue);
+    end;
     Self.FList[Index] := AValue;
-    GC.AllocatedMem := GC.AllocatedMem + Self.FList.Count * SizeOf(TSEValue);
   end else
   begin
     Self.ToMap;
@@ -3413,11 +3415,13 @@ var
 begin
   if Self.FIsValidArray and (Index >= 0) then
   begin
-    GC.AllocatedMem := GC.AllocatedMem - Self.FList.Count * SizeOf(TSEValue);
     if Index > Self.FList.Count - 1 then
+    begin
+      GC.AllocatedMem := GC.AllocatedMem - Self.FList.Count * SizeOf(TSEValue);
       Self.FList.Count := Index + 1;
+      GC.AllocatedMem := GC.AllocatedMem + Self.FList.Count * SizeOf(TSEValue);
+    end;
     Self.FList[Index] := AValue;
-    GC.AllocatedMem := GC.AllocatedMem + Self.FList.Count * SizeOf(TSEValue);
   end else
   begin
     Self.ToMap;
@@ -7326,7 +7330,7 @@ var
   begin
     OpCountStart := Self.OpcodeInfoList.Count;
     Logic;
-    // Handle unary
+    // Handle ternary
     if PeekAtNextToken.Kind = tkQuestion then
     begin
       NextToken;
