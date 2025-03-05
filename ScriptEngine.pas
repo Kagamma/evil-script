@@ -36,7 +36,7 @@ unit ScriptEngine;
 // enable this to replace FP's TDirectory with avk959's TGChainHashMap. It is a lot faster than TDirectory.
 // requires https://github.com/avk959/LGenerics
 // note: enable this will undef SE_MAP_SHORTSTRING, because this optimization is not necessary for TGChainHashMap
-{.$define SE_MAP_AVK959}
+{$define SE_MAP_AVK959}
 {$ifdef SE_MAP_AVK959}
   {$undef SE_MAP_SHORTSTRING}
   {$define TSEDictionary := TGChainHashMap}
@@ -79,6 +79,7 @@ type
     opPushLocalVar,
     opPushVar2,
     opPushArrayPop,
+    opPushArrayPopString,
     opPopConst,
     opPopFrame,
     opAssignGlobalVar,
@@ -133,8 +134,6 @@ type
     opCallImport,
     opYield,
     opHlt,
-    opWait,
-    opWaiting,
 
     opPushTrap,
     opPopTrap,
@@ -255,10 +254,9 @@ type
 
   TSEValueList = specialize TList<TSEValue>;
   TSEValueDict = specialize TSEDictionary<{$ifdef SE_MAP_SHORTSTRING}ShortString{$else}String{$endif}, TSEValue>;
-  TSEValueMap = class
+  TSEValueMap = class(specialize TList<TSEValue>)
   private
     FIsValidArray: Boolean;
-    FList: TSEValueList;
     FMap: TSEValueDict;
   public
     constructor Create;
@@ -270,7 +268,7 @@ type
     function Get2(const Index: Int64): TSEValue; overload; inline;
     procedure Del2(const Key: String); overload; inline;
     procedure Del2(const Index: Int64); overload; inline;
-    property List: TSEValueList read FList;
+    function Ptr(const I: Integer): PSEValue;
     property Map: TSEValueDict read FMap;
     property IsValidArray: Boolean read FIsValidArray;
   end;
@@ -416,7 +414,7 @@ type
 
   TSEConstMap = specialize TDictionary<String, TSEValue>;
   TSEStack = TSEBinaryAncestor;
-  TSEVarMap = TSEConstMap;
+  TSEVarMap = specialize TSEDictionary<String, TSEValue>;
   TSEListStack = specialize TStack<TList>;
   TSEScopeStack = specialize TStack<Integer>;
   TSEIntegerList = specialize TList<Integer>;
@@ -438,7 +436,6 @@ type
   TEvilC = class;
   TSEVM = class
   public
-    WaitTime: QWord;
     IsPaused: Boolean;
     IsDone: Boolean;
     IsYielded: Boolean;
@@ -461,7 +458,6 @@ type
 
     constructor Create;
     destructor Destroy; override;
-    function IsWaited: Boolean; inline;
     procedure Reset;
     procedure Exec;
     procedure BinaryClear;
@@ -528,7 +524,6 @@ type
     tkBreak,
     tkContinue,
     tkYield,
-    tkWait,
     tkSquareBracketOpen,
     tkSquareBracketClose,
     tkAnd,
@@ -555,7 +550,7 @@ const
     'EOF', '.', '+', '-', '*', 'div', 'mod', '^', '<<', '>>', 'operator assign', '=', '!=', '<',
     '>', '<=', '>=', '{', '}', ':', '?', '(', ')', 'neg', 'number', 'string',
     ',', 'if', 'switch', 'case', 'default', 'identity', 'function', 'fn', 'variable', 'const', 'local',
-    'unknown', 'else', 'while', 'break', 'continue', 'yield', 'wait',
+    'unknown', 'else', 'while', 'break', 'continue', 'yield',
     '[', ']', 'and', 'or', 'xor', 'not', 'for', 'in', 'to', 'downto', 'step', 'return',
     'atom', 'import', 'do', 'try', 'catch', 'throw'
   );
@@ -569,6 +564,7 @@ const
     3, // opPushLocalVar,
     5, // opPushVar2,
     2, // opPushArrayPop,
+    2, // opPushArrayPopString,
     1, // opPopConst,
     1, // opPopFrame,
     2, // opAssignGlobalVar,
@@ -623,8 +619,6 @@ const
     4, // opCallImport,
     1, // opYield,
     1, // opHlt,
-    1, // opWait,
-    1, // opWaiting,
 
     2, // opPushTrap,
     1, // opPopTrap,
@@ -706,7 +700,6 @@ type
     constructor Create;
     destructor Destroy; override;
     procedure AddDefaultConsts;
-    function IsWaited: Boolean; inline;
     function GetIsPaused: Boolean;
     procedure SetIsPaused(V: Boolean);
     function IsYielded: Boolean;
@@ -1069,7 +1062,7 @@ begin
         IsValidArray := SEMapIsValidArray(Value);
         if IsValidArray then
         begin
-          for I := 0 to TSEValueMap(Value.VarMap).List.Count - 1 do
+          for I := 0 to TSEValueMap(Value.VarMap).Count - 1 do
           begin
             if I > 0 then
               Result := Result + ', ';
@@ -1121,7 +1114,7 @@ begin
     sevkMap:
       begin
         if SEMapIsValidArray(Value) then
-          Result := TSEValueMap(Value.VarMap).List.Count
+          Result := TSEValueMap(Value.VarMap).Count
         else
           Result := TSEValueMap(Value.VarMap).Map.Count;
       end;
@@ -1161,6 +1154,8 @@ begin
       end;
   end;
 end;
+
+
 
 function SEMapGet(constref V: TSEValue; constref I: Integer): TSEValue; inline; overload;
 begin
@@ -1314,7 +1309,7 @@ begin
           end;
         end else
         begin
-          for I := 0 to TSEValueMap(V.VarMap).List.Count - 1 do
+          for I := 0 to TSEValueMap(V.VarMap).Count - 1 do
           begin
             SEMapSet(Result, I, TSEValueMap(V.VarMap).Get2(I));
           end;
@@ -1740,7 +1735,7 @@ begin
   SEValidateType(@Args[1], sevkNumber, 2, {$I %CURRENTROUTINE%});
   Size := Round(Args[1].VarNumber);
   GC.AllocMap(@Result);
-  TSEValueMap(Result.VarMap).List.Count := Size;
+  TSEValueMap(Result.VarMap).Count := Size;
   for I := 0 to Size - 1 do
   begin
     SEMapSet(Result, I, Single((Args[0].VarBuffer^.Ptr + I * 4)^))
@@ -1756,7 +1751,7 @@ begin
   SEValidateType(@Args[1], sevkNumber, 2, {$I %CURRENTROUTINE%});
   Size := Round(Args[1].VarNumber);
   GC.AllocMap(@Result);
-  TSEValueMap(Result.VarMap).List.Count := Size;
+  TSEValueMap(Result.VarMap).Count := Size;
   for I := 0 to Size - 1 do
   begin
     SEMapSet(Result, I, Double((Args[0].VarBuffer^.Ptr + I * 8)^))
@@ -1825,10 +1820,12 @@ class function TBuiltInFunction.SEGet(const VM: TSEVM; const Args: PSEValue; con
 begin
   EnterCriticalSection(CS);
   try
-    if ScriptVarMap.ContainsKey(Args[0].VarString^) then
+    try
       Exit(ScriptVarMap[Args[0]])
-    else
-      Exit(SENull);
+    except
+      on E: Exception do
+        Result := SENull;
+    end;
   finally
     LeaveCriticalSection(CS);
   end;
@@ -1914,7 +1911,7 @@ begin
     end;
   end else
   begin
-    for I := 0 to TSEValueMap(Args[0].VarMap).List.Count - 1 do
+    for I := 0 to TSEValueMap(Args[0].VarMap).Count - 1 do
     begin
       SEMapSet(Result, I, I);
     end;
@@ -1925,7 +1922,7 @@ class function TBuiltInFunction.SEArrayResize(const VM: TSEVM; const Args: PSEVa
 begin
   if SEMapIsValidArray(Args[0]) then
   begin
-    TSEValueMap(Args[0].VarMap).List.Count := Args[1];
+    TSEValueMap(Args[0].VarMap).Count := Args[1];
   end;
   Result := Args[0];
 end;
@@ -1979,9 +1976,9 @@ begin
   GC.AllocMap(@Result);
   V := Args[0];
   if ArgCount = 3 then
-    TSEValueMap(Result.VarMap).List.Capacity := Round(Args[1].VarNumber * (1 / Args[2].VarNumber)) // Set capacity beforehand
+    TSEValueMap(Result.VarMap).Capacity := Round(Args[1].VarNumber * (1 / Args[2].VarNumber)) // Set capacity beforehand
   else
-    TSEValueMap(Result.VarMap).List.Capacity := Round(Args[1].VarNumber); // Set capacity beforehand
+    TSEValueMap(Result.VarMap).Capacity := Round(Args[1].VarNumber); // Set capacity beforehand
   while EpsilonRound(V) <= Args[1].VarNumber do
   begin
     SEMapSet(Result, I, V);
@@ -2708,7 +2705,7 @@ class function TBuiltInFunction.SEJSONStringify(const VM: TSEVM; const Args: PSE
     V: TSEValue;
   begin
     SB.Append('[');
-    for I := 0 to TSEValueMap(Map.VarMap).List.Count - 1 do
+    for I := 0 to TSEValueMap(Map.VarMap).Count - 1 do
     begin
       if (I > 0) then
         SB.Append(',');
@@ -2850,7 +2847,7 @@ begin
         end else
         begin
           Len := SESize(V1);
-          TSEValueMap(Temp.VarMap).List.Count := Len + SESize(V2);
+          TSEValueMap(Temp.VarMap).Count := Len + SESize(V2);
           for I := 0 to Len - 1 do
             SEMapSet(Temp, I, SEMapGet(V1, I));
           for I := Len to Len + SESize(V2) - 1 do
@@ -3224,7 +3221,7 @@ begin
         end else
         begin
           Len := SESize(V1);
-          TSEValueMap(R.VarMap).List.Count := Len + SESize(V2);
+          TSEValueMap(R.VarMap).Count := Len + SESize(V2);
           for I := 0 to Len - 1 do
             SEMapSet(R, I, SEMapGet(V1, I));
           for I := Len to Len + SESize(V2) - 1 do
@@ -3374,20 +3371,17 @@ end;
 constructor TSEValueMap.Create;
 begin
   inherited;
-  Self.FList := TSEValueList.Create;
   Self.FIsValidArray := True;
+  Self.FMap := TSEValueDict.Create;
 end;
 
 destructor TSEValueMap.Destroy;
 begin
   if Self.FIsValidArray then
-    GC.AllocatedMem := GC.AllocatedMem - Self.FList.Count * SizeOf(TSEValue)
+    GC.AllocatedMem := GC.AllocatedMem - Self.Count * SizeOf(TSEValue)
   else
     GC.AllocatedMem := GC.AllocatedMem - 1024;
-  if Self.FList <> nil then
-    Self.FList.Free;
-  if Self.FMap <> nil then
-    Self.FMap.Free;
+  Self.FMap.Free;
   inherited;
 end;
 
@@ -3397,12 +3391,11 @@ var
 begin
   if Self.FIsValidArray then
   begin
-    Self.FMap := TSEValueDict.Create;
-    for I := 0 to Self.FList.Count - 1 do
-      Self.FMap.AddOrSetValue(IntToStr(I), Self.FList[I]);
-    GC.AllocatedMem := GC.AllocatedMem - Self.FList.Count * SizeOf(TSEValue) + 1024;
-    FreeAndNil(Self.FList);
+    for I := 0 to Self.Count - 1 do
+      Self.FMap.AddOrSetValue(IntToStr(I), Self[I]);
+    GC.AllocatedMem := GC.AllocatedMem - Self.Count * SizeOf(TSEValue) + 1024;
     Self.FIsValidArray := False;
+    Self.Clear;
   end;
 end;
 
@@ -3414,13 +3407,13 @@ begin
   IsNumber := TryStrToInt(Key, Index);
   if IsNumber and Self.FIsValidArray and (Index >= 0) then
   begin
-    if Index > Self.FList.Count - 1 then
+    if Index > Self.Count - 1 then
     begin
-      GC.AllocatedMem := GC.AllocatedMem - Self.FList.Count * SizeOf(TSEValue);
-      Self.FList.Count := Index + 1;
-      GC.AllocatedMem := GC.AllocatedMem + Self.FList.Count * SizeOf(TSEValue);
+      GC.AllocatedMem := GC.AllocatedMem - Self.Count * SizeOf(TSEValue);
+      Self.Count := Index + 1;
+      GC.AllocatedMem := GC.AllocatedMem + Self.Count * SizeOf(TSEValue);
     end;
-    Self.FList[Index] := AValue;
+    Self.FItems[Index] := AValue;
   end else
   begin
     Self.ToMap;
@@ -3437,13 +3430,13 @@ var
 begin
   if Self.FIsValidArray and (Index >= 0) then
   begin
-    if Index > Self.FList.Count - 1 then
+    if Index > Self.Count - 1 then
     begin
-      GC.AllocatedMem := GC.AllocatedMem - Self.FList.Count * SizeOf(TSEValue);
-      Self.FList.Count := Index + 1;
-      GC.AllocatedMem := GC.AllocatedMem + Self.FList.Count * SizeOf(TSEValue);
+      GC.AllocatedMem := GC.AllocatedMem - Self.Count * SizeOf(TSEValue);
+      Self.Count := Index + 1;
+      GC.AllocatedMem := GC.AllocatedMem + Self.Count * SizeOf(TSEValue);
     end;
-    Self.FList[Index] := AValue;
+    Self.FItems[Index] := AValue;
   end else
   begin
     Self.ToMap;
@@ -3462,9 +3455,9 @@ begin
   IsNumber := TryStrToInt(Key, Index);
   if IsNumber and Self.FIsValidArray and (Index >= 0) then
   begin
-    if Index <= Self.FList.Count - 1 then
+    if Index <= Self.Count - 1 then
     begin
-      Self.FList.Delete(Index);
+      Self.Delete(Index);
       GC.AllocatedMem := GC.AllocatedMem - SizeOf(TSEValue);
     end;
   end else
@@ -3477,9 +3470,9 @@ procedure TSEValueMap.Del2(const Index: Int64);
 begin
   if Self.FIsValidArray and (Index >= 0) then
   begin
-    if Index <= Self.FList.Count - 1 then
+    if Index <= Self.Count - 1 then
     begin
-      Self.FList.Delete(Index);
+      Self.Delete(Index);
       GC.AllocatedMem := GC.AllocatedMem - SizeOf(TSEValue);
     end;
   end else
@@ -3496,8 +3489,8 @@ begin
   IsNumber := TryStrToInt(Key, Index);
   if IsNumber and Self.FIsValidArray and (Index >= 0) then
   begin
-    if Index <= Self.FList.Count - 1 then
-      Result := Self.FList[Index]
+    if Index <= Self.Count - 1 then
+      Result := Self.FItems[Index]
     else
       Result := SENull;
   end else
@@ -3510,14 +3503,19 @@ function TSEValueMap.Get2(const Index: Int64): TSEValue;
 begin
   if Self.FIsValidArray and (Index >= 0) then
   begin
-    if Index <= Self.FList.Count - 1 then
-      Result := Self.FList[Index]
+    if Index <= Self.Count - 1 then
+      Result := Self.FItems[Index]
     else
       Result := SENull;
   end else
   begin
     Result := Self.FMap[IntToStr(Index)];
   end;
+end;
+
+function TSEValueMap.Ptr(const I: Integer): PSEValue;
+begin
+  Result := @Self.FItems[I];
 end;
 
 constructor TSEGarbageCollector.Create;
@@ -3663,7 +3661,7 @@ procedure TSEGarbageCollector.GC;
             if SEMapIsValidArray(PValue^) then
             begin
               try
-                for I := 0 to TSEValueMap(PValue^.VarMap).List.Count - 1 do
+                for I := 0 to TSEValueMap(PValue^.VarMap).Count - 1 do
                 begin
                   RValue := SEMapGet(PValue^, I);
                   Mark(@RValue);
@@ -3815,7 +3813,6 @@ begin
   Self.CodePtr := 0;
   Self.IsPaused := False;
   Self.IsDone := True;
-  Self.WaitTime := 0;
   Self.StackSize := 2048;
   Self.FrameSize := 1024;
   Self.TrapSize := 1024;
@@ -3844,11 +3841,6 @@ begin
   inherited;
 end;
 
-function TSEVM.IsWaited: Boolean; inline;
-begin
-  Exit(GetTickCount64 < Self.WaitTime);
-end;
-
 procedure TSEVM.Reset;
 begin
   Self.CodePtr := 0;
@@ -3856,7 +3848,6 @@ begin
   Self.IsPaused := False;
   Self.IsDone := False;
   Self.Parent.IsDone := False;
-  Self.WaitTime := 0;
   SetLength(Self.Global, Self.Parent.GlobalVarCount);
   SetLength(Self.Stack, Self.StackSize);
   SetLength(Self.Frame, Self.FrameSize);
@@ -3908,7 +3899,7 @@ var
           begin
             if SEMapIsValidArray(AValue) then
             begin
-              for I := 0 to TSEValueMap(AValue.VarMap).List.Count - 1 do
+              for I := 0 to TSEValueMap(AValue.VarMap).Count - 1 do
               begin
                 AddChildNode(Node, IntToStr(I), SEMapGet(AValue, I));
               end;
@@ -4304,6 +4295,7 @@ label
   labelPushLocalVar,
   labelPushVar2,
   labelPushArrayPop,
+  labelPushArrayPopString,
   labelPopConst,
   labelPopFrame,
   labelAssignGlobalVar,
@@ -4358,8 +4350,6 @@ label
   labelCallImport,
   labelYield,
   labelHlt,
-  labelWait,
-  labelWaiting,
   labelPushTrap,
   labelPopTrap,
   labelThrow
@@ -4374,6 +4364,7 @@ var
     @labelPushLocalVar,
     @labelPushVar2,
     @labelPushArrayPop,
+    @labelPushArrayPopString,
     @labelPopConst,
     @labelPopFrame,
     @labelAssignGlobalVar,
@@ -4428,8 +4419,6 @@ var
     @labelCallImport,
     @labelYield,
     @labelHlt,
-    @labelWait,
-    @labelWaiting,
 
     @labelPushTrap,
     @labelPopTrap,
@@ -4441,7 +4430,7 @@ begin
   if Self.IsDone then
     Self.Reset;
   Self.IsYielded := False;
-  if Self.IsPaused or Self.IsWaited then
+  if Self.IsPaused then
     Exit;
   CodePtrLocal := Self.CodePtr;
   StackPtrLocal := Self.StackPtr;
@@ -4786,8 +4775,10 @@ begin
       {$ifdef SE_COMPUTED_GOTO}labelPushArrayPop{$else}opPushArrayPop{$endif}:
         begin
           A := @BinaryLocal[CodePtrLocal + 1];
-          if A^.Kind = sevkNull then
-            A := Pop;
+          case A^.Kind of
+            sevkNull:
+              A := Pop;
+          end;
           B := Pop;
           case B^.Kind of
             sevkString:
@@ -4801,6 +4792,13 @@ begin
             else
               Push(0);
           end;
+          Inc(CodePtrLocal, 2);
+          DispatchGoto;
+        end;
+      {$ifdef SE_COMPUTED_GOTO}labelPushArrayPopString{$else}opPushArrayPopString{$endif}:
+        begin
+          B := Pop;
+          Push(SEMapGet(B^, Self.ConstStrings[Integer(BinaryLocal[CodePtrLocal + 1].VarPointer)]));
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
@@ -5184,25 +5182,9 @@ begin
           CallImportFunc;
           DispatchGoto;
         end;
-      {$ifdef SE_COMPUTED_GOTO}labelWait{$else}opWait{$endif}:
-        begin
-          Self.WaitTime := GetTickCount64 + Round(Pop^.VarNumber * 1000);
-          Inc(CodePtrLocal);
-          DispatchGoto;
-        end;
-      {$ifdef SE_COMPUTED_GOTO}labelWaiting{$else}opWaiting{$endif}:
-        begin
-          Self.CodePtr := CodePtrLocal;
-          Self.StackPtr := StackPtrLocal;
-          Self.BinaryPtr := BinaryPtrLocal;
-          if IsWaited then
-            Break;
-          Inc(CodePtrLocal);
-          DispatchGoto;
-        end;
       {$ifndef SE_COMPUTED_GOTO}
       end;
-      if Self.IsPaused or Self.IsWaited then
+      if Self.IsPaused then
       begin
         Self.CodePtr := CodePtrLocal;
         Self.StackPtr := StackPtrLocal;
@@ -5485,11 +5467,6 @@ function TEvilC.InternalIdent: String; inline;
 begin
   Inc(Self.FInternalIdentCount);
   Result := IntToStr(FInternalIdentCount);
-end;
-
-function TEvilC.IsWaited: Boolean;
-begin
-  Exit(Self.VM.IsWaited);
 end;
 
 function TEvilC.GetIsPaused: Boolean;
@@ -6013,8 +5990,6 @@ begin
               Token.Kind := tkBreak;
             'yield':
               Token.Kind := tkYield;
-            'wait':
-              Token.Kind := tkWait;
             'return':
               Token.Kind := tkReturn;
             'fn':
@@ -7047,7 +7022,7 @@ var
             IsTailed := True;
             NextToken;
             Token := NextTokenExpected([tkIdent]);
-            EmitExpr([Pointer(opPushArrayPop), Token.Value]);
+            EmitExpr([Pointer(opPushArrayPopString), Pointer(CreateConstString(Token.Value))]);
             Tail;
           end;
       end;
@@ -7168,7 +7143,7 @@ var
                             NextToken;
                             Token2 := NextTokenExpected([tkIdent]);
                             EmitPushVar(Ident^, True);
-                            Emit([Pointer(opPushArrayPop), Token2.Value]);
+                            Emit([Pointer(opPushArrayPopString), Pointer(CreateConstString(Token2.Value))]);
                             Tail;
                             FuncTail;
                           end;
@@ -8230,7 +8205,7 @@ var
             begin
               NextToken;
               Token := NextTokenExpected([tkIdent]);
-              Emit([Pointer(opPushArrayPop), Token.Value]);
+              Emit([Pointer(opPushArrayPopString), Pointer(CreateConstString(Token.Value))]);
             end;
         end;
       end;
@@ -8552,14 +8527,6 @@ var
           end;
           Emit([Pointer(opYield)]);
         end;
-      tkWait:
-        begin
-          NextToken;
-          NextTokenExpected([tkBracketOpen]);
-          ParseExpr;
-          NextTokenExpected([tkBracketClose]);
-          Emit([Pointer(opWait), Pointer(opWaiting)]);
-        end;
       tkColon:
         begin
           if not IsCase then
@@ -8728,7 +8695,6 @@ begin
   Self.VM.BinaryPtr := 0;
   Self.VM.IsPaused := False;
   Self.VM.IsDone := False;
-  Self.VM.WaitTime := 0;
   Self.VM.FramePtr := @Self.VM.Frame[0];
   Self.VM.StackPtr := PSEValue(@Self.VM.Stack[0]) + 8;
   Self.VM.FramePtr^.Stack := Self.VM.StackPtr;
@@ -8766,7 +8732,7 @@ begin
   {$endif}
   try
     Result := SENull;
-    if Self.VM.IsPaused or Self.VM.IsWaited or Self.VM.IsYielded then
+    if Self.VM.IsPaused or Self.VM.IsYielded then
     begin
       Stack := PSEValue(@Self.VM.Stack[0]) + 8;
       for I := 0 to Self.FuncScriptList.Count - 1 do
@@ -8784,7 +8750,6 @@ begin
       Self.VM.BinaryPtr := 0;
       Self.VM.IsPaused := False;
       Self.VM.IsDone := False;
-      Self.VM.WaitTime := 0;
       Self.VM.FramePtr := @Self.VM.Frame[0];
       Self.VM.StackPtr := PSEValue(@Self.VM.Stack[0]) + 8;
       Self.VM.FramePtr^.Stack := Self.VM.StackPtr;
