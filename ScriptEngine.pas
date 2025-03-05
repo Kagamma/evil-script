@@ -30,13 +30,13 @@ unit ScriptEngine;
 // enable this if you need json support
 {$define SE_HAS_JSON}
 // enable this if you want to include this in castle game engine's profiler report
-{.$define SE_PROFILER}
+{$define SE_PROFILER}
 // enable this if you dont need to store map's keys as (utf8)strings. It will be stored as shortstrings instead, which speed up map operations.
 {$define SE_MAP_SHORTSTRING}
 // enable this to replace FP's TDirectory with avk959's TGChainHashMap. It is a lot faster than TDirectory.
 // requires https://github.com/avk959/LGenerics
 // note: enable this will undef SE_MAP_SHORTSTRING, because this optimization is not necessary for TGChainHashMap
-{$define SE_MAP_AVK959}
+{.$define SE_MAP_AVK959}
 {$ifdef SE_MAP_AVK959}
   {$undef SE_MAP_SHORTSTRING}
   {$define TSEDictionary := TGChainHashMap}
@@ -412,7 +412,7 @@ type
   end;
   TSELineOfCodeList = specialize TList<TSELineOfCode>;
 
-  TSEConstMap = specialize TDictionary<String, TSEValue>;
+  TSEConstMap = specialize TSEDictionary<String, TSEValue>;
   TSEStack = TSEBinaryAncestor;
   TSEVarMap = specialize TSEDictionary<String, TSEValue>;
   TSEListStack = specialize TStack<TList>;
@@ -473,7 +473,7 @@ type
     ConstStrings: TStringList;
     SymbolList: TSESymbolList;
   end;
-  TSECacheMapAncestor = specialize TDictionary<String, TSECache>;
+  TSECacheMapAncestor = specialize TSEDictionary<String, TSECache>;
   TSECacheMap = class(TSECacheMapAncestor)
   public
     procedure ClearSingle(const AName: String);
@@ -941,7 +941,7 @@ type
     class function SEJSONStringify(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
   end;
 
-  TDynlibMap = specialize TDictionary<String, TLibHandle>;
+  TDynlibMap = specialize TSEDictionary<String, TLibHandle>;
 
 var
   DynlibMap: TDynlibMap;
@@ -5274,7 +5274,6 @@ begin
   Self.FuncNativeList.Capacity := 64;
   Self.FuncScriptList.Capacity := 64;
   Self.FuncImportList.Capacity := 64;
-  Self.ConstMap.Capacity := 64;
   Self.ScopeStack.Capacity := 16;
   Self.LineOfCodeList.Capacity := 1024;
   //
@@ -6439,7 +6438,7 @@ var
       Exit(tkVariable);
     if FindFunc(Ident) <> nil then
       Exit(tkFunction);
-    if Self.ConstMap.ContainsKey(Ident) then
+    if Self.ConstMap.{$ifdef SE_MAP_AVK959}Contains{$else}ContainsKey{$endif}(Ident) then
       Exit(tkConst);
     Exit(tkUnknown);
   end;
@@ -7755,7 +7754,7 @@ var
 
       for LibName in LibNames do
       begin
-        if DynlibMap.ContainsKey(LibName) then
+        if DynlibMap.{$ifdef SE_MAP_AVK959}Contains{$else}ContainsKey{$endif}(LibName) then
           Lib := DynlibMap[LibName]
         else
         begin
@@ -8826,7 +8825,7 @@ var
   FuncImportInfo: TSEFuncImportInfo;
   Lib: TLibHandle;
 begin
-  if DynlibMap.ContainsKey(LibName) then
+  if DynlibMap.{$ifdef SE_MAP_AVK959}Contains{$else}ContainsKey{$endif}(LibName) then
     Lib := DynlibMap[LibName]
   else
   begin
