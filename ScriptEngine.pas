@@ -31,8 +31,18 @@ unit ScriptEngine;
 {$define SE_HAS_JSON}
 // enable this if you want to include this in castle game engine's profiler report
 {.$define SE_PROFILER}
-// enable this if you dont need to store map's keys as (utf8)strings. It will be stored as shortstrings instead.
-{$define SE_FASTMAP}
+// enable this if you dont need to store map's keys as (utf8)strings. It will be stored as shortstrings instead, which speed up map operations.
+{$define SE_MAP_SHORTSTRING}
+// enable this to replace FP's TDirectory with avk959's TGChainHashMap. It is a lot faster than TDirectory.
+// requires https://github.com/avk959/LGenerics
+// note: enable this will undef SE_MAP_SHORTSTRING, because this optimization is not necessary for TGChainHashMap
+{.$define SE_MAP_AVK959}
+{$ifdef SE_MAP_AVK959}
+  {$undef SE_MAP_SHORTSTRING}
+  {$define TSEDictionary := TGChainHashMap}
+{$else}
+  {$define TSEDictionary := TDictionary}
+{$endif}
 {$align 16}
 {$packenum 4}
 
@@ -43,6 +53,9 @@ uses
   contnrs,
   {$ifdef SE_PROFILER}
   CastleTimeUtils,
+  {$endif}
+  {$ifdef SE_MAP_AVK959}
+  lghashmap,
   {$endif}
   base64,
   fpjson, jsonparser
@@ -241,7 +254,7 @@ type
   end;
 
   TSEValueList = specialize TList<TSEValue>;
-  TSEValueDict = specialize TDictionary<{$ifdef SE_FASTMAP}ShortString{$else}String{$endif}, TSEValue>;
+  TSEValueDict = specialize TSEDictionary<{$ifdef SE_MAP_SHORTSTRING}ShortString{$else}String{$endif}, TSEValue>;
   TSEValueMap = class
   private
     FIsValidArray: Boolean;
@@ -468,7 +481,7 @@ type
   TSECacheMap = class(TSECacheMapAncestor)
   public
     procedure ClearSingle(const AName: String);
-    procedure Clear; override;
+    procedure Clear;
   end;
 
   TSETokenKind = (
@@ -6543,6 +6556,8 @@ var
     OpInfoPrev3 := PeekAtPrevOpExpected(2, [opPushGlobalVar, opPushLocalVar]);
     if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) and (OpInfoPrev3 <> nil) then
     begin
+      if (OpInfoPrev1^.Binary <> Pointer(Self.Binary)) or (OpInfoPrev2^.Binary <> Pointer(Self.Binary)) or (OpInfoPrev3^.Binary <> Pointer(Self.Binary)) then
+        Exit;
       VarBase := Self.Binary[OpInfoPrev1^.Pos + 1];
       VarBasePush := Self.Binary[OpInfoPrev3^.Pos + 1];
       if VarBasePush <> VarBase then
@@ -6595,6 +6610,8 @@ var
           ]);
           if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
           begin
+            if (OpInfoPrev1^.Binary <> Pointer(Self.Binary)) or (OpInfoPrev2^.Binary <> Pointer(Self.Binary)) then
+              Exit;
             A := Self.Binary[OpInfoPrev1^.Pos + 1];
             if A.Kind <> sevkNumber then
               Exit;
@@ -6614,6 +6631,8 @@ var
             // TODO: Handle opPushArrayPop
             if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
             begin
+              if (OpInfoPrev1^.Binary <> Pointer(Self.Binary)) or (OpInfoPrev2^.Binary <> Pointer(Self.Binary)) then
+                Exit;
               A := Self.Binary[OpInfoPrev2^.Pos + 1];
               if A.Kind <> sevkNumber then
                 Exit;
@@ -6636,6 +6655,8 @@ var
           ]);
           if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
           begin
+            if (OpInfoPrev1^.Binary <> Pointer(Self.Binary)) or (OpInfoPrev2^.Binary <> Pointer(Self.Binary)) then
+              Exit;
             A := Self.Binary[OpInfoPrev1^.Pos + 1];
             if A.Kind <> sevkNumber then
               Exit;
@@ -6649,6 +6670,8 @@ var
             OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushConst]);
             if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
             begin
+              if (OpInfoPrev1^.Binary <> Pointer(Self.Binary)) or (OpInfoPrev2^.Binary <> Pointer(Self.Binary)) then
+                Exit;
               A := Self.Binary[OpInfoPrev2^.Pos + 1];
               if A.Kind <> sevkNumber then
                 Exit;
@@ -6671,6 +6694,8 @@ var
           ]);
           if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
           begin
+            if (OpInfoPrev1^.Binary <> Pointer(Self.Binary)) or (OpInfoPrev2^.Binary <> Pointer(Self.Binary)) then
+              Exit;
             A := Self.Binary[OpInfoPrev1^.Pos + 1];
             if A.Kind <> sevkNumber then
               Exit;
@@ -6703,6 +6728,8 @@ var
           OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushGlobalVar, opPushLocalVar]);
           if (OpInfoPrev1 <> nil) then
           begin
+            if (OpInfoPrev1^.Binary <> Pointer(Self.Binary)) then
+              Exit;
             if OpInfoPrev1^.Op = opPushLocalVar then
               P := Self.Binary[OpInfoPrev1^.Pos + 2].VarPointer
             else
