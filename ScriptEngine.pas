@@ -1214,8 +1214,6 @@ begin
       TSEValueMap(V.VarMap).Set2(I.VarString^, A);
     sevkNumber, sevkBoolean:
       TSEValueMap(V.VarMap).Set2(Round(I.VarNumber), A);
-    else
-      Exit;
   end;
 end;
 
@@ -4775,10 +4773,8 @@ begin
       {$ifdef SE_COMPUTED_GOTO}labelPushArrayPop{$else}opPushArrayPop{$endif}:
         begin
           A := @BinaryLocal[CodePtrLocal + 1];
-          case A^.Kind of
-            sevkNull:
-              A := Pop;
-          end;
+          if A^.Kind = sevkNull then
+            A := Pop;
           B := Pop;
           case B^.Kind of
             sevkString:
