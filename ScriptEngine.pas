@@ -30,7 +30,7 @@ unit ScriptEngine;
 // enable this if you need json support
 {$define SE_HAS_JSON}
 // enable this if you want to include this in castle game engine's profiler report
-{$define SE_PROFILER}
+{.$define SE_PROFILER}
 // enable this if you dont need to store map's keys as (utf8)strings. It will be stored as shortstrings instead, which speed up map operations.
 {$define SE_MAP_SHORTSTRING}
 // enable this to replace FP's TDirectory with avk959's TGChainHashMap. It is a lot faster than TDirectory.
