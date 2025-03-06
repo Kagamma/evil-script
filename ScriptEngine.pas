@@ -17,7 +17,7 @@ unit ScriptEngine;
   {$endif}
 {$endif}
 // enable this if you want to use libffi to handle dynamic function calls
-{$define SE_LIBFFI}
+{.$define SE_LIBFFI}
 {$if defined(CPU32) or defined(CPU64) or defined(SE_LIBFFI)}
   {$ifndef WASI}
     {$define SE_DYNLIBS}
@@ -3730,8 +3730,8 @@ var
   T: QWord;
 begin
   {$ifdef SE_LOG}
-  Writeln('[GC] Number of objects before cleaning: ', Self.FValueAvailStack.Count);
-  Writeln('[GC] Number of objects in object pool: ', Self.FObjects);
+  Writeln('[GC] Number of objects before cleaning: ', Self.FObjects);
+  Writeln('[GC] Number of objects in object pool: ', Self.FValueAvailStack.Count);
   T := GetTickCount64;
   {$endif}
   for I := 1 to Self.FValueList.Count - 1 do
@@ -3768,8 +3768,8 @@ begin
   end;
   Sweep;
   {$ifdef SE_LOG}
-  Writeln('[GC] Number of objects after cleaning: ', Self.FValueAvailStack.Count);
-  Writeln('[GC] Number of objects in object pool: ', Self.FObjects);
+  Writeln('[GC] Number of objects after cleaning: ', Self.FObjects);
+  Writeln('[GC] Number of objects in object pool: ', Self.FValueAvailStack.Count);
   Writeln('[GC] Time: ', GetTickCount64 - T, 'ms');
   {$endif}
 end;
