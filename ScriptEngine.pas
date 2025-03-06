@@ -1166,7 +1166,7 @@ end;
 function SEMapGet(constref V: TSEValue; constref I: Integer): TSEValue; inline; overload;
 begin
   try
-    Result := TSEValueMap(V.VarMap).Get2(I);
+    Result := TSEValueMap(V.VarMap).Items[I];
   except
     Result := SENull;
   end;
@@ -1175,7 +1175,7 @@ end;
 function SEMapGet(constref V: TSEValue; constref S: String): TSEValue; inline; overload;
 begin
   try
-    Result := TSEValueMap(V.VarMap).Get2(S);
+    Result := TSEValueMap(V.VarMap).Map[S];
   except
     Result := SENull;
   end;
@@ -1187,11 +1187,11 @@ begin
     case I.Kind of
       sevkString:
         begin
-          Result := TSEValueMap(V.VarMap).Get2(I.VarString^);
+          Result := TSEValueMap(V.VarMap).Map[I.VarString^];
         end;
       sevkNumber, sevkBoolean:
         begin
-          Result := TSEValueMap(V.VarMap).Get2(Round(I.VarNumber));
+          Result := TSEValueMap(V.VarMap).Items[Round(I.VarNumber)];
         end;
       else
         Exit(SENull);
