@@ -3716,7 +3716,7 @@ begin
   begin
     VM := VMList[I];
     P := @VM.Stack[0];
-    while P <= VM.StackPtr do
+    while P < VM.StackPtr do
     begin
       Mark(P);
       Inc(P);
@@ -4449,7 +4449,6 @@ begin
   StackPtrLocal := Self.StackPtr;
   BinaryPtrLocal := Self.BinaryPtr;
   BinaryLocal := Self.Binaries[Self.BinaryPtr].Ptr(0);
-  GC.CheckForGC;
 
   while True do
   try
@@ -4934,6 +4933,7 @@ begin
       {$ifdef SE_COMPUTED_GOTO}labelCallScript{$else}opCallScript{$endif}:
         begin
         CallScript:
+          GC.CheckForGC;
           ArgCount := Integer(BinaryLocal[CodePtrLocal + 2].VarPointer);
           FuncScriptInfo := Self.Parent.FuncScriptList.Ptr(Integer(BinaryLocal[CodePtrLocal + 1].VarPointer));
           Inc(Self.FramePtr);
@@ -4951,7 +4951,6 @@ begin
         end;
       {$ifdef SE_COMPUTED_GOTO}labelPopFrame{$else}opPopFrame{$endif}:
         begin
-          GC.CheckForGC;
           CodePtrLocal := Self.FramePtr^.Code;
           StackPtrLocal := Self.FramePtr^.Stack;
           BinaryPtrLocal := Self.FramePtr^.Binary;
@@ -5276,6 +5275,7 @@ begin
   Self.CodePtr := CodePtrLocal;
   Self.StackPtr := StackPtrLocal;
   Self.BinaryPtr := BinaryPtrLocal;
+  GC.CheckForGC;
 end;
 
 constructor TEvilC.Create;
