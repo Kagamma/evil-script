@@ -4980,7 +4980,10 @@ begin
           C := @BinaryLocal[CodePtrLocal + 3];
           if C^.Kind = sevkNull then
             C := Pop;
-          TSEValueMap(A^.VarMap).Items[Trunc(C^.VarNumber)] := B^;
+          if C^.Kind = sevkNumber then
+            TSEValueMap(A^.VarMap).Items[Trunc(C^.VarNumber)] := B^
+          else
+            TSEValueMap(A^.VarMap).Map.AddOrSetValue(C^.VarString^, B^);
           Inc(CodePtrLocal, 4);
           DispatchGoto;
         end;
