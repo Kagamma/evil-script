@@ -1,0 +1,19 @@
+var
+  t, f: Int64;
+
+function Fib(n: Integer): Int64;
+begin
+  if n < 2 then
+    Result := n
+  else
+    Result := Fib(n - 1) + Fib(n - 2);
+end;
+
+begin
+  t := GetTickCount;
+  f := Fib(36);
+
+  writeln;
+  writes('Time: ' + IntToStr(GetTickCount - t) + 'ms'#10);
+  writes('Fib(36): ' + IntToStr(f) + #10);
+end.

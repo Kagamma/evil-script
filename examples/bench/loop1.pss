@@ -1,0 +1,16 @@
+var
+  t, i, j: Int64;
+  total: Int64;
+
+begin
+  t := GetTickCount;
+  total := 0;
+
+  for i := 0 to 9999 do
+    for j := 0 to 9999 do
+      total := total + (i * j);
+
+  writeln;
+  writes('Time: ' + IntToStr(GetTickCount - t) + 'ms'#10);
+  writes('Total: ' + IntToStr(total) + #10);
+end.

@@ -1,0 +1,30 @@
+var
+  t: Int64;
+  last_prime, n, i: Integer;
+  is_prime: Boolean;
+
+begin
+  t := GetTickCount;
+  last_prime := 0;
+
+  for n := 3 to 1000000 do
+  begin
+    is_prime := True;
+
+    for i := 2 to Trunc(Sqrt(n)) do
+    begin
+      if (n mod i = 0) then
+      begin
+        is_prime := False;
+        Break;
+      end;
+    end;
+
+    if is_prime then
+      last_prime := n;
+  end;
+
+  writeln;
+  writes('Time: ' + IntToStr(GetTickCount - t) + 'ms'#10);
+  writes('Last prime found: ' + IntToStr(last_prime));
+end.

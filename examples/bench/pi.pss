@@ -1,0 +1,25 @@
+const
+  n = 100000000;
+var
+  t: Int64;
+  pi, denom: Double;
+  i, sgn: Integer;
+
+begin
+  t := GetTickCount;
+  pi := 0.0;
+  denom := 1.0;
+  sgn := 1;
+
+  for i := 0 to n - 1 do
+  begin
+    pi := pi + (sgn * (1.0 / denom));
+    denom := denom + 2.0;
+    sgn := -sgn;
+  end;
+
+  pi := 4.0 * pi;
+
+  writeln;
+  writes('Time: ' + IntToStr(GetTickCount - t) + 'ms'#10);
+end.
