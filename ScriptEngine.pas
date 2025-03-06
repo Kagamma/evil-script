@@ -17,7 +17,7 @@ unit ScriptEngine;
   {$endif}
 {$endif}
 // enable this if you want to use libffi to handle dynamic function calls
-{.$define SE_LIBFFI}
+{$define SE_LIBFFI}
 {$if defined(CPU32) or defined(CPU64) or defined(SE_LIBFFI)}
   {$ifndef WASI}
     {$define SE_DYNLIBS}
@@ -287,6 +287,7 @@ type
   TSEGarbageCollector = class
   private
     FAllocatedMem: Int64;
+    FObjects: Cardinal;
     FValueList: TSEGCValueList;
     FValueAvailStack: TSEGCValueAvailStack;
     FTicks: QWord;
@@ -3574,6 +3575,7 @@ begin
     Value.Lock := False;
     Self.FValueList[PValue^.Ref] := Value;
   end;
+  Inc(Self.FObjects);
 end;
 
 procedure TSEGarbageCollector.CheckForGCFast; inline;
@@ -3590,7 +3592,7 @@ var
   Ticks: QWord;
 begin
   Ticks := GetTickCount64 - Self.FTicks;
-  if (Ticks > SE_MEM_TIME) or ((Self.FValueList.Count + 100) div (Self.FValueAvailStack.Count + 100) > 2) then
+  if (Ticks > SE_MEM_TIME) or ((Self.FObjects + 100) div (Self.FValueAvailStack.Count + 100) > 2) then
   begin
     Self.GC;
     Self.FTicks := GetTickCount64;
@@ -3607,6 +3609,7 @@ var
     Value.Value.Kind := sevkNull;
     Self.FValueList[I] := Value;
     Self.FValueAvailStack.Push(I);
+    Dec(Self.FObjects);
   end;
 
 begin
@@ -3727,8 +3730,8 @@ var
   T: QWord;
 begin
   {$ifdef SE_LOG}
-  Writeln('[GC] Number of objects before cleaning: ', Self.FValueList.Count);
-  Writeln('[GC] Number of objects in object pool: ', Self.FValueAvailStack.Count);
+  Writeln('[GC] Number of objects before cleaning: ', Self.FValueAvailStack.Count);
+  Writeln('[GC] Number of objects in object pool: ', Self.FObjects);
   T := GetTickCount64;
   {$endif}
   for I := 1 to Self.FValueList.Count - 1 do
@@ -3765,8 +3768,8 @@ begin
   end;
   Sweep;
   {$ifdef SE_LOG}
-  Writeln('[GC] Number of objects after cleaning: ', Self.FValueList.Count);
-  Writeln('[GC] Number of objects in object pool: ', Self.FValueAvailStack.Count);
+  Writeln('[GC] Number of objects after cleaning: ', Self.FValueAvailStack.Count);
+  Writeln('[GC] Number of objects in object pool: ', Self.FObjects);
   Writeln('[GC] Time: ', GetTickCount64 - T, 'ms');
   {$endif}
 end;
