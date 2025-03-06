@@ -252,6 +252,7 @@ type
     function IsValidArray: Boolean; inline;
     procedure FromJSON(constref S: String);
     function ToJSON: String;
+    function ToString: String;
   end;
 
   TSEValueList = specialize TList<TSEValue>;
@@ -1402,6 +1403,11 @@ end;
 function TSEValueHelper.ToJSON: String;
 begin
   Result := TBuiltInFunction(nil).SEJSONStringify(nil, @Self, 1);
+end;
+
+function TSEValueHelper.ToString: String;
+begin
+  Result := SEValueToText(Self);
 end;
 
 class function TBuiltInFunction.SEBufferCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -4971,7 +4977,10 @@ begin
         begin
           A := GetVariable(BinaryLocal[CodePtrLocal + 1].VarPointer, BinaryLocal[CodePtrLocal + 2].VarPointer);
           B := Pop;
-          TSEValueMap(A^.VarMap).Items[Integer(BinaryLocal[CodePtrLocal + 3].VarPointer)] := B^;
+          C := @BinaryLocal[CodePtrLocal + 3];
+          if C^.Kind = sevkNull then
+            C := Pop;
+          TSEValueMap(A^.VarMap).Items[Trunc(C^.VarNumber)] := B^;
           Inc(CodePtrLocal, 4);
           DispatchGoto;
         end;
@@ -6439,9 +6448,9 @@ var
       Result := Emit([Pointer(opAssignGlobalArray), Ident.Addr, ArgCount]);
   end;
 
-  function EmitAssignArrayFast(const Ident: TSEIdent; const AValue: Integer): Integer; inline;
+  function EmitAssignArrayFast(const Ident: TSEIdent; const AValue: TSEValue): Integer; inline;
   begin
-    Result := Emit([Pointer(opAssignArrayFast), Pointer(Ident.Addr), GetVarFrame(Ident), Pointer(AValue)])
+    Result := Emit([Pointer(opAssignArrayFast), Pointer(Ident.Addr), GetVarFrame(Ident), AValue])
   end;
 
   function EmitAssignMapFast(const Ident: TSEIdent; const AValue: String): Integer; inline;
@@ -8256,10 +8265,13 @@ var
     ArgCount: Integer = 0;
     I, J,
     RewindStartAddr,
+    OpBinaryStart,
+    OpBinaryEnd,
     VarStartTokenPos,
     VarEndTokenPos: Integer;
-    AccessNumber: Integer;
+    AccessNumber: TSEValue;
     AccessString: String;
+    OpInfoPrev1: PSEOpcodeInfo;
   begin
     Ident := FindVar(Name);
     if Ident^.IsAssigned and Ident^.IsConst then
@@ -8293,8 +8305,23 @@ var
       PeekAtNextTokenExpected([tkSquareBracketOpen, tkDot]);
       if PeekAtNextToken.Kind = tkSquareBracketOpen then
       begin
+        AccessNumber := SENull;
         NextToken;
-        AccessNumber := StrToInt(NextTokenExpected([tkNumber]).Value);
+        OpBinaryStart := Self.OpcodeInfoList.Count;
+        ParseExpr;
+        OpBinaryEnd := Self.OpcodeInfoList.Count;
+        if (OpBinaryEnd - OpBinaryStart) = 1 then
+        begin
+          OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushConst]);
+          if (OpInfoPrev1 <> nil) then
+          begin
+            if (OpInfoPrev1^.Binary <> Pointer(Self.Binary)) then
+              Exit;
+            AccessNumber := Self.Binary[OpInfoPrev1^.Pos + 1];
+            Self.Binary.DeleteRange(Self.Binary.Count - OpInfoPrev1^.Size, OpInfoPrev1^.Size);
+            Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 1, 1);
+          end;
+        end;
         NextTokenExpected([tkSquareBracketClose]);
       end else
       begin
