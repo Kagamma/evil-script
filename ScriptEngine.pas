@@ -64,10 +64,8 @@ uses
   {$ifdef SE_STRING_UTF8},LazUTF8{$endif}{$ifdef SE_DYNLIBS}, dynlibs{$endif};
 
 const
-  // Maximum memory in bytes before GC starts acting aggressive
-  SE_MEM_CEIL = 1024 * 1024 * 2048;
   // Time in miliseconds before GC starts collecting memory
-  SE_MEM_TIME = 1000 * 60;
+  SE_MEM_TIME = 1000 * 30;
 
 type
   TSENumber = Double;
@@ -294,11 +292,11 @@ type
     FTicks: QWord;
     procedure Sweep;
   public
-    CeilMem: QWord;
     constructor Create;
     destructor Destroy; override;
     procedure AddToList(const PValue: PSEValue);
     procedure CheckForGC;
+    procedure CheckForGCFast;
     procedure GC;
     procedure AllocBuffer(const PValue: PSEValue; const Size: Integer);
     procedure AllocMap(const PValue: PSEValue);
@@ -3540,7 +3538,6 @@ begin
   Self.FValueAvailStack.Capacity := 4096;
   Self.FTicks := GetTickCount64;
   Self.FAllocatedMem := 0;
-  Self.CeilMem := SE_MEM_CEIL;
 end;
 
 destructor TSEGarbageCollector.Destroy;
@@ -3579,13 +3576,21 @@ begin
   end;
 end;
 
+procedure TSEGarbageCollector.CheckForGCFast; inline;
+begin
+  if GetTickCount64 - Self.FTicks > SE_MEM_TIME then
+  begin
+    Self.GC;
+    Self.FTicks := GetTickCount64;
+  end;
+end;
+
 procedure TSEGarbageCollector.CheckForGC; inline;
 var
   Ticks: QWord;
 begin
   Ticks := GetTickCount64 - Self.FTicks;
-  if (Ticks > SE_MEM_TIME) or (Self.FValueList.Count > $1FFFFFF) or
-    ((Self.FAllocatedMem > Self.CeilMem) and (Ticks > 1000 * 2)) then
+  if (Ticks > SE_MEM_TIME) or ((Self.FValueList.Count + 100) div (Self.FValueAvailStack.Count + 100) > 2) then
   begin
     Self.GC;
     Self.FTicks := GetTickCount64;
@@ -3605,10 +3610,6 @@ var
   end;
 
 begin
-  {$ifdef SE_LOG}
-  Writeln('[GC] Number of objects before cleaning: ', Self.FValueList.Count);
-  Writeln('[GC] Number of objects in object pool: ', Self.FValueAvailStack.Count);
-  {$endif}
   for I := Self.FValueList.Count - 1 downto 1 do
   begin
     Value := Self.FValueList[I];
@@ -3662,10 +3663,6 @@ begin
       end;
     end;
   end;
-  {$ifdef SE_LOG}
-  Writeln('[GC] Number of objects after cleaning: ', Self.FValueList.Count);
-  Writeln('[GC] Number of objects in object pool: ', Self.FValueAvailStack.Count);
-  {$endif}
 end;
 
 procedure TSEGarbageCollector.GC;
@@ -3727,7 +3724,13 @@ var
   Key: String;
   Cache: TSECache;
   Binary: TSEBinary;
+  T: QWord;
 begin
+  {$ifdef SE_LOG}
+  Writeln('[GC] Number of objects before cleaning: ', Self.FValueList.Count);
+  Writeln('[GC] Number of objects in object pool: ', Self.FValueAvailStack.Count);
+  T := GetTickCount64;
+  {$endif}
   for I := 1 to Self.FValueList.Count - 1 do
   begin
     Value := Self.FValueList[I];
@@ -3761,6 +3764,11 @@ begin
     Mark(@V);
   end;
   Sweep;
+  {$ifdef SE_LOG}
+  Writeln('[GC] Number of objects after cleaning: ', Self.FValueList.Count);
+  Writeln('[GC] Number of objects in object pool: ', Self.FValueAvailStack.Count);
+  Writeln('[GC] Time: ', GetTickCount64 - T, 'ms');
+  {$endif}
 end;
 
 procedure TSEGarbageCollector.AllocBuffer(const PValue: PSEValue; const Size: Integer);
@@ -4955,7 +4963,7 @@ begin
       {$ifdef SE_COMPUTED_GOTO}labelCallScript{$else}opCallScript{$endif}:
         begin
         CallScript:
-          GC.CheckForGC;
+          GC.CheckForGCFast;
           ArgCount := Integer(BinaryLocal[CodePtrLocal + 2].VarPointer);
           FuncScriptInfo := Self.Parent.FuncScriptList.Ptr(Integer(BinaryLocal[CodePtrLocal + 1].VarPointer));
           Inc(Self.FramePtr);
