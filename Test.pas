@@ -16,6 +16,7 @@ const
   CustomFunctionTest = 'writeln(hello(''Satania''))';
   CustomFunctionWithSelfTest = 'a = [ func: add, value: 1 ] writeln(a.func(3).value)';
   ReturnAnotherNativeFunction = 'f = return_another_native_function() writeln(f())';
+  CallFunction = 'a = 0 fn test(b) { a += b writeln(a) }';
   YieldTest = 'i = 0 while i < 3 { i = i + 1 yield }';
   FibTest = 'fn fib(n) { if n < 2 result = n else result = fib(n-1) + fib(n-2) } writeln(fib(36))';
   AssertTest = 'assert(false, "Assert triggered")';
@@ -143,6 +144,16 @@ begin
   SE.Exec;
 end;
 
+procedure CalFunctionTestRun;
+begin
+  Writeln('--- CalFunctionTestRun ---');
+  SE.Source := CallFunction;
+  SE.Exec; // Initialize global variables
+  SE.ExecFuncOnly('test', [2]); // 2
+  SE.ExecFuncOnly('test', [2]); // 4
+  SE.ExecFuncOnly('test', [1]); // 5
+end;
+
 procedure YieldTestRun;
 begin
   Writeln('--- YieldTestRun ---');
@@ -199,6 +210,7 @@ begin
   CustomFunctionTestRun;
   CustomFunctionWithSelfTestRun;
   ReturnAnotherNativeFunctionTestRun;
+  CalFunctionTestRun;
   YieldTestRun;
   FibTestRun;
   AssertTestRun;
