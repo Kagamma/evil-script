@@ -6,6 +6,50 @@ program evil;
 uses
   SysUtils, Classes, ScriptEngine;
 
+type
+  // Helper class to print stack track, including global variables
+  TSEStackTraceHandler = class
+    procedure PrintVariables(Message: String; StackTraceArray: TSEStackTraceSymbolArray);
+  end;
+
+procedure TSEStackTraceHandler.PrintVariables(Message: String; StackTraceArray: TSEStackTraceSymbolArray);
+
+  procedure PrintNode(const Root: Boolean; const StackNode: PSEStackTraceSymbol; const Spacing: String);
+  var
+    I, C: Integer;
+    S: String;
+  begin
+    // Do not show compiler's hidden variables
+    if (not Root) and (StackNode^.Name.IndexOf('___') = 0) then
+      Exit;
+    S := StackNode^.Value;
+    C := Length(S);
+    if C > 40 then
+    begin
+      SetLength(S, 40);
+      S := S + '...';
+    end;
+    if Root then
+      Writeln('--- ', StackNode^.Name, ' ---')
+    else
+      Writeln(Spacing, StackNode^.Name + ' (' + ValueKindNames[StackNode^.Kind] + '): ' + S);
+    C := Length(StackNode^.Childs);
+    if C > 0 then
+    begin
+      for I := 0 to C - 1 do
+        PrintNode(False, @StackNode^.Childs[I], Spacing + '  ');
+    end;
+  end;
+
+var
+  I: Integer;
+begin
+  for I := 0 to Length(StackTraceArray) - 1 do
+  begin
+    PrintNode(True, @StackTraceArray[I], '  ');
+  end;
+end;
+
 var
   SE: TScriptEngine;
   SL: TStrings;
@@ -41,6 +85,7 @@ begin
   SE.OptimizePeephole := IsO;
   SE.OptimizeConstantFolding := IsO;
   SE.OptimizeAsserts := IsA;
+  SE.StackTraceHandler := @TSEStackTraceHandler(nil).PrintVariables;
   SL := TStringList.Create;
   try
     try

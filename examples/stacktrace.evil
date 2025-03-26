@@ -1,0 +1,13 @@
+a = 6
+b = 'A string'
+
+fn test() {
+  c = [
+    field1: 5,
+    field2: [1, 2, 3]
+  ]
+  throw 'Test'
+}
+
+writeln('Print stack trace on unhandled exception')
+test()
