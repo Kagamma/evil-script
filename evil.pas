@@ -16,15 +16,14 @@ procedure TSEStackTraceHandler.PrintVariables(Message: String; StackTraceArray: 
 
   procedure PrintNode(const Root: Boolean; const StackNode: PSEStackTraceSymbol; const Spacing: String);
   var
-    I, C: Integer;
+    I: Integer;
     S: String;
   begin
     // Do not show compiler's hidden variables
     if (not Root) and (StackNode^.Name.IndexOf('___') = 0) then
       Exit;
     S := StackNode^.Value;
-    C := Length(S);
-    if C > 40 then
+    if Length(S) > 40 then
     begin
       SetLength(S, 40);
       S := S + '...';
@@ -33,12 +32,8 @@ procedure TSEStackTraceHandler.PrintVariables(Message: String; StackTraceArray: 
       Writeln('--- ', StackNode^.Name, ' ---')
     else
       Writeln(Spacing, StackNode^.Name + ' (' + ValueKindNames[StackNode^.Kind] + '): ' + S);
-    C := Length(StackNode^.Childs);
-    if C > 0 then
-    begin
-      for I := 0 to C - 1 do
-        PrintNode(False, @StackNode^.Childs[I], Spacing + '  ');
-    end;
+    for I := 0 to Length(StackNode^.Childs) - 1 do
+      PrintNode(False, @StackNode^.Childs[I], Spacing + '  ');
   end;
 
 var
