@@ -7,7 +7,7 @@ uses
   SysUtils, Classes, ScriptEngine;
 
 type
-  // Helper class to print stack track, including global variables
+  // Helper class to print stack trace, including global variables
   TSEStackTraceHandler = class
     procedure PrintVariables(Message: String; StackTraceArray: TSEStackTraceSymbolArray);
   end;
