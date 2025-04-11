@@ -11,6 +11,7 @@ unit ScriptEngine;
 // enable this if you want to handle UTF-8 strings (requires LCL)
 {.$define SE_STRING_UTF8}
 // use computed goto instead of case of
+// try-catch will not work without computed goto!
 {$ifndef AARCH64}
   {$ifndef WASI}
     {$define SE_COMPUTED_GOTO}
@@ -91,6 +92,9 @@ type
     opJumpUnconditional,
     opJumpEqualOrGreater2,
     opJumpEqualOrLesser2,
+
+    opJumpEqual1Rel,
+    opJumpUnconditionalRel,
 
     opOperatorInc,
 
@@ -180,16 +184,6 @@ type
 
   TSEFuncKind = (sefkNative, sefkScript, sefkImport);
 
-  PSEStackTraceSymbol = ^TSEStackTraceSymbol;
-  TSEStackTraceSymbol = record
-    Name,
-    Value: String;
-    Kind: TSEValueKind;
-    Childs: array of TSEStackTraceSymbol;
-  end;
-  TSEStackTraceSymbolArray = array of TSEStackTraceSymbol;
-  TSEStackTraceSymbolProc = procedure(Message: String; Nodes: TSEStackTraceSymbolArray) of object;
-
   PSEValue = ^TSEValue;
   TSEValue = record
     Ref: Cardinal;
@@ -233,17 +227,29 @@ type
         );
   end;
 
+  PSEStackTraceSymbol = ^TSEStackTraceSymbol;
+  TSEStackTraceSymbol = record
+    Name,
+    Value: String;
+    Kind: TSEValueKind;
+    Ref: PSEValue;
+    Childs: array of TSEStackTraceSymbol;
+  end;
+  TSEStackTraceSymbolArray = array of TSEStackTraceSymbol;
+  TSEStackTraceSymbolProc = procedure(Message: String; Nodes: TSEStackTraceSymbolArray) of object;
+
   TSEValueHelper = record helper for TSEValue
     procedure AllocBuffer(constref Size: Integer); inline;
     procedure AllocMap; inline;
     procedure AllocString(const S: String); inline;
-    procedure AllocPascalObject(const Obj: TObject; const IsManaged: Boolean = True); inline;
+    procedure AllocPascalObject(const Obj: TObject; const IsManaged: Boolean); inline;
     function GetValue(constref I: Integer): TSEValue; inline; overload;
     function GetValue(constref S: String): TSEValue; inline; overload;
     function GetValue(constref I: TSEValue): TSEValue; inline; overload;
     procedure SetValue(constref I: Integer; const A: TSEValue); inline; overload;
     procedure SetValue(constref S: String; const A: TSEValue); inline; overload;
     procedure SetValue(I: TSEValue; const A: TSEValue); inline; overload;
+    function ContainsKey(constref S: String): Boolean; inline; overload;
     procedure Lock; inline;
     procedure Unlock; inline;
     function Clone: TSEValue; inline;
@@ -302,7 +308,7 @@ type
     procedure AllocBuffer(const PValue: PSEValue; const Size: Integer);
     procedure AllocMap(const PValue: PSEValue);
     procedure AllocString(const PValue: PSEValue; const S: String);
-    procedure AllocPascalObject(const PValue: PSEValue; const Obj: TObject; const IsManaged: Boolean = True);
+    procedure AllocPascalObject(const PValue: PSEValue; const Obj: TObject; const IsManaged: Boolean);
     procedure Lock(const PValue: PSEValue);
     procedure Unlock(const PValue: PSEValue);
     property ValueList: TSEGCValueList read FValueList;
@@ -416,7 +422,7 @@ type
 
   TSEConstMap = specialize TSEDictionary<String, TSEValue>;
   TSEStack = TSEBinaryAncestor;
-  TSEVarMap = specialize TSEDictionary<String, TSEValue>;
+  TSEVarMap = TSEValue;
   TSEListStack = specialize TStack<TList>;
   TSEScopeStack = specialize TStack<Integer>;
   TSEIntegerList = specialize TList<Integer>;
@@ -583,6 +589,9 @@ const
     6, // opJumpEqualOrGreater2,
     6, // opJumpEqualOrLesser2,
 
+    3, // opJumpEqual1Rel,
+    2, // opJumpUnconditionalRel,
+
     4, // opOperatorInc,
 
     2, // opOperatorAdd0,
@@ -703,7 +712,7 @@ type
     CurrentFileList: TStrings;
     BinaryPos: Integer; // This is mainly for storing line of code for runtime
     Binary: TSEBinary; // Current working binary
-    constructor Create;
+    constructor Create(const StackSize: LongWord = 2048);
     destructor Destroy; override;
     procedure AddDefaultConsts;
     function GetIsPaused: Boolean;
@@ -849,6 +858,7 @@ type
     class function SEBufferToArrayF64(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 
     class function SETypeOf(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SEKindOf(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEWrite(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEWriteln(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SERandom(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -888,6 +898,7 @@ type
     class function SEStringInsert(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEStringDelete(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEStringConcat(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SEStringCompare(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEStringReplace(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEStringReplaceIgnoreCase(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEStringFormat(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -1337,7 +1348,7 @@ begin
   GC.AllocString(@Self, S);
 end;
 
-procedure TSEValueHelper.AllocPascalObject(const Obj: TObject; const IsManaged: Boolean = True); inline;
+procedure TSEValueHelper.AllocPascalObject(const Obj: TObject; const IsManaged: Boolean); inline;
 begin
   GC.AllocPascalObject(@Self, Obj, IsManaged);
 end;
@@ -1370,6 +1381,15 @@ end;
 procedure TSEValueHelper.SetValue(I: TSEValue; const A: TSEValue); inline; overload;
 begin
   SEMapSet(Self, I, A);
+end;
+
+function TSEValueHelper.ContainsKey(constref S: String): Boolean; inline; overload;
+begin
+  if Self.Kind <> sevkMap then
+    Exit(False);
+  if SEMapIsValidArray(Self) then
+    Exit(False);
+  Exit(TSEValueMap(Self.VarMap).Map.{$ifdef SE_MAP_AVK959}Contains{$else}ContainsKey{$endif}(S));
 end;
 
 procedure TSEValueHelper.Lock; inline;
@@ -1780,6 +1800,11 @@ begin
   end;
 end;
 
+class function TBuiltInFunction.SEKindOf(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+begin
+  Result := TSENumber(Integer(Args[0].Kind));
+end;
+
 class function TBuiltInFunction.SEWrite(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 var
   I: Integer;
@@ -1830,7 +1855,7 @@ begin
   EnterCriticalSection(CS);
   try
     try
-      Exit(ScriptVarMap[Args[0]])
+      Exit(SEMapGet(ScriptVarMap, Args[0].VarString^))
     except
       on E: Exception do
         Result := SENull;
@@ -1844,7 +1869,7 @@ class function TBuiltInFunction.SESet(const VM: TSEVM; const Args: PSEValue; con
 begin
   EnterCriticalSection(CS);
   try
-    ScriptVarMap.AddOrSetValue(Args[0].VarString^, Args[1]);
+    SEMapSet(ScriptVarMap, Args[0].VarString^, Args[1]);
     Result := SENull;
   finally
     LeaveCriticalSection(CS);
@@ -2084,6 +2109,11 @@ begin
   GC.AllocatedMem := GC.AllocatedMem - Length(Args[1].VarString^);
   Result.VarString^ := Args[1].VarString^ + Args[2].VarString^;
   GC.AllocatedMem := GC.AllocatedMem + Length(Args[1].VarString^);
+end;
+
+class function TBuiltInFunction.SEStringCompare(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+begin
+  Result := CompareStr(Args[0].VarString^, Args[1].VarString^);
 end;
 
 class function TBuiltInFunction.SEStringInsert(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -2634,6 +2664,7 @@ class function TBuiltInFunction.SEJSONParse(const VM: TSEVM; const Args: PSEValu
     Name: String;
   begin
     GC.AllocMap(@R);
+    TSEValueMap(R.VarMap).ToMap;
     for I := 0 to Data.Count - 1 do
     begin
       Name := TJSONObject(Data).Names[I];
@@ -2711,14 +2742,17 @@ class function TBuiltInFunction.SEJSONStringify(const VM: TSEVM; const Args: PSE
   procedure DecodeJSONArray(SB: TStringBuilder; const Map: TSEValue);
   var
     I: Integer = 0;
+    J: Integer = 0;
     V: TSEValue;
   begin
     SB.Append('[');
     for I := 0 to TSEValueMap(Map.VarMap).Count - 1 do
     begin
-      if (I > 0) then
-        SB.Append(',');
       V := SEMapGet(Map, I);
+      if V.Kind = sevkPascalObject then
+        continue;
+      if (J > 0) then
+        SB.Append(',');
       case V.Kind of
         sevkString:
           SB.Append('"' + StringToJSONString(V.VarString^) + '"');
@@ -2737,6 +2771,7 @@ class function TBuiltInFunction.SEJSONStringify(const VM: TSEVM; const Args: PSE
             raise Exception.Create(Format('Array element "%d" with type "%s" is not a valid JSON value!', [I, ValueKindNames[V.Kind]]))
           end;
       end;
+      Inc(J);
     end;
     SB.Append(']');
   end;
@@ -2750,10 +2785,12 @@ class function TBuiltInFunction.SEJSONStringify(const VM: TSEVM; const Args: PSE
     SB.Append('{');
     for Key in TSEValueMap(Map.VarMap).Map.Keys do
     begin
+      V := SEMapGet(Map, Key);
+      if V.Kind = sevkPascalObject then
+        continue;
       if (I > 0) then
         SB.Append(',');
       SB.Append('"' + StringToJSONString(Key) + '":');
-      V := SEMapGet(Map, Key);
       case V.Kind of
         sevkString:
           SB.Append('"' + StringToJSONString(V.VarString^) + '"');
@@ -2970,6 +3007,10 @@ begin
       R := (V1.VarFuncKind = V2.VarFuncKind) and (V1.VarFuncIndx = V2.VarFuncIndx);
     sevkNull:
       R := True;
+    sevkPascalObject:
+      R := V1.VarPascalObject^.Value = V2.VarPascalObject^.Value;
+    else
+      R := V1.VarPointer = V2.VarPointer;
   end else
   if (V1.Kind = sevkNumber) and (V2.Kind = sevkBoolean) then
     R := (V1.VarNumber <> 0) = V2
@@ -2989,6 +3030,10 @@ begin
       R := (V1.VarFuncKind <> V2.VarFuncKind) or (V1.VarFuncIndx <> V2.VarFuncIndx);
     sevkNull:
       R := False;
+    sevkPascalObject:
+      R := V1.VarPascalObject^.Value <> V2.VarPascalObject^.Value;
+    else
+      R := V1.VarPointer <> V2.VarPointer;
   end else
   if (V1.Kind = sevkNumber) and (V2.Kind = sevkBoolean) then
     R := (V1.VarNumber <> 0) <> V2
@@ -3052,6 +3097,8 @@ begin
       Result := (V1.VarFuncKind = V2.VarFuncKind) and (V1.VarFuncIndx = V2.VarFuncIndx);
     sevkNull:
       Result := True;
+    sevkPascalObject:
+      Result := V1.VarPascalObject^.Value = V2.VarPascalObject^.Value;
   end else
   if (V1.Kind = sevkNumber) and (V2.Kind = sevkBoolean) then
     Result := (V1.VarNumber <> 0) = V2
@@ -3071,6 +3118,8 @@ begin
       Result := (V1.VarFuncKind <> V2.VarFuncKind) or (V1.VarFuncIndx <> V2.VarFuncIndx);
     sevkNull:
       Result := False;
+    sevkPascalObject:
+      Result := V1.VarPascalObject^.Value <> V2.VarPascalObject^.Value;
   end else
   if (V1.Kind = sevkNumber) and (V2.Kind = sevkBoolean) then
     Result := (V1.VarNumber <> 0) <> V2
@@ -3352,10 +3401,12 @@ begin
       R := Boolean(Round(V1.VarNumber)) = Boolean(Round(V2.VarNumber));
     sevkString:
       R := V1.VarString^ = V2.VarString^;
-    sevkFunction:
-      R := (V1.VarFuncKind = V2.VarFuncKind) and (V1.VarFuncIndx = V2.VarFuncIndx);
     sevkNull:
       R := True;
+    sevkPascalObject:
+      R := V1.VarPascalObject^.Value = V2.VarPascalObject^.Value;
+    else
+      R := V1.VarPointer = V2.VarPointer;
   end else
     R := False;
 end;
@@ -3369,10 +3420,12 @@ begin
       R := Boolean(Round(V1.VarNumber)) <> Boolean(Round(V2.VarNumber));
     sevkString:
       R := V1.VarString^ <> V2.VarString^;
-    sevkFunction:
-      R := (V1.VarFuncKind <> V2.VarFuncKind) or (V1.VarFuncIndx <> V2.VarFuncIndx);
     sevkNull:
       R := False;
+    sevkPascalObject:
+      R := V1.VarPascalObject^.Value <> V2.VarPascalObject^.Value;
+    else
+      R := V1.VarPointer <> V2.VarPointer;
   end else
     R := True;
 end;
@@ -3762,10 +3815,7 @@ begin
       Mark(@V);
     end;
   end;
-  for V in ScriptVarMap.Values do
-  begin;
-    Mark(@V);
-  end;
+  Mark(@ScriptVarMap);
   Sweep;
   {$ifdef SE_LOG}
   Writeln('[GC] Number of objects after cleaning: ', Self.FObjects);
@@ -3807,7 +3857,7 @@ begin
   Self.AddToList(PValue);
 end;
 
-procedure  TSEGarbageCollector.AllocPascalObject(const PValue: PSEValue; const Obj: TObject; const IsManaged: Boolean = True);
+procedure  TSEGarbageCollector.AllocPascalObject(const PValue: PSEValue; const Obj: TObject; const IsManaged: Boolean);
 begin
   PValue^.Kind := sevkPascalObject;
   New(PValue^.VarPascalObject);
@@ -3821,7 +3871,7 @@ procedure TSEGarbageCollector.Lock(const PValue: PSEValue);
 var
   Value: TSEGCValue;
 begin
-  if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) then
+  if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) and (PValue^.Kind <> sevkPascalObject) then
     Exit;
   Value := Self.FValueList[PValue^.Ref];
   Value.Lock := True;
@@ -3832,7 +3882,7 @@ procedure TSEGarbageCollector.Unlock(const PValue: PSEValue);
 var
   Value: TSEGCValue;
 begin
-  if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) then
+  if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) and (PValue^.Kind <> sevkPascalObject) then
     Exit;
   Value := Self.FValueList[PValue^.Ref];
   Value.Lock := False;
@@ -3926,36 +3976,40 @@ var
 
   procedure PrintEvilScriptStackTrace(Message: String);
 
-    procedure AddChildNode(Node: PSEStackTraceSymbol; const AName: String; const AValue: TSEValue);
+    procedure AddChildNode(Node: PSEStackTraceSymbol; const AName: String; AValue: PSEValue);
     var
       I, C: Integer;
       Key: String;
+      V: TSEValue;
     begin
       C := Length(Node^.Childs) + 1;
       SetLength(Node^.Childs, C);
       Node := @Node^.Childs[C - 1];
       Node^.Name := AName;
-      Node^.Kind := AValue.Kind;
-      case AValue.Kind of
+      Node^.Kind := AValue^.Kind;
+      Node^.Ref := AValue;
+      case AValue^.Kind of
         sevkMap:
           begin
-            if SEMapIsValidArray(AValue) then
+            if SEMapIsValidArray(AValue^) then
             begin
-              for I := 0 to TSEValueMap(AValue.VarMap).Count - 1 do
+              for I := 0 to TSEValueMap(AValue^.VarMap).Count - 1 do
               begin
-                AddChildNode(Node, IntToStr(I), SEMapGet(AValue, I));
+                V := SEMapGet(AValue^, I);
+                AddChildNode(Node, IntToStr(I), @V);
               end;
             end else
             begin
-              for Key in TSEValueMap(AValue.VarMap).Map.Keys do
+              for Key in TSEValueMap(AValue^.VarMap).Map.Keys do
               begin
-                AddChildNode(Node, Key, SEMapGet(AValue, Key));
+                V := SEMapGet(AValue^, Key);
+                AddChildNode(Node, Key, @V);
               end;
             end;
           end;
         else
           begin
-            Node^.Value := SEValueToText(AValue);
+            Node^.Value := SEValueToText(AValue^);
           end;
       end;
     end;
@@ -3995,7 +4049,7 @@ var
           Nodes[NodeCount - 1].Name := CurFunc^.Name + ' [' + LineOfCode.Module + ':' + IntToStr(LineOfCode.Line) + ']';
           for J := 0 to CurFrame^.Func^.VarSymbols.Count - 1 do
           begin
-            AddChildNode(@Nodes[NodeCount - 1], CurFunc^.VarSymbols[J], CurFrame^.Stack[J - 1]);
+            AddChildNode(@Nodes[NodeCount - 1], CurFunc^.VarSymbols[J], @CurFrame^.Stack[J - 1]);
           end;
         end;
       end;
@@ -4005,7 +4059,7 @@ var
       Nodes[NodeCount - 1].Name := 'global_variables';
       for J := 0 to Self.Parent.GlobalVarSymbols.Count - 1 do
       begin
-        AddChildNode(@Nodes[NodeCount - 1], Self.Parent.GlobalVarSymbols[J], Self.Global[J]);
+        AddChildNode(@Nodes[NodeCount - 1], Self.Parent.GlobalVarSymbols[J], @Self.Global[J]);
       end;
       Self.Parent.StackTraceHandler(Message, Nodes);
     end;
@@ -4352,6 +4406,9 @@ label
   labelJumpEqualOrGreater2,
   labelJumpEqualOrLesser2,
 
+  labelJumpEqual1Rel,
+  labelJumpUnconditionalRel,
+
   labelOperatorInc,
 
   labelOperatorAdd0,
@@ -4423,6 +4480,9 @@ var
     @labelJumpEqualOrGreater2,
     @labelJumpEqualOrLesser2,
 
+    @labelJumpEqual1Rel,
+    @labelJumpUnconditionalRel,
+
     @labelOperatorInc,
 
     @labelOperatorAdd0,
@@ -4482,6 +4542,7 @@ begin
   StackPtrLocal := Self.StackPtr;
   BinaryPtrLocal := Self.BinaryPtr;
   BinaryLocal := Self.Binaries[Self.BinaryPtr].Ptr(0);
+  GC.CheckForGC;
 
   while True do
   try
@@ -4895,6 +4956,20 @@ begin
             Inc(CodePtrLocal, 6);
           DispatchGoto;
         end;
+      {$ifdef SE_COMPUTED_GOTO}labelJumpEqual1Rel{$else}opJumpEqual1Rel{$endif}:
+        begin
+          A := Pop;
+          if SEValueEqual(A^, BinaryLocal[CodePtrLocal + 1]) then
+            CodePtrLocal := CodePtrLocal + Integer(BinaryLocal[CodePtrLocal + 2].VarPointer)
+          else
+            Inc(CodePtrLocal, 3);
+          DispatchGoto;
+        end;
+      {$ifdef SE_COMPUTED_GOTO}labelJumpUnconditionalRel{$else}opJumpUnconditionalRel{$endif}:
+        begin
+          CodePtrLocal := CodePtrLocal + Integer(BinaryLocal[CodePtrLocal + 1].VarPointer);
+          DispatchGoto;
+        end;
       {$ifdef SE_COMPUTED_GOTO}labelCallRef{$else}opCallRef{$endif}:
         begin
           A := Pop; // Ref or map
@@ -5263,7 +5338,9 @@ begin
   except
     on E: Exception do
     begin
+      {$ifdef SE_COMPUTED_GOTO}
       if Self.TrapPtr < @Self.Trap[0] then
+      {$endif}
       begin
         if FramePtr = @Self.Frame[0] then
         begin
@@ -5292,6 +5369,7 @@ begin
           S := Format('Runtime error %s: "%s" at line %d (%s)', [E.ClassName, E.Message, LineOfCode.Line, LineOfCode.Module]);
         PrintEvilScriptStackTrace(S);
         raise Exception.Create(S);
+      {$ifndef SE_COMPUTED_GOTO}
       end else
       begin
         Self.FramePtr := Self.TrapPtr^.FramePtr;
@@ -5303,6 +5381,7 @@ begin
         Dec(Self.TrapPtr);
         DispatchGoto;
         Break;
+      {$endif}
       end;
     end;
   end;
@@ -5311,10 +5390,11 @@ begin
   Self.BinaryPtr := BinaryPtrLocal;
 end;
 
-constructor TEvilC.Create;
+constructor TEvilC.Create(const StackSize: LongWord = 2048);
 begin
-  inherited;
+  inherited Create;
   Self.VM := TSEVM.Create;
+  Self.VM.StackSize := StackSize;
   Self.GlobalVarSymbols := TStringList.Create;
   Self.TokenList := TSETokenList.Create;
   Self.OpcodeInfoList := TSEOpcodeInfoList.Create;
@@ -5385,6 +5465,7 @@ begin
   Self.RegisterFunc('buffer_to_array_f32', @TBuiltInFunction(nil).SEBufferToArrayF32, 2);
   Self.RegisterFunc('buffer_to_array_f64', @TBuiltInFunction(nil).SEBufferToArrayF64, 2);
   Self.RegisterFunc('typeof', @TBuiltInFunction(nil).SETypeOf, 1);
+  Self.RegisterFunc('kindof', @TBuiltInFunction(nil).SEKindOf, 1);
   Self.RegisterFunc('get', @TBuiltInFunction(nil).SEGet, 1);
   Self.RegisterFunc('set', @TBuiltInFunction(nil).SESet, 2);
   Self.RegisterFunc('string', @TBuiltInFunction(nil).SEString, 1);
@@ -5415,6 +5496,7 @@ begin
   Self.RegisterFunc('string_lowercase', @TBuiltInFunction(nil).SEStringLowerCase, 1);
   Self.RegisterFunc('string_find_regex', @TBuiltInFunction(nil).SEStringFindRegex, 2);
   Self.RegisterFunc('string_concat', @TBuiltInFunction(nil).SEStringConcat, 3);
+  Self.RegisterFunc('string_compare', @TBuiltInFunction(nil).SEStringCompare, 2);
   Self.RegisterFunc('string_trim', @TBuiltInFunction(nil).SEStringTrim, 1);
   Self.RegisterFunc('string_trim_left', @TBuiltInFunction(nil).SEStringTrimLeft, 1);
   Self.RegisterFunc('string_trim_right', @TBuiltInFunction(nil).SEStringTrimRight, 1);
@@ -5520,6 +5602,14 @@ begin
   Self.ConstMap.AddOrSetValue('false', False);
   Self.ConstMap.AddOrSetValue('null', SENull);
   Self.ConstMap.AddOrSetValue('os', GetOS);
+  Self.ConstMap.AddOrSetValue('sevkNumber', TSENumber(sevkNumber));
+  Self.ConstMap.AddOrSetValue('sevkString', TSENumber(sevkString));
+  Self.ConstMap.AddOrSetValue('sevkPascalObject', TSENumber(sevkPascalObject));
+  Self.ConstMap.AddOrSetValue('sevkBuffer', TSENumber(sevkBuffer));
+  Self.ConstMap.AddOrSetValue('sevkMap', TSENumber(sevkMap));
+  Self.ConstMap.AddOrSetValue('sevkNull', TSENumber(sevkNull));
+  Self.ConstMap.AddOrSetValue('sevkFunction', TSENumber(sevkFunction));
+  Self.ConstMap.AddOrSetValue('sevkPointer', TSENumber(sevkPointer));
 end;
 
 procedure TEvilC.SetSource(V: String);
@@ -6362,11 +6452,11 @@ var
 
   procedure Rewind(const StartAddr, Count: Integer); inline;
   var
-    Addr, I: Integer;
+    Addr, I, J: Integer;
   begin
     for I := 0 to Count - 1 do
     begin
-      Addr := StartAddr + I;
+      Addr := StartAddr;
       Self.Binary.Add(Self.Binary[Addr]);
     end;
     Self.Binary.DeleteRange(StartAddr, Count);
@@ -7422,15 +7512,15 @@ var
     if PeekAtNextToken.Kind = tkQuestion then
     begin
       NextToken;
-      JumpExpr2 := Emit([Pointer(opJumpEqual1), False, Pointer(0)]);
+      JumpExpr2 := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]);
       ParseExpr;
       NextTokenExpected([tkColon]);
-      JumpEnd := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
+      JumpEnd := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
       Expr2Block := Self.Binary.Count;
       ParseExpr;
       EndBlock := Self.Binary.Count;
-      Patch(JumpExpr2 - 1, Pointer(Expr2Block));
-      Patch(JumpEnd - 1, Pointer(EndBlock));
+      Patch(JumpExpr2 - 1, Pointer(Expr2Block) - (JumpExpr2 - 3));
+      Patch(JumpEnd - 1, Pointer(EndBlock) - (JumpEnd - 2));
     end;
   end;
 
@@ -8800,7 +8890,6 @@ begin
       Self.Parse;
     end;
     Self.VM.Exec;
-    GC.CheckForGC;
     Exit(Self.VM.Global[0]);
   finally
     {$ifdef SE_PROFILER}
@@ -8840,7 +8929,7 @@ begin
     if Name = Self.FuncScriptList[I].Name then
     begin
       Self.VM.BinaryPtr := Self.FuncScriptList[I].BinaryPos;
-      Self.VM.StackPtr := Self.VM.StackPtr + Self.FuncScriptList[I].VarCount + 1;
+      Self.VM.StackPtr := Self.VM.StackPtr + Self.FuncScriptList[I].ArgCount + Self.FuncScriptList[I].VarCount;
       Break;
     end;
   end;
@@ -8852,7 +8941,6 @@ begin
       Stack[I] := Args[I];
     end;
     Self.VM.Exec;
-    GC.CheckForGC;
     Exit(Stack[-1]);
   end else
     Exit(SENull);
@@ -8878,7 +8966,6 @@ begin
           Self.VM.Exec;
           if Self.VM.IsDone then
           begin
-            GC.CheckForGC;
             Exit(Stack[-1]);
           end;
         end;
@@ -8899,7 +8986,7 @@ begin
         if Name = Self.FuncScriptList[I].Name then
         begin
           Self.VM.BinaryPtr := Self.FuncScriptList[I].BinaryPos;
-          Self.VM.StackPtr := Self.VM.StackPtr + Self.FuncScriptList[I].VarCount + 1;
+          Self.VM.StackPtr := Self.VM.StackPtr + Self.FuncScriptList[I].ArgCount + Self.FuncScriptList[I].VarCount;
           Break;
         end;
       end;
@@ -8913,7 +9000,6 @@ begin
         Self.VM.Exec;
         if Self.VM.IsDone then
         begin
-          GC.CheckForGC;
           Exit(Stack[-1]);
         end;
       end;
@@ -9153,13 +9239,12 @@ initialization
   SENull.Ref := 0;
   SENull.VarNumber := Floor(0);
   DynlibMap := TDynlibMap.Create;
-  ScriptVarMap := TSEVarMap.Create;
   GC := TSEGarbageCollector.Create;
   ScriptCacheMap := TSECacheMap.Create;
+  GC.AllocMap(@ScriptVarMap);
 
 finalization
   DoneCriticalSection(CS);
-  ScriptVarMap.Free;
   DynlibMap.Free;
   if VMList <> nil then
     VMList.Free;
