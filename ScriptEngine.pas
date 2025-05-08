@@ -6452,11 +6452,11 @@ var
 
   procedure Rewind(const StartAddr, Count: Integer); inline;
   var
-    Addr, I, J: Integer;
+    Addr, I: Integer;
   begin
     for I := 0 to Count - 1 do
     begin
-      Addr := StartAddr;
+      Addr := StartAddr + I;
       Self.Binary.Add(Self.Binary[Addr]);
     end;
     Self.Binary.DeleteRange(StartAddr, Count);
