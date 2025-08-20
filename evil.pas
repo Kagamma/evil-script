@@ -12,11 +12,6 @@ type
     procedure PrintVariables(Message: String; StackTraceArray: TSEStackTraceSymbolArray);
   end;
 
-  TCustomFunctions = class
-  public
-    class function SESleep(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-  end;
-
 procedure TSEStackTraceHandler.PrintVariables(Message: String; StackTraceArray: TSEStackTraceSymbolArray);
 
   procedure PrintNode(const Root: Boolean; const StackNode: PSEStackTraceSymbol; const Spacing: String);
@@ -48,11 +43,6 @@ begin
   begin
     PrintNode(True, @StackTraceArray[I], '  ');
   end;
-end;
-
-class function TCustomFunctions.SESleep(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-begin
-  Sleep(Round(Args[0].VarNumber));
 end;
 
 var
@@ -87,7 +77,6 @@ begin
       end;
   end;
   SE := TScriptEngine.Create;
-  SE.RegisterFunc('sleep', @TCustomFunctions(nil).SESleep, 1);
   SE.OptimizePeephole := IsO;
   SE.OptimizeConstantFolding := IsO;
   SE.OptimizeAsserts := IsA;
