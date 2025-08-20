@@ -15,6 +15,11 @@ t2 = thread_create(hello, 'Delphi')
 t3 = thread_create(hello, 'Oxygene')
 t4 = thread_create(hello, 'Oberon')
 
+thread_start(t1)
+thread_start(t2)
+thread_start(t3)
+thread_start(t4)
+
 // Wait until all the threads terminated
 while (thread_is_terminated(t1) || thread_is_terminated(t2) || thread_is_terminated(t3) || thread_is_terminated(t4)) {}
 

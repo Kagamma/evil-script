@@ -977,6 +977,7 @@ type
     class function SEChar(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEOrd(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEThreadCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SEThreadStart(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEThreadIsTerminated(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEThreadSuspend(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEThreadResume(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -2484,6 +2485,12 @@ begin
   SEValidateType(@Args[0], sevkFunction, 1, {$I %CURRENTROUTINE%});
   Thread := TSEVMThread.Create(VM, Args[0], @Args[1], ArgCount - 1);
   GC.AllocPascalObject(@Result, Thread, True);
+end;
+
+class function TBuiltInFunction.SEThreadStart(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+begin
+  SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
+  TSEVMThread(Args[0].VarPascalObject^.Value).Start;
 end;
 
 class function TBuiltInFunction.SEThreadIsTerminated(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -5670,7 +5677,7 @@ begin
   Self.VM.BinaryPtr := Self.VM.Parent.FuncScriptList[Fn.VarFuncIndx].BinaryPos;
   Self.IsDone := False;
 
-  inherited Create(False);
+  inherited Create(True);
   Self.FreeOnTerminate := False;
 end;
 
@@ -5873,6 +5880,7 @@ begin
   Self.RegisterFunc('chr', @TBuiltInFunction(nil).SEChar, 1);
   Self.RegisterFunc('ord', @TBuiltInFunction(nil).SEOrd, 1);
   Self.RegisterFunc('thread_create', @TBuiltInFunction(nil).SEThreadCreate, -1);
+  Self.RegisterFunc('thread_start', @TBuiltInFunction(nil).SEThreadStart, 1);
   Self.RegisterFunc('thread_is_terminated', @TBuiltInFunction(nil).SEThreadIsTerminated, 1);
   Self.RegisterFunc('thread_suspend', @TBuiltInFunction(nil).SEThreadSuspend, 1);
   Self.RegisterFunc('thread_resume', @TBuiltInFunction(nil).SEThreadResume, 1);
