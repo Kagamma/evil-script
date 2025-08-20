@@ -1,0 +1,40 @@
+a = 0
+b = 0
+
+fn inc_a() {
+  a = 0
+  for i = 0 to 100000000
+    a += 1
+}
+
+fn inc_b() {
+  b = 0
+  for i = 0 to 100000000
+    b += 1
+}
+
+writeln('Without multi-threading')
+
+t = ticks()
+
+inc_a()
+inc_b()       
+
+writeln('a = ${a}, b = ${b}')
+writeln('Finished in ', ticks() - t, ' ms.')
+writeln('')
+
+writeln('With multi-threading')
+
+t = ticks()
+
+t1 = thread_create(inc_a)     
+t2 = thread_create(inc_b)
+
+thread_start(t1)
+thread_start(t2)
+
+while thread_is_terminated(t1) || thread_is_terminated(t2) { sleep(32) }
+                     
+writeln('a = ${a}, b = ${b}')
+writeln('Finished in ', ticks() - t, ' ms.')
