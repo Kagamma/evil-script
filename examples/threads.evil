@@ -1,0 +1,21 @@
+a = 0
+
+fn hello(name) {
+  a += 1 // We can read/write global variables. Do not try to access local variables in nested functions!
+  writeln(a, ': Hello, ', name, '!')
+  sleep(1000)
+}
+
+writeln('Spawn 4 threads. Each thread takes 1000 ms to finish, so the total time should be slightly more than ~1000 ms, not 4 times 1000 ms!')
+
+t = ticks()
+
+t1 = thread_create(hello, 'FreePascal')
+t2 = thread_create(hello, 'Delphi')
+t3 = thread_create(hello, 'Oxygene')
+t4 = thread_create(hello, 'Oberon')
+
+// Wait until all the threads terminated
+while (thread_is_terminated(t1) || thread_is_terminated(t2) || thread_is_terminated(t3) || thread_is_terminated(t4)) {}
+
+writeln('Finished in ', ticks() - t, ' ms.')

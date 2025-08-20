@@ -4,6 +4,8 @@ v2 = 2
 fn test() {
   v1 = 101
   local v2 = 102
+  writeln(v1) // should be 101
+  writeln(v2) // shoule be 102
 }
 
 test()

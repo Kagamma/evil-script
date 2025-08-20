@@ -441,6 +441,34 @@ type
   end;
   PSETrap = ^TSETrap;
 
+  PSEValueArrayManagedRecord = ^TSEValueArrayManagedRecord;
+  TSEValueArrayManagedRecord = record
+    Data: PSEValue;
+    Size: Cardinal;
+    RefCount: Integer;
+  end;
+
+  TSEValueArrayManaged = record
+    Value: PSEValueArrayManagedRecord;
+    procedure Alloc(const ASize: Cardinal);
+    function Ref: TSEValueArrayManaged;
+    procedure Free;
+  end;
+
+  PSEBinariesManagedRecord = ^TSEBinariesManagedRecord;
+  TSEBinariesManagedRecord = record
+    Data: array of TSEBinary;
+    Size: Cardinal;
+    RefCount: Integer;
+  end;
+
+  TSEBinariesManaged = record
+    Value: PSEBinariesManagedRecord;
+    procedure Alloc(const ASize: Cardinal);
+    function Ref: TSEBinariesManaged;
+    procedure Free;
+  end;
+
   TEvilC = class;
   TSEVM = class
   public
@@ -448,7 +476,7 @@ type
     IsPaused: Boolean;
     IsDone: Boolean;
     IsYielded: Boolean;
-    Global: array of TSEValue;
+    Global: TSEValueArrayManaged;
     Stack: array of TSEValue;
     Frame: array of TSEFrame;
     Trap: array of TSETrap;
@@ -462,7 +490,7 @@ type
     FrameSize: Integer;
     TrapSize: Integer;
     Parent: TEvilC;
-    Binaries: array of TSEBinary;
+    Binaries: TSEBinariesManaged;
     SymbolList: TSESymbolList;
 
     constructor Create;
@@ -470,6 +498,18 @@ type
     procedure Reset;
     procedure Exec;
     procedure BinaryClear;
+    function Fork(const Args: PSEValue; const ArgCount: Cardinal): TSEVM;
+    procedure ModifyGlobalVariable(const AName: String; const AValue: TSEValue);
+  end;
+
+  TSEVMThread = class(TThread)
+  private
+    VM: TSEVM;
+  public
+    IsDone: Boolean;
+    constructor Create(const AVM: TSEVM; const Fn: TSEValue; const Args: PSEValue; const ArgCount: Cardinal);
+    destructor Destroy; override;
+    procedure Execute; override;
   end;
 
   TSECache = record
@@ -935,6 +975,10 @@ type
     class function SEAssert(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEChar(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEOrd(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SEThreadCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SEThreadIsTerminated(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SEThreadSuspend(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SEThreadResume(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEFileReadText(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEFileReadBinary(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEFileWriteText(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -1251,9 +1295,9 @@ var
 begin
   SB := TStringBuilder.Create;
   try
-    for J := 0 to Length(VM.Binaries) - 1 do
+    for J := 0 to VM.Binaries.Value^.Size - 1 do
     begin
-      Binary := VM.Binaries[J];
+      Binary := VM.Binaries.Value^.Data[J];
       if J > 0 then
         SB.Append(Format('--- @%d (%s) ---'#10, [J - 1, Binary.BinaryName]))
       else
@@ -2424,6 +2468,35 @@ end;
 class function TBuiltInFunction.SEOrd(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 begin
   Result := Byte(Args[0].VarString^[1]);
+end;
+
+class function TBuiltInFunction.SEThreadCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+var
+  Thread: TSEVMThread;
+begin
+  SEValidateType(@Args[0], sevkFunction, 1, {$I %CURRENTROUTINE%});
+  Thread := TSEVMThread.Create(VM, Args[0], @Args[1], ArgCount - 1);
+  GC.AllocPascalObject(@Result, Thread, True);
+end;
+
+class function TBuiltInFunction.SEThreadIsTerminated(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+begin
+  SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
+  Result := not TSEVMThread(Args[0].VarPascalObject^.Value).IsDone;
+end;
+
+class function TBuiltInFunction.SEThreadSuspend(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+begin
+  SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
+  if not TSEVMThread(Args[0].VarPascalObject^.Value).Terminated then
+    TSEVMThread(Args[0].VarPascalObject^.Value).Suspend;
+end;
+
+class function TBuiltInFunction.SEThreadResume(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+begin
+  SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
+  if not TSEVMThread(Args[0].VarPascalObject^.Value).Terminated then
+    TSEVMThread(Args[0].VarPascalObject^.Value).Resume;
 end;
 
 class function TBuiltInFunction.SEFileReadText(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -3782,121 +3855,304 @@ var
   Binary: TSEBinary;
   T: QWord;
 begin
-  {$ifdef SE_LOG}
-  Writeln('[GC] Number of objects before cleaning: ', Self.FObjects);
-  Writeln('[GC] Number of objects in object pool: ', Self.FValueAvailStack.Count);
-  T := GetTickCount64;
-  {$endif}
-  for I := 1 to Self.FValueList.Count - 1 do
-  begin
-    Value := Self.FValueList[I];
-    Value.Garbage := not Value.Lock;
-    Self.FValueList[I] := Value;
+  EnterCriticalSection(CS);
+  try
+    {$ifdef SE_LOG}
+    Writeln('[GC] Number of objects before cleaning: ', Self.FObjects);
+    Writeln('[GC] Number of objects in object pool: ', Self.FValueAvailStack.Count);
+    T := GetTickCount64;
+    {$endif}
+    for I := 1 to Self.FValueList.Count - 1 do
+    begin
+      Value := Self.FValueList[I];
+      Value.Garbage := not Value.Lock;
+      Self.FValueList[I] := Value;
+    end;
+    for I := 0 to VMList.Count - 1 do
+    begin
+      VM := VMList[I];
+      P := @VM.Stack[0];
+      while P <= VM.StackPtr do
+      begin
+        Mark(P);
+        Inc(P);
+      end;
+      P := @VM.Global.Value^.Data[0];
+      P2 := @VM.Global.Value^.Data[VM.Global.Value^.Size - 1];
+      while P <= P2 do
+      begin
+        Mark(P);
+        Inc(P);
+      end;
+      for Key in VM.Parent.ConstMap.Keys do
+      begin
+        V := VM.Parent.ConstMap[Key];
+        Mark(@V);
+      end;
+    end;
+    Mark(@ScriptVarMap);
+    Sweep;
+    {$ifdef SE_LOG}
+    Writeln('[GC] Number of objects after cleaning: ', Self.FObjects);
+    Writeln('[GC] Number of objects in object pool: ', Self.FValueAvailStack.Count);
+    Writeln('[GC] Time: ', GetTickCount64 - T, 'ms');
+    {$endif}
+  finally
+    LeaveCriticalSection(CS);
   end;
-  for I := 0 to VMList.Count - 1 do
-  begin
-    VM := VMList[I];
-    P := @VM.Stack[0];
-    while P <= VM.StackPtr do
-    begin
-      Mark(P);
-      Inc(P);
-    end;
-    P := @VM.Global[0];
-    P2 := @VM.Global[High(VM.Global)];
-    while P <= P2 do
-    begin
-      Mark(P);
-      Inc(P);
-    end;
-    for Key in VM.Parent.ConstMap.Keys do
-    begin
-      V := VM.Parent.ConstMap[Key];
-      Mark(@V);
-    end;
-  end;
-  Mark(@ScriptVarMap);
-  Sweep;
-  {$ifdef SE_LOG}
-  Writeln('[GC] Number of objects after cleaning: ', Self.FObjects);
-  Writeln('[GC] Number of objects in object pool: ', Self.FValueAvailStack.Count);
-  Writeln('[GC] Time: ', GetTickCount64 - T, 'ms');
-  {$endif}
 end;
 
 procedure TSEGarbageCollector.AllocBuffer(const PValue: PSEValue; const Size: Integer);
 begin
-  PValue^.Kind := sevkBuffer;
-  New(PValue^.VarBuffer);
-  if Size > 0 then
-  begin
-    GetMem(PValue^.VarBuffer^.Base, Size + 16);
-    PValue^.VarBuffer^.Ptr := Pointer(QWord(PValue^.VarBuffer^.Base) + QWord(PValue^.VarBuffer^.Base) mod 16);
-  end else
-  begin
-    PValue^.VarBuffer^.Base := nil;
-    PValue^.VarBuffer^.Ptr := nil;
+  EnterCriticalSection(CS);
+  try
+    PValue^.Kind := sevkBuffer;
+    New(PValue^.VarBuffer);
+    if Size > 0 then
+    begin
+      GetMem(PValue^.VarBuffer^.Base, Size + 16);
+      PValue^.VarBuffer^.Ptr := Pointer(QWord(PValue^.VarBuffer^.Base) + QWord(PValue^.VarBuffer^.Base) mod 16);
+    end else
+    begin
+      PValue^.VarBuffer^.Base := nil;
+      PValue^.VarBuffer^.Ptr := nil;
+    end;
+    Self.FAllocatedMem := Self.FAllocatedMem + Size;
+    Self.AddToList(PValue);
+  finally
+    LeaveCriticalSection(CS);
   end;
-  Self.FAllocatedMem := Self.FAllocatedMem + Size;
-  Self.AddToList(PValue);
 end;
 
 procedure TSEGarbageCollector.AllocMap(const PValue: PSEValue);
 begin
-  PValue^.Kind := sevkMap;
-  PValue^.VarMap := TSEValueMap.Create;
-  Self.AddToList(PValue);
+  EnterCriticalSection(CS);
+  try
+    PValue^.Kind := sevkMap;
+    PValue^.VarMap := TSEValueMap.Create;
+    Self.AddToList(PValue);
+  finally
+    LeaveCriticalSection(CS);
+  end;
 end;
 
 procedure TSEGarbageCollector.AllocString(const PValue: PSEValue; const S: String);
 begin
-  PValue^.Kind := sevkString;
-  New(PValue^.VarString);
-  PValue^.VarString^ := S;
-  Self.FAllocatedMem := Self.FAllocatedMem + Length(PValue^.VarString^);
-  Self.AddToList(PValue);
+  EnterCriticalSection(CS);
+  try
+    PValue^.Kind := sevkString;
+    New(PValue^.VarString);
+    PValue^.VarString^ := S;
+    Self.FAllocatedMem := Self.FAllocatedMem + Length(PValue^.VarString^);
+    Self.AddToList(PValue);
+  finally
+    LeaveCriticalSection(CS);
+  end;
 end;
 
 procedure  TSEGarbageCollector.AllocPascalObject(const PValue: PSEValue; const Obj: TObject; const IsManaged: Boolean);
 begin
-  PValue^.Kind := sevkPascalObject;
-  New(PValue^.VarPascalObject);
-  PValue^.VarPascalObject^.Value := Obj;
-  PValue^.VarPascalObject^.IsManaged := IsManaged;
-  Self.FAllocatedMem := Self.FAllocatedMem + SizeOf(TSEPascalObject);
-  Self.AddToList(PValue);
+  EnterCriticalSection(CS);
+  try
+    PValue^.Kind := sevkPascalObject;
+    New(PValue^.VarPascalObject);
+    PValue^.VarPascalObject^.Value := Obj;
+    PValue^.VarPascalObject^.IsManaged := IsManaged;
+    Self.FAllocatedMem := Self.FAllocatedMem + SizeOf(TSEPascalObject);
+    Self.AddToList(PValue);
+  finally
+    LeaveCriticalSection(CS);
+  end;
 end;
 
 procedure TSEGarbageCollector.Lock(const PValue: PSEValue);
 var
   Value: TSEGCValue;
 begin
-  if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) and (PValue^.Kind <> sevkPascalObject) then
-    Exit;
-  Value := Self.FValueList[PValue^.Ref];
-  Value.Lock := True;
-  Self.FValueList[PValue^.Ref] := Value;
+  EnterCriticalSection(CS);
+  try
+    if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) and (PValue^.Kind <> sevkPascalObject) then
+      Exit;
+    Value := Self.FValueList[PValue^.Ref];
+    Value.Lock := True;
+    Self.FValueList[PValue^.Ref] := Value;
+  finally
+    LeaveCriticalSection(CS);
+  end;
 end;
 
 procedure TSEGarbageCollector.Unlock(const PValue: PSEValue);
 var
   Value: TSEGCValue;
 begin
-  if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) and (PValue^.Kind <> sevkPascalObject) then
-    Exit;
-  Value := Self.FValueList[PValue^.Ref];
-  Value.Lock := False;
-  Self.FValueList[PValue^.Ref] := Value;
+  EnterCriticalSection(CS);
+  try
+    if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) and (PValue^.Kind <> sevkPascalObject) then
+      Exit;
+    Value := Self.FValueList[PValue^.Ref];
+    Value.Lock := False;
+    Self.FValueList[PValue^.Ref] := Value;
+  finally
+    LeaveCriticalSection(CS);
+  end;
 end;
 
 procedure TSEVM.BinaryClear;
 var
   I: Integer;
 begin
-  for I := 0 to High(Self.Binaries) do
-    FreeAndNil(Self.Binaries[I]);
-  SetLength(Self.Binaries, 1);
-  Self.Binaries[0] := TSEBinary.Create;
+  for I := 0 to Self.Binaries.Value^.Size - 1 do
+    FreeAndNil(Self.Binaries.Value^.Data[I]);
+  Self.Binaries.Alloc(1);
+  Self.Binaries.Value^.Data[0] := TSEBinary.Create;
+end;
+
+function TSEVM.Fork(const Args: PSEValue; const ArgCount: Cardinal): TSEVM;
+var
+  StackCount: Cardinal;
+  I: Integer;
+begin
+  Result := TSEVM.Create;
+  Result.StackSize := Self.StackSize;
+  Result.Parent := Self.Parent;
+  Result.IsPaused := False;
+  Result.IsDone := False;
+  Result.Parent.IsDone := False;
+  Result.Global := Self.Global.Ref;
+  SetLength(Result.Stack, Result.StackSize);
+  SetLength(Result.Frame, Result.FrameSize);
+  SetLength(Result.Trap, Result.TrapSize);
+  Result.StackPtr := PSEValue(@Result.Stack[0]) + 8;
+  Result.FramePtr := @Result.Frame[0];
+  Result.FramePtr^.Stack := Result.StackPtr;
+  Result.TrapPtr := @Result.Trap[0];
+  Dec(Result.TrapPtr);
+  //
+  Result.Binaries := Self.Binaries.Ref;
+  //
+  for I := 0 to ArgCount - 1 do
+  begin
+    Result.StackPtr[0] := Args[I];
+    Inc(Result.StackPtr);
+  end;
+  // TODO: Optimize these later
+  Result.SymbolList.AddRange(Self.SymbolList);
+  Result.ConstStrings.AddStrings(Self.ConstStrings);
+end;
+
+procedure TSEVM.ModifyGlobalVariable(const AName: String; const AValue: TSEValue);
+var
+  I: Integer;
+begin
+  for I := 0 to Self.Parent.GlobalVarSymbols.Count - 1 do
+  begin
+    if Self.Parent.GlobalVarSymbols[I] = AName then
+    begin
+      Self.Global.Value^.Data[I] := AValue;
+      break;
+    end;
+  end;
+end;
+
+procedure TSEValueArrayManaged.Alloc(const ASize: Cardinal);
+begin
+  if Self.Value = nil then
+  begin
+    New(Self.Value);
+    Self.Value^.Data := GetMem(SizeOf(TSEValue) * ASize);
+    Self.Value^.RefCount := 1;
+    Self.Value^.Size := ASize;
+  end else
+  begin
+    ReAllocMem(Self.Value^.Data, SizeOf(TSEValue) * ASize);
+    Self.Value^.Size := ASize;
+  end;
+end;
+
+function TSEValueArrayManaged.Ref: TSEValueArrayManaged;
+begin
+  Inc(Self.Value^.RefCount);
+  Result := Self;
+end;
+
+procedure TSEValueArrayManaged.Free;
+begin
+  Dec(Self.Value^.RefCount);
+  Assert(Self.Value^.RefCount >= 0, 'RefCount < 0');
+  if Self.Value^.RefCount = 0 then
+  begin
+    FreeMem(Self.Value^.Data);
+    Dispose(Self.Value);
+  end;
+end;
+
+procedure TSEBinariesManaged.Alloc(const ASize: Cardinal);
+begin
+  if Self.Value = nil then
+  begin
+    New(Self.Value);
+    SetLength(Self.Value^.Data, ASize);
+    Self.Value^.RefCount := 1;
+    Self.Value^.Size := ASize;
+  end else
+  begin
+    SetLength(Self.Value^.Data, ASize);
+    Self.Value^.Size := ASize;
+  end;
+end;
+
+function TSEBinariesManaged.Ref: TSEBinariesManaged;
+begin
+  Inc(Self.Value^.RefCount);
+  Result := Self;
+end;
+
+procedure TSEBinariesManaged.Free;
+var
+  I: Integer;
+begin
+  Dec(Self.Value^.RefCount);
+  Assert(Self.Value^.RefCount >= 0, 'RefCount < 0');
+  if Self.Value^.RefCount = 0 then
+  begin
+    for I := 0 to High(Self.Value^.Data) do
+      Self.Value^.Data[I].Free;
+    Dispose(Self.Value);
+  end;
+end;
+
+function DumpCallStack: String;
+var
+  I: Longint;
+  prevbp: Pointer;
+  CallerFrame,
+  CallerAddress,
+  bp: Pointer;
+const
+  MaxDepth = 20;
+begin
+  Result := '';
+  bp := get_frame;
+  // This trick skip SendCallstack item
+  // bp:= get_caller_frame(get_frame);
+  try
+    prevbp := bp - 1;
+    I := 0;
+    while bp > prevbp do begin
+       CallerAddress := get_caller_addr(bp);
+       CallerFrame := get_caller_frame(bp);
+       if (CallerAddress = nil) then
+         Break;
+       Result := Result + BackTraceStrFunc(CallerAddress) + LineEnding;
+       Inc(I);
+       if (I >= MaxDepth) or (CallerFrame = nil) then
+         Break;
+       prevbp := bp;
+       bp := CallerFrame;
+    end;
+  except
+    { prevent endless dump if an exception occured }
+  end;
 end;
 
 constructor TSEVM.Create;
@@ -3913,23 +4169,25 @@ begin
   if GC = nil then
     GC := TSEGarbageCollector.Create;
   VMList.Add(Self);
-  SetLength(Self.Binaries, 1);
-  Self.Binaries[0] := TSEBinary.Create;
+  Self.Binaries := Default(TSEBinariesManaged);
+  Self.Binaries.Alloc(1);
+  Self.Binaries.Value^.Data[0] := TSEBinary.Create;
   Self.ConstStrings := TStringList.Create;
   Self.ConstStrings.Capacity := 64;
   Self.SymbolList := TSESymbolList.Create;
+  Self.Global := Default(TSEValueArrayManaged);
 end;
 
 destructor TSEVM.Destroy;
 var
   I: Integer;
 begin
-  for I := 0 to High(Self.Binaries) do
-    FreeAndNil(Self.Binaries[I]);
+  Self.Binaries.Free;
   if VMList <> nil then
-    VMList.Delete(VMList.IndexOf(Self));
+    VMList.Remove(Self);
   Self.ConstStrings.Free;
   Self.SymbolList.Free;
+  Self.Global.Free;
   inherited;
 end;
 
@@ -3940,11 +4198,11 @@ begin
   Self.IsPaused := False;
   Self.IsDone := False;
   Self.Parent.IsDone := False;
-  SetLength(Self.Global, Self.Parent.GlobalVarCount);
+  Self.Global.Alloc(Self.Parent.GlobalVarCount);
   SetLength(Self.Stack, Self.StackSize);
   SetLength(Self.Frame, Self.FrameSize);
   SetLength(Self.Trap, Self.TrapSize);
-  FillChar(Self.Global[0], Length(Self.Global) * SizeOf(TSEValue), 0);
+  FillChar(Self.Global.Value^.Data[0], Self.Parent.GlobalVarCount * SizeOf(TSEValue), 0);
   FillChar(Self.Stack[0], Length(Self.Stack) * SizeOf(TSEValue), 0);
   FillChar(Self.Frame[0], Length(Self.Frame) * SizeOf(TSEFrame), 0);
   FillChar(Self.Trap[0], Length(Self.Trap) * SizeOf(TSETrap), 0);
@@ -3968,6 +4226,7 @@ var
   I, J, ArgCountStack, ArgCount, ArgSize, DeepCount: Integer;
   This: TSEValue;
   CodePtrLocal: Integer;
+  GlobalLocal: PSEValue;
   StackPtrLocal: PSEValue;
   BinaryPtrLocal: Integer;
   BinaryLocal: PSEValue;
@@ -4059,7 +4318,7 @@ var
       Nodes[NodeCount - 1].Name := 'global_variables';
       for J := 0 to Self.Parent.GlobalVarSymbols.Count - 1 do
       begin
-        AddChildNode(@Nodes[NodeCount - 1], Self.Parent.GlobalVarSymbols[J], @Self.Global[J]);
+        AddChildNode(@Nodes[NodeCount - 1], Self.Parent.GlobalVarSymbols[J], @Self.Global.Value^.Data[J]);
       end;
       Self.Parent.StackTraceHandler(Message, Nodes);
     end;
@@ -4079,7 +4338,7 @@ var
 
   procedure AssignGlobal(const I: Pointer; const Value: PSEValue); inline;
   begin
-    Self.Global[Integer(I)] := Value^;
+    GlobalLocal[Integer(I)] := Value^;
   end;
 
   procedure AssignLocal(const I: Pointer; const F: Integer; const Value: PSEValue); inline;
@@ -4089,7 +4348,7 @@ var
 
   function GetGlobal(const I: Pointer): PSEValue; inline;
   begin
-    Exit(@Self.Global[Integer(I)]);
+    Exit(@GlobalLocal[Integer(I)]);
   end;
 
   function GetLocal(const I: Pointer; const F: Integer): PSEValue; inline;
@@ -4099,7 +4358,7 @@ var
 
   function GetGlobalInt(const I: Integer): PSEValue; inline;
   begin
-    Exit(@Self.Global[Integer(I)]);
+    Exit(@GlobalLocal[Integer(I)]);
   end;
 
   function GetLocalInt(const I, F: Integer): PSEValue; inline;
@@ -4109,7 +4368,7 @@ var
 
   procedure AssignGlobalInt(const I: Integer; const Value: PSEValue); inline;
   begin
-    Self.Global[Integer(I)] := Value^;
+    GlobalLocal[Integer(I)] := Value^;
   end;
 
   procedure AssignLocalInt(const I: Integer; const F: Integer; const Value: PSEValue); inline;
@@ -4120,7 +4379,7 @@ var
   function GetVariable(const I: Pointer; const F: Pointer): PSEValue; inline;
   begin
     if F = Pointer(SE_REG_GLOBAL) then
-      Exit(@Self.Global[Integer(I)])
+      Exit(@GlobalLocal[Integer(I)])
     else
       Exit((Self.FramePtr - Integer(F))^.Stack + Integer(I));
   end;
@@ -4128,7 +4387,7 @@ var
   procedure SetVariable(const I: Pointer; const F: Pointer; const Value: PSEValue); inline;
   begin
     if F = Pointer(SE_REG_GLOBAL) then
-      Self.Global[Integer(I)] := Value^
+      GlobalLocal[Integer(I)] := Value^
     else
       ((Self.FramePtr - Integer(F))^.Stack + Integer(I))^ := Value^;
   end;
@@ -4538,10 +4797,11 @@ begin
   Self.IsYielded := False;
   if Self.IsPaused then
     Exit;
+  GlobalLocal := @Self.Global.Value^.Data[0];
   CodePtrLocal := Self.CodePtr;
   StackPtrLocal := Self.StackPtr;
   BinaryPtrLocal := Self.BinaryPtr;
-  BinaryLocal := Self.Binaries[Self.BinaryPtr].Ptr(0);
+  BinaryLocal := Self.Binaries.Value^.Data[Self.BinaryPtr].Ptr(0);
   GC.CheckForGC;
 
   while True do
@@ -5023,7 +5283,7 @@ begin
       {$ifdef SE_COMPUTED_GOTO}labelCallNative{$else}opCallNative{$endif}:
         begin
         CallNative:
-          GC.CheckForGCFast;
+         // GC.CheckForGCFast;
           FuncNativeInfo := Self.Parent.FuncNativeList.Ptr(Integer(BinaryLocal[CodePtrLocal + 1].VarPointer));
           ArgCount := Integer(BinaryLocal[CodePtrLocal + 2].VarPointer);
           StackPtrLocal := StackPtrLocal - ArgCount;
@@ -5042,7 +5302,6 @@ begin
       {$ifdef SE_COMPUTED_GOTO}labelCallScript{$else}opCallScript{$endif}:
         begin
         CallScript:
-          GC.CheckForGCFast;
           ArgCount := Integer(BinaryLocal[CodePtrLocal + 2].VarPointer);
           FuncScriptInfo := Self.Parent.FuncScriptList.Ptr(Integer(BinaryLocal[CodePtrLocal + 1].VarPointer));
           Inc(Self.FramePtr);
@@ -5055,7 +5314,7 @@ begin
           StackPtrLocal := StackPtrLocal + FuncScriptInfo^.VarCount;
           CodePtrLocal := 0;
           BinaryPtrLocal := FuncScriptInfo^.BinaryPos;
-          BinaryLocal := Self.Binaries[BinaryPtrLocal].Ptr(0);
+          BinaryLocal := Self.Binaries.Value^.Data[BinaryPtrLocal].Ptr(0);
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelPopFrame{$else}opPopFrame{$endif}:
@@ -5063,7 +5322,7 @@ begin
           CodePtrLocal := Self.FramePtr^.Code;
           StackPtrLocal := Self.FramePtr^.Stack;
           BinaryPtrLocal := Self.FramePtr^.Binary;
-          BinaryLocal := Self.Binaries[BinaryPtrLocal].Ptr(0);
+          BinaryLocal := Self.Binaries.Value^.Data[BinaryPtrLocal].Ptr(0);
           Dec(Self.FramePtr);
           if Self.FramePtr < @Self.Frame[0] then
             Break;
@@ -5311,7 +5570,7 @@ begin
             CodePtrLocal := Self.TrapPtr^.CatchCode;
             StackPtrLocal := Self.TrapPtr^.Stack;
             BinaryPtrLocal := Self.TrapPtr^.Binary;
-            BinaryLocal := Self.Binaries[BinaryPtrLocal].Ptr(0);
+            BinaryLocal := Self.Binaries.Value^.Data[BinaryPtrLocal].Ptr(0);
             Push(TV);
             Dec(Self.TrapPtr);
           end;
@@ -5338,6 +5597,7 @@ begin
   except
     on E: Exception do
     begin
+      S := #10 + DumpCallStack + #10;
       {$ifdef SE_COMPUTED_GOTO}
       if Self.TrapPtr < @Self.Trap[0] then
       {$endif}
@@ -5364,9 +5624,9 @@ begin
           end;
         end;
         if LineOfCode.Module = '' then
-          S := Format('Runtime error %s: "%s" at line %d', [E.ClassName, E.Message, LineOfCode.Line])
+          S := S + Format('Runtime error %s: "%s" at line %d', [E.ClassName, E.Message, LineOfCode.Line])
         else
-          S := Format('Runtime error %s: "%s" at line %d (%s)', [E.ClassName, E.Message, LineOfCode.Line, LineOfCode.Module]);
+          S := S + Format('Runtime error %s: "%s" at line %d (%s)', [E.ClassName, E.Message, LineOfCode.Line, LineOfCode.Module]);
         PrintEvilScriptStackTrace(S);
         raise Exception.Create(S);
       {$ifndef SE_COMPUTED_GOTO}
@@ -5376,7 +5636,7 @@ begin
         CodePtrLocal := Self.TrapPtr^.CatchCode;
         StackPtrLocal := Self.TrapPtr^.Stack;
         BinaryPtrLocal := Self.FramePtr^.Binary;
-        BinaryLocal := Self.Binaries[BinaryPtrLocal].Ptr(0);
+        BinaryLocal := Self.Binaries.Value^.Data[BinaryPtrLocal].Ptr(0);
         Push(E.Message);
         Dec(Self.TrapPtr);
         DispatchGoto;
@@ -5388,6 +5648,37 @@ begin
   Self.CodePtr := CodePtrLocal;
   Self.StackPtr := StackPtrLocal;
   Self.BinaryPtr := BinaryPtrLocal;
+end;
+
+constructor TSEVMThread.Create(const AVM: TSEVM; const Fn: TSEValue; const Args: PSEValue; const ArgCount: Cardinal);
+begin
+  Self.VM := AVM.Fork(Args, ArgCount);
+  Self.VM.BinaryPtr := Self.VM.Parent.FuncScriptList[Fn.VarFuncIndx].BinaryPos;
+  Self.IsDone := False;
+
+  inherited Create(False);
+  Self.FreeOnTerminate := False;
+end;
+
+procedure TSEVMThread.Execute;
+begin
+  try
+    try
+      Self.VM.Exec;
+    except
+      on E: Exception do
+        Writeln('[TSEVMThread] ', E.Message);
+    end;
+  finally
+    Self.IsDone := True;
+    Self.Terminate;
+  end;
+end;
+
+destructor TSEVMThread.Destroy;
+begin
+  Self.VM.Free;
+  inherited;
 end;
 
 constructor TEvilC.Create(const StackSize: LongWord = 2048);
@@ -5566,6 +5857,10 @@ begin
   Self.RegisterFunc('assert', @TBuiltInFunction(nil).SEAssert, 2);
   Self.RegisterFunc('chr', @TBuiltInFunction(nil).SEChar, 1);
   Self.RegisterFunc('ord', @TBuiltInFunction(nil).SEOrd, 1);
+  Self.RegisterFunc('thread_create', @TBuiltInFunction(nil).SEThreadCreate, -1);
+  Self.RegisterFunc('thread_is_terminated', @TBuiltInFunction(nil).SEThreadIsTerminated, 1);
+  Self.RegisterFunc('thread_suspend', @TBuiltInFunction(nil).SEThreadSuspend, 1);
+  Self.RegisterFunc('thread_resume', @TBuiltInFunction(nil).SEThreadResume, 1);
   Self.AddDefaultConsts;
   Self.Source := '';
 end;
@@ -5602,14 +5897,14 @@ begin
   Self.ConstMap.AddOrSetValue('false', False);
   Self.ConstMap.AddOrSetValue('null', SENull);
   Self.ConstMap.AddOrSetValue('os', GetOS);
-  Self.ConstMap.AddOrSetValue('sevkNumber', TSENumber(sevkNumber));
-  Self.ConstMap.AddOrSetValue('sevkString', TSENumber(sevkString));
-  Self.ConstMap.AddOrSetValue('sevkPascalObject', TSENumber(sevkPascalObject));
-  Self.ConstMap.AddOrSetValue('sevkBuffer', TSENumber(sevkBuffer));
-  Self.ConstMap.AddOrSetValue('sevkMap', TSENumber(sevkMap));
-  Self.ConstMap.AddOrSetValue('sevkNull', TSENumber(sevkNull));
-  Self.ConstMap.AddOrSetValue('sevkFunction', TSENumber(sevkFunction));
-  Self.ConstMap.AddOrSetValue('sevkPointer', TSENumber(sevkPointer));
+  Self.ConstMap.AddOrSetValue('sevkNumber', TSENumber(Integer(sevkNumber)));
+  Self.ConstMap.AddOrSetValue('sevkString', TSENumber(Integer(sevkString)));
+  Self.ConstMap.AddOrSetValue('sevkPascalObject', TSENumber(Integer(sevkPascalObject)));
+  Self.ConstMap.AddOrSetValue('sevkBuffer', TSENumber(Integer(sevkBuffer)));
+  Self.ConstMap.AddOrSetValue('sevkMap', TSENumber(Integer(sevkMap)));
+  Self.ConstMap.AddOrSetValue('sevkNull', TSENumber(Integer(sevkNull)));
+  Self.ConstMap.AddOrSetValue('sevkFunction', TSENumber(Integer(sevkFunction)));
+  Self.ConstMap.AddOrSetValue('sevkPointer', TSENumber(Integer(sevkPointer)));
 end;
 
 procedure TEvilC.SetSource(V: String);
@@ -5681,6 +5976,23 @@ var
       raise Exception.CreateFmt('[%s:%d:%d] %s', [N, Ln, Col, S]);
   end;
 
+  procedure FindFiles(const Path: String; out Files: TStringDynArray);
+  var
+    Info: TSearchRec;
+  begin
+    if FindFirst (Path, faAnyFile, Info)=0 then
+    begin
+      repeat
+        if (Info.Attr and faDirectory) <> faDirectory then
+        begin
+          SetLength(Files, Length(Files) + 1);
+          Files[Length(Files) - 1] := Info.Name;
+        end;
+      until FindNext(info) <> 0;
+      FindClose(Info);
+    end;
+  end;
+
 var
   IsLoopDone: Boolean;
   PrevQuote: Char;
@@ -5688,6 +6000,7 @@ var
   IsPathFound: Boolean;
   S,
   Path: String;
+  Paths: TStringDynArray;
   IsString: Boolean = False;
 
 label
@@ -6083,6 +6396,7 @@ begin
                 if not (C in ['''', '"']) then
                   Error('Expected "''"');
 
+                SetLength(Paths, 0);
                 Token.Value := Trim(Token.Value);
                 Path := Token.Value;
                 if not FileExists(Path) then
@@ -6097,18 +6411,37 @@ begin
                       break;
                     end;
                   end;
-                  if not IsPathFound then
-                    Error(Format('"%s" not found', [Path]));
                 end;
-                if Self.IncludeList.IndexOf(Path) < 0 then
+                if not IsPathFound then
                 begin
-                  BackupSource := Source;
-                  Self.CurrentFileList.Add(Path);
-                  ReadFileAsString(Path, FSource);
-                  Self.Lex(True);
-                  Self.CurrentFileList.Pop;
-                  FSource := BackupSource;
-                  Self.IncludeList.Add(Path);
+                  // Try to search for the whole directory instead
+                  if Path.IndexOf('*') >= 0 then
+                  begin
+                    FindFiles(Path, Paths);
+                    if Length(Paths) > 0 then
+                      IsPathFound := True;
+                  end;
+                end;
+                //
+                if not IsPathFound then
+                  Error(Format('"%s" not found', [Path]));
+                if Length(Paths) = 0 then
+                begin
+                  SetLength(Paths, 1);
+                  Paths[0] := Path;
+                end;
+                for Path in Paths do
+                begin
+                  if Self.IncludeList.IndexOf(Path) < 0 then
+                  begin
+                    BackupSource := Source;
+                    Self.CurrentFileList.Add(Path);
+                    ReadFileAsString(Path, FSource);
+                    Self.Lex(True);
+                    Self.CurrentFileList.Pop;
+                    FSource := BackupSource;
+                    Self.IncludeList.Add(Path);
+                  end;
                 end;
                 C := PeekAtNextChar;
                 continue;
@@ -7755,7 +8088,7 @@ var
       FuncIndex := Self.FuncScriptList.Count - 1;
       ParentBinary := Self.Binary;
       ParentBinaryPos := Self.BinaryPos;
-      Self.Binary := Self.VM.Binaries[Func^.BinaryPos];
+      Self.Binary := Self.VM.Binaries.Value^.Data[Func^.BinaryPos];
       Self.BinaryPos := Func^.BinaryPos;
       if PeekAtNextToken.Kind = tkEqual then
         Self.TokenList.Insert(Pos + 1, TokenResult);
@@ -8816,7 +9149,7 @@ begin
   ReturnStack := TSEListStack.Create;
   try
     Self.LocalVarCountList.Clear;
-    Self.Binary := Self.VM.Binaries[0];
+    Self.Binary := Self.VM.Binaries.Value^.Data[0];
     repeat
       ParseBlock;
     until PeekAtNextToken.Kind = tkEOF;
@@ -8890,7 +9223,7 @@ begin
       Self.Parse;
     end;
     Self.VM.Exec;
-    Exit(Self.VM.Global[0]);
+    Exit(Self.VM.Global.Value^.Data[0]);
   finally
     {$ifdef SE_PROFILER}
     FrameProfiler.Stop('TEvilC.Exec');
@@ -9037,11 +9370,11 @@ function TEvilC.RegisterScriptFunc(const Name: String; const ArgCount: Integer):
 var
   FuncScriptInfo: TSEFuncScriptInfo;
 begin
-  SetLength(Self.VM.Binaries, Length(Self.VM.Binaries) + 1);
-  Self.VM.Binaries[Length(Self.VM.Binaries) - 1] := TSEBinary.Create;
-  Self.VM.Binaries[Length(Self.VM.Binaries) - 1].BinaryName := Name;
+  Self.VM.Binaries.Alloc(Self.VM.Binaries.Value^.Size + 1);
+  Self.VM.Binaries.Value^.Data[Self.VM.Binaries.Value^.Size - 1] := TSEBinary.Create;
+  Self.VM.Binaries.Value^.Data[Self.VM.Binaries.Value^.Size - 1].BinaryName := Name;
   FuncScriptInfo.ArgCount := ArgCount;
-  FuncScriptInfo.BinaryPos := Length(Self.VM.Binaries) - 1;
+  FuncScriptInfo.BinaryPos := Self.VM.Binaries.Value^.Size - 1;
   FuncScriptInfo.Name := Name;
   FuncScriptInfo.VarSymbols := TStringList.Create;
   Self.FuncScriptList.Add(FuncScriptInfo);
@@ -9096,12 +9429,12 @@ begin
   Result.GlobalVarSymbols := TStringList.Create;
   Result.ConstStrings := TStringList.Create;
   Result.SymbolList := TSESymbolList.Create;
-  SetLength(Result.Binaries, Length(Self.VM.Binaries));
-  for J := 0 to High(Self.VM.Binaries) do
+  SetLength(Result.Binaries, Self.VM.Binaries.Value^.Size);
+  for J := 0 to Self.VM.Binaries.Value^.Size - 1 do
   begin
     BackupBinary := TSEBinary.Create;
     Result.Binaries[J] := BackupBinary;
-    SrcBinary := Self.VM.Binaries[J];
+    SrcBinary := Self.VM.Binaries.Value^.Data[J];
     for I := 0 to SrcBinary.Count - 1 do
     begin
       BackupBinary.Add(SrcBinary[I]);
@@ -9143,12 +9476,14 @@ begin
   Self.GlobalVarSymbols.Clear;
   for I := 0 to Cache.LineOfCodeList.Count - 1 do
     Self.LineOfCodeList.Add(Cache.LineOfCodeList[I]);
-  SetLength(Self.VM.Binaries, Length(Cache.Binaries));
+  for I := 0 to Self.VM.Binaries.Value^.Size - 1 do
+    Self.VM.Binaries.Value^.Data[I].Free;
+  Self.VM.Binaries.Alloc(Length(Cache.Binaries));
   for I := 0 to High(Cache.Binaries) do
   begin
     BackupBinary := Cache.Binaries[I];
     DstBinary := TSEBinary.Create;
-    Self.VM.Binaries[I] := DstBinary;
+    Self.VM.Binaries.Value^.Data[I] := DstBinary;
     for J := 0 to BackupBinary.Count - 1 do
       DstBinary.Add(BackupBinary[J]);
   end;
@@ -9181,7 +9516,7 @@ begin
     case P^.Kind of
       sesConst:
         begin
-          Bin := Self.VM.Binaries[P^.Binary];
+          Bin := Self.VM.Binaries.Value^.Data[P^.Binary];
           Bin[P^.Code] := Self.ConstMap[P^.Name];
         end;
     end;
