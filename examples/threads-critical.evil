@@ -1,0 +1,32 @@
+c = critical_create()
+
+fn inc_1() {
+  critical_enter(c)
+  a = 1
+  for i = 0 to 4 {
+    writeln(a)
+    a += 1
+    sleep(200)
+  }
+  critical_leave(c)
+}
+
+fn inc_2() {
+  critical_enter(c)
+  a = 100
+  for i = 0 to 4 {
+    writeln(a)
+    a += 100
+    sleep(200)
+  }
+  critical_leave(c)
+}
+
+t1 = thread_create(inc_1)
+t2 = thread_create(inc_2)
+
+thread_start(t1)
+thread_start(t2)
+
+// Wait until all the threads terminated
+while (thread_is_terminated(t1) || thread_is_terminated(t2)) {}

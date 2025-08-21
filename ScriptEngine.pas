@@ -50,7 +50,7 @@ unit ScriptEngine;
 interface
 
 uses
-  SysUtils, Classes, Generics.Collections, StrUtils, Types, DateUtils, RegExpr,
+  SysUtils, Classes, Generics.Collections, StrUtils, Types, DateUtils, RegExpr, syncobjs,
   contnrs,
   {$ifdef SE_PROFILER}
   CastleTimeUtils,
@@ -982,6 +982,10 @@ type
     class function SEThreadSuspend(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEThreadResume(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEThreadTerminate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SECriticalCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SECriticalEnter(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SECriticalLeave(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SECriticalTry(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEFileReadText(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEFileReadBinary(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEFileWriteText(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -2518,6 +2522,32 @@ begin
   SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
   if not TSEVMThread(Args[0].VarPascalObject^.Value).Terminated then
     TSEVMThread(Args[0].VarPascalObject^.Value).Terminate;
+end;
+
+class function TBuiltInFunction.SECriticalCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+var
+  Critical: TCriticalSection;
+begin
+  Critical := TCriticalSection.Create;
+  GC.AllocPascalObject(@Result, Critical, True);
+end;
+
+class function TBuiltInFunction.SECriticalEnter(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+begin
+  SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
+  TCriticalSection(Args[0].VarPascalObject^.Value).Enter;
+end;
+
+class function TBuiltInFunction.SECriticalLeave(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+begin
+  SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
+  TCriticalSection(Args[0].VarPascalObject^.Value).Leave;
+end;
+
+class function TBuiltInFunction.SECriticalTry(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+begin
+  SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
+  Result := TCriticalSection(Args[0].VarPascalObject^.Value).TryEnter;
 end;
 
 class function TBuiltInFunction.SEFileReadText(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -5885,6 +5915,10 @@ begin
   Self.RegisterFunc('thread_suspend', @TBuiltInFunction(nil).SEThreadSuspend, 1);
   Self.RegisterFunc('thread_resume', @TBuiltInFunction(nil).SEThreadResume, 1);
   Self.RegisterFunc('thread_terminate', @TBuiltInFunction(nil).SEThreadTerminate, 1);
+  Self.RegisterFunc('critical_create', @TBuiltInFunction(nil).SECriticalCreate, 0);
+  Self.RegisterFunc('critical_enter', @TBuiltInFunction(nil).SECriticalEnter, 1);
+  Self.RegisterFunc('critical_leave', @TBuiltInFunction(nil).SECriticalLeave, 1);
+  Self.RegisterFunc('critical_try', @TBuiltInFunction(nil).SECriticalTry, 1);
   Self.AddDefaultConsts;
   Self.Source := '';
 end;
