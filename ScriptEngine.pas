@@ -986,6 +986,10 @@ type
     class function SECriticalEnter(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SECriticalLeave(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SECriticalTry(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SEEventCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SEEventSet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SEEventWait(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SEEventReset(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEFileReadText(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEFileReadBinary(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEFileWriteText(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -2548,6 +2552,32 @@ class function TBuiltInFunction.SECriticalTry(const VM: TSEVM; const Args: PSEVa
 begin
   SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
   Result := TCriticalSection(Args[0].VarPascalObject^.Value).TryEnter;
+end;
+
+class function TBuiltInFunction.SEEventCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+var
+  Event: TEvent;
+begin
+  Event := TEvent.Create;
+  GC.AllocPascalObject(@Result, Event, True);
+end;
+
+class function TBuiltInFunction.SEEventSet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+begin
+  SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
+  TEvent(Args[0].VarPascalObject^.Value).SetEvent;
+end;
+
+class function TBuiltInFunction.SEEventWait(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+begin
+  SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
+  Result := TSENumber(Integer(TEvent(Args[0].VarPascalObject^.Value).WaitFor));
+end;
+
+class function TBuiltInFunction.SEEventReset(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+begin
+  SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
+  TEvent(Args[0].VarPascalObject^.Value).ResetEvent;
 end;
 
 class function TBuiltInFunction.SEFileReadText(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -5919,6 +5949,10 @@ begin
   Self.RegisterFunc('critical_enter', @TBuiltInFunction(nil).SECriticalEnter, 1);
   Self.RegisterFunc('critical_leave', @TBuiltInFunction(nil).SECriticalLeave, 1);
   Self.RegisterFunc('critical_try', @TBuiltInFunction(nil).SECriticalTry, 1);
+  Self.RegisterFunc('event_create', @TBuiltInFunction(nil).SEEventCreate, 0);
+  Self.RegisterFunc('event_set', @TBuiltInFunction(nil).SEEventSet, 1);
+  Self.RegisterFunc('event_wait', @TBuiltInFunction(nil).SEEventWait, 1);
+  Self.RegisterFunc('event_reset', @TBuiltInFunction(nil).SEEventReset, 1);
   Self.AddDefaultConsts;
   Self.Source := '';
 end;
@@ -5963,6 +5997,10 @@ begin
   Self.ConstMap.AddOrSetValue('sevkNull', TSENumber(Integer(sevkNull)));
   Self.ConstMap.AddOrSetValue('sevkFunction', TSENumber(Integer(sevkFunction)));
   Self.ConstMap.AddOrSetValue('sevkPointer', TSENumber(Integer(sevkPointer)));
+  Self.ConstMap.AddOrSetValue('wrSignaled', TSENumber(Integer(wrSignaled)));
+  Self.ConstMap.AddOrSetValue('wrTimeout', TSENumber(Integer(wrTimeout)));
+  Self.ConstMap.AddOrSetValue('wrAbandoned', TSENumber(Integer(wrAbandoned)));
+  Self.ConstMap.AddOrSetValue('wrError', TSENumber(Integer(wrError)));
 end;
 
 procedure TEvilC.SetSource(V: String);
