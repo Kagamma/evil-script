@@ -499,7 +499,7 @@ type
     procedure Reset;
     procedure Exec;
     procedure BinaryClear;
-    function Fork(const Args: PSEValue; const ArgCount: Cardinal): TSEVM;
+    function Fork: TSEVM;
     procedure ModifyGlobalVariable(const AName: String; const AValue: TSEValue);
   end;
 
@@ -4092,7 +4092,7 @@ begin
   Self.Binaries.Value^.Data[0] := TSEBinary.Create;
 end;
 
-function TSEVM.Fork(const Args: PSEValue; const ArgCount: Cardinal): TSEVM;
+function TSEVM.Fork: TSEVM;
 var
   StackCount: Cardinal;
   I: Integer;
@@ -4115,12 +4115,6 @@ begin
   Dec(Result.TrapPtr);
   //
   Result.Binaries := Self.Binaries.Ref;
-  //
-  for I := 0 to ArgCount - 1 do
-  begin
-    Result.StackPtr[0] := Args[I];
-    Inc(Result.StackPtr);
-  end;
   // TODO: Make sure these works correctly without crash
   Result.SymbolList := Self.SymbolList;
   Result.ConstStrings := Self.ConstStrings;
@@ -5741,8 +5735,15 @@ begin
 end;
 
 constructor TSEVMThread.Create(const AVM: TSEVM; const Fn: TSEValue; const Args: PSEValue; const ArgCount: Cardinal);
+var
+  I: Integer;
 begin
-  Self.VM := AVM.Fork(Args, ArgCount);
+  Self.VM := AVM.Fork;
+  for I := 0 to ArgCount - 1 do
+  begin
+    Self.VM.StackPtr[0] := Args[I];
+    Inc(Self.VM.StackPtr);
+  end;
   Self.VM.StackPtr := Self.VM.StackPtr + Self.VM.Parent.FuncScriptList[Fn.VarFuncIndx].VarCount;
   Self.VM.BinaryPtr := Self.VM.Parent.FuncScriptList[Fn.VarFuncIndx].BinaryPos;
   Self.IsDone := False;
