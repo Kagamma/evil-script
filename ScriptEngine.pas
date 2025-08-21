@@ -5771,7 +5771,6 @@ end;
 destructor TSEVMThread.Destroy;
 begin
   Self.VM.Free;
-  Self.VM.Parent.VMThreadList.Add(Self);
   inherited;
 end;
 
@@ -5979,7 +5978,7 @@ begin
     Self.FuncScriptList[I].VarSymbols.Free;
   for I := Self.VMThreadList.Count - 1 downto 0 do
     Self.VMThreadList[I].Terminate;
-  Self.VMThreadList.Free;
+  FreeAndNil(Self.VMThreadList);
   FreeAndNil(Self.VM);
   FreeAndNil(Self.TokenList);
   FreeAndNil(Self.OpcodeInfoList);
