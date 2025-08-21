@@ -473,6 +473,7 @@ type
   TSEVM = class
   public
     Name: String;
+    IsThread: Boolean;
     IsPaused: Boolean;
     IsDone: Boolean;
     IsYielded: Boolean;
@@ -503,14 +504,15 @@ type
   end;
 
   TSEVMThread = class(TThread)
-  private
-    VM: TSEVM;
   public
+    VM: TSEVM;
     IsDone: Boolean;
     constructor Create(const AVM: TSEVM; const Fn: TSEValue; const Args: PSEValue; const ArgCount: Cardinal);
     destructor Destroy; override;
     procedure Execute; override;
   end;
+
+  TSEVMThreadList = specialize TList<TSEVMThread>;
 
   TSECache = record
     Binaries: array of TSEBinary;
@@ -728,6 +730,7 @@ type
     OptimizeAsserts: Boolean; // True = ignore assert, default is true
     ErrorLn, ErrorCol: Integer;
     VM: TSEVM;
+    VMThreadList: TSEVMThreadList;
     IncludePathList,
     IncludeList: TStrings;
     TokenList: TSETokenList;
@@ -1864,10 +1867,9 @@ class function TBuiltInFunction.SEWrite(const VM: TSEVM; const Args: PSEValue; c
 var
   I: Integer;
 begin
-  for I := 0 to ArgCount - 1 do
-  begin
-    Write(SEValueToText(Args[I]));
-  end;
+  if ArgCount > 0 then
+    for I := 0 to ArgCount - 1 do
+      Write(SEValueToText(Args[I]));
   Result := SENull;
 end;
 
@@ -2493,6 +2495,8 @@ begin
   SEValidateType(@Args[0], sevkFunction, 1, {$I %CURRENTROUTINE%});
   Thread := TSEVMThread.Create(VM, Args[0], @Args[1], ArgCount - 1);
   GC.AllocPascalObject(@Result, Thread, True);
+  // Push "self" onto stack
+  Thread.VM.Stack[(8 - 1) + ArgCount] := Result;
 end;
 
 class function TBuiltInFunction.SEThreadStart(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -4094,6 +4098,7 @@ var
   I: Integer;
 begin
   Result := TSEVM.Create;
+  Result.IsThread := True;
   Result.StackSize := Self.StackSize;
   Result.Parent := Self.Parent;
   Result.IsPaused := False;
@@ -4116,9 +4121,9 @@ begin
     Result.StackPtr[0] := Args[I];
     Inc(Result.StackPtr);
   end;
-  // TODO: Optimize these later
-  Result.SymbolList.AddRange(Self.SymbolList);
-  Result.ConstStrings.AddStrings(Self.ConstStrings);
+  // TODO: Make sure these works correctly without crash
+  Result.SymbolList := Self.SymbolList;
+  Result.ConstStrings := Self.ConstStrings;
 end;
 
 procedure TSEVM.ModifyGlobalVariable(const AName: String; const AValue: TSEValue);
@@ -4240,6 +4245,7 @@ constructor TSEVM.Create;
 begin
   inherited;
   Self.CodePtr := 0;
+  Self.IsThread := False;
   Self.IsPaused := False;
   Self.IsDone := True;
   Self.StackSize := 2048;
@@ -4266,8 +4272,11 @@ begin
   Self.Binaries.Free;
   if VMList <> nil then
     VMList.Remove(Self);
-  Self.ConstStrings.Free;
-  Self.SymbolList.Free;
+  if not Self.IsThread then
+  begin
+    Self.ConstStrings.Free;
+    Self.SymbolList.Free;
+  end;
   Self.Global.Free;
   inherited;
 end;
@@ -5734,10 +5743,12 @@ end;
 constructor TSEVMThread.Create(const AVM: TSEVM; const Fn: TSEValue; const Args: PSEValue; const ArgCount: Cardinal);
 begin
   Self.VM := AVM.Fork(Args, ArgCount);
+  Self.VM.StackPtr := Self.VM.StackPtr + Self.VM.Parent.FuncScriptList[Fn.VarFuncIndx].VarCount;
   Self.VM.BinaryPtr := Self.VM.Parent.FuncScriptList[Fn.VarFuncIndx].BinaryPos;
   Self.IsDone := False;
 
   inherited Create(True);
+  Self.VM.Parent.VMThreadList.Add(Self);
   Self.FreeOnTerminate := False;
 end;
 
@@ -5752,6 +5763,7 @@ begin
     end;
   finally
     Self.IsDone := True;
+    Self.VM.Parent.VMThreadList.Remove(Self);
     Self.Terminate;
   end;
 end;
@@ -5759,6 +5771,7 @@ end;
 destructor TSEVMThread.Destroy;
 begin
   Self.VM.Free;
+  Self.VM.Parent.VMThreadList.Add(Self);
   inherited;
 end;
 
@@ -5767,6 +5780,7 @@ begin
   inherited Create;
   Self.VM := TSEVM.Create;
   Self.VM.StackSize := StackSize;
+  Self.VMThreadList := TSEVMThreadList.Create;
   Self.GlobalVarSymbols := TStringList.Create;
   Self.TokenList := TSETokenList.Create;
   Self.OpcodeInfoList := TSEOpcodeInfoList.Create;
@@ -5963,6 +5977,9 @@ var
 begin
   for I := 0 to Self.FuncScriptList.Count - 1 do
     Self.FuncScriptList[I].VarSymbols.Free;
+  for I := Self.VMThreadList.Count - 1 downto 0 do
+    Self.VMThreadList[I].Terminate;
+  Self.VMThreadList.Free;
   FreeAndNil(Self.VM);
   FreeAndNil(Self.TokenList);
   FreeAndNil(Self.OpcodeInfoList);
