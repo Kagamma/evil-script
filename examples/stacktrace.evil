@@ -1,13 +1,20 @@
 a = 6
 b = 'A string'
 
-fn test() {
-  c = [
+fn test2() {
+  e = [
     field1: 5,
     field2: [1, 2, 3]
   ]
   throw 'Test'
+  f = 'This text should not show on stacktrace, but some random value instead.'
+}
+
+fn test1() {
+  c = 123
+  d = [1, 2, 14, 22]
+  test2()
 }
 
 writeln('Print stack trace on unhandled exception')
-test()
+test1()

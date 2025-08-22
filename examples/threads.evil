@@ -1,8 +1,10 @@
 a = 0
 
 fn hello(name) {
-  a += 1 // We can read/write global variables. Do not try to access local variables in nested functions!
-  writeln(a, ': Hello, ', name, '!')
+  // We can read/write global variables.
+  a += 1
+  // 'self' = thread instance
+  writeln('[${pasobject_classname(self)}] ', a, ': Hello, ', name, '!')
   sleep(1000)
 }
 
