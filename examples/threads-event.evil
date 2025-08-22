@@ -27,4 +27,4 @@ thread_start(t1)
 thread_start(t2)
 
 // Wait until all the threads terminated
-while (thread_is_terminated(t1) || thread_is_terminated(t2)) {}
+while !(thread_is_terminated(t1) && thread_is_terminated(t2)) {}

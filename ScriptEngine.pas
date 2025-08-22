@@ -37,12 +37,16 @@ unit ScriptEngine;
 // enable this to replace FP's TDirectory with avk959's TGChainHashMap. It is a lot faster than TDirectory.
 // requires https://github.com/avk959/LGenerics
 // note: enable this will undef SE_MAP_SHORTSTRING, because this optimization is not necessary for TGChainHashMap
-{.$define SE_MAP_AVK959}
+{$define SE_MAP_AVK959}
 {$ifdef SE_MAP_AVK959}
   {$undef SE_MAP_SHORTSTRING}
   {$define TSEDictionary := TGChainHashMap}
 {$else}
   {$define TSEDictionary := TDictionary}
+{$endif}
+// Enable this if you want multi-threading support
+{$ifndef GO32v2}
+  {$define SE_THREADS}
 {$endif}
 {$align 16}
 {$packenum 4}
@@ -50,7 +54,7 @@ unit ScriptEngine;
 interface
 
 uses
-  SysUtils, Classes, Generics.Collections, StrUtils, Types, DateUtils, RegExpr, syncobjs,
+  SysUtils, Classes, Generics.Collections, StrUtils, Types, DateUtils, RegExpr, {$ifdef SE_THREADS}syncobjs,{$endif}
   contnrs,
   {$ifdef SE_PROFILER}
   CastleTimeUtils,
@@ -469,11 +473,26 @@ type
     procedure Free;
   end;
 
+  {$ifdef SE_THREADS}
+  TSEVMThread = class(TThread)
+  public
+    IsDone: Boolean;
+    VM: TSEVM;
+    constructor Create(const AVM: TSEVM; const Fn: TSEValue; const Args: PSEValue; const ArgCount: Cardinal);
+    destructor Destroy; override;
+    procedure Execute; override;
+  end;
+
+  TSEVMThreadList = specialize TList<TSEVMThread>;
+  {$endif}
+
   TEvilC = class;
   TSEVM = class
   public
     Name: String;
-    IsThread: Boolean;
+    {$ifdef SE_THREADS}
+    ThreadOwner: TSEVMThread;
+    {$endif}
     IsPaused: Boolean;
     IsDone: Boolean;
     IsYielded: Boolean;
@@ -502,17 +521,6 @@ type
     function Fork: TSEVM;
     procedure ModifyGlobalVariable(const AName: String; const AValue: TSEValue);
   end;
-
-  TSEVMThread = class(TThread)
-  public
-    VM: TSEVM;
-    IsDone: Boolean;
-    constructor Create(const AVM: TSEVM; const Fn: TSEValue; const Args: PSEValue; const ArgCount: Cardinal);
-    destructor Destroy; override;
-    procedure Execute; override;
-  end;
-
-  TSEVMThreadList = specialize TList<TSEVMThread>;
 
   TSECache = record
     Binaries: array of TSEBinary;
@@ -730,7 +738,9 @@ type
     OptimizeAsserts: Boolean; // True = ignore assert, default is true
     ErrorLn, ErrorCol: Integer;
     VM: TSEVM;
+    {$ifdef SE_THREADS}
     VMThreadList: TSEVMThreadList;
+    {$endif}
     IncludePathList,
     IncludeList: TStrings;
     TokenList: TSETokenList;
@@ -979,6 +989,7 @@ type
     class function SEAssert(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEChar(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEOrd(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    {$ifdef SE_THREADS}
     class function SEThreadCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEThreadStart(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEThreadIsTerminated(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -993,6 +1004,7 @@ type
     class function SEEventSet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEEventWait(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEEventReset(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    {$endif}
     class function SEFileReadText(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEFileReadBinary(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEFileWriteText(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -1014,6 +1026,8 @@ type
 
     class function SEJSONParse(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEJSONStringify(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+
+    class function SEPasObjectClassName(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
   end;
 
   TDynlibMap = specialize TSEDictionary<String, TLibHandle>;
@@ -1021,7 +1035,9 @@ type
 var
   DynlibMap: TDynlibMap;
   VMList: TSEVMList;
+  {$ifdef SE_THREADS}
   CS: TRTLCriticalSection;
+  {$endif}
   FS: TFormatSettings;
 
 function PointStrToFloat(S: String): Double; inline;
@@ -1909,7 +1925,9 @@ end;
 
 class function TBuiltInFunction.SEGet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 begin
+  {$ifdef SE_THREADS}
   EnterCriticalSection(CS);
+  {$endif}
   try
     try
       Exit(SEMapGet(ScriptVarMap, Args[0].VarString^))
@@ -1918,18 +1936,24 @@ begin
         Result := SENull;
     end;
   finally
+    {$ifdef SE_THREADS}
     LeaveCriticalSection(CS);
+    {$endif}
   end;
 end;
 
 class function TBuiltInFunction.SESet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 begin
+  {$ifdef SE_THREADS}
   EnterCriticalSection(CS);
+  {$endif}
   try
     SEMapSet(ScriptVarMap, Args[0].VarString^, Args[1]);
     Result := SENull;
   finally
+    {$ifdef SE_THREADS}
     LeaveCriticalSection(CS);
+    {$endif}
   end;
 end;
 
@@ -2488,6 +2512,7 @@ begin
   Result := Byte(Args[0].VarString^[1]);
 end;
 
+{$ifdef SE_THREADS}
 class function TBuiltInFunction.SEThreadCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 var
   Thread: TSEVMThread;
@@ -2508,7 +2533,7 @@ end;
 class function TBuiltInFunction.SEThreadIsTerminated(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 begin
   SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
-  Result := not TSEVMThread(Args[0].VarPascalObject^.Value).IsDone;
+  Result := TSEVMThread(Args[0].VarPascalObject^.Value).Terminated;
 end;
 
 class function TBuiltInFunction.SEThreadSuspend(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -2583,6 +2608,7 @@ begin
   SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
   TEvent(Args[0].VarPascalObject^.Value).ResetEvent;
 end;
+{$endif}
 
 class function TBuiltInFunction.SEFileReadText(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 begin
@@ -2983,6 +3009,12 @@ begin
   finally
     SB.Free;
   end;
+end;
+
+class function TBuiltInFunction.SEPasObjectClassName(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+begin
+  SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
+  Result := TObject(Args[0].VarPascalObject^.Value).ClassName;
 end;
 
 function TSEOpcodeInfoList.Ptr(const P: Integer): PSEOpcodeInfo; inline;
@@ -3940,7 +3972,9 @@ var
   Binary: TSEBinary;
   T: QWord;
 begin
+  {$ifdef SE_THREADS}
   EnterCriticalSection(CS);
+  {$endif}
   try
     {$ifdef SE_LOG}
     Writeln('[GC] Number of objects before cleaning: ', Self.FObjects);
@@ -3983,13 +4017,17 @@ begin
     Writeln('[GC] Time: ', GetTickCount64 - T, 'ms');
     {$endif}
   finally
+    {$ifdef SE_THREADS}
     LeaveCriticalSection(CS);
+    {$endif}
   end;
 end;
 
 procedure TSEGarbageCollector.AllocBuffer(const PValue: PSEValue; const Size: Integer);
 begin
+  {$ifdef SE_THREADS}
   EnterCriticalSection(CS);
+  {$endif}
   try
     PValue^.Kind := sevkBuffer;
     New(PValue^.VarBuffer);
@@ -4005,25 +4043,33 @@ begin
     Self.FAllocatedMem := Self.FAllocatedMem + Size;
     Self.AddToList(PValue);
   finally
+    {$ifdef SE_THREADS}
     LeaveCriticalSection(CS);
+    {$endif}
   end;
 end;
 
 procedure TSEGarbageCollector.AllocMap(const PValue: PSEValue);
 begin
+  {$ifdef SE_THREADS}
   EnterCriticalSection(CS);
+  {$endif}
   try
     PValue^.Kind := sevkMap;
     PValue^.VarMap := TSEValueMap.Create;
     Self.AddToList(PValue);
   finally
+    {$ifdef SE_THREADS}
     LeaveCriticalSection(CS);
+    {$endif}
   end;
 end;
 
 procedure TSEGarbageCollector.AllocString(const PValue: PSEValue; const S: String);
 begin
+  {$ifdef SE_THREADS}
   EnterCriticalSection(CS);
+  {$endif}
   try
     PValue^.Kind := sevkString;
     New(PValue^.VarString);
@@ -4031,13 +4077,17 @@ begin
     Self.FAllocatedMem := Self.FAllocatedMem + Length(PValue^.VarString^);
     Self.AddToList(PValue);
   finally
+    {$ifdef SE_THREADS}
     LeaveCriticalSection(CS);
+    {$endif}
   end;
 end;
 
 procedure  TSEGarbageCollector.AllocPascalObject(const PValue: PSEValue; const Obj: TObject; const IsManaged: Boolean);
 begin
+  {$ifdef SE_THREADS}
   EnterCriticalSection(CS);
+  {$endif}
   try
     PValue^.Kind := sevkPascalObject;
     New(PValue^.VarPascalObject);
@@ -4046,7 +4096,9 @@ begin
     Self.FAllocatedMem := Self.FAllocatedMem + SizeOf(TSEPascalObject);
     Self.AddToList(PValue);
   finally
+    {$ifdef SE_THREADS}
     LeaveCriticalSection(CS);
+    {$endif}
   end;
 end;
 
@@ -4054,7 +4106,9 @@ procedure TSEGarbageCollector.Lock(const PValue: PSEValue);
 var
   Value: TSEGCValue;
 begin
+  {$ifdef SE_THREADS}
   EnterCriticalSection(CS);
+  {$endif}
   try
     if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) and (PValue^.Kind <> sevkPascalObject) then
       Exit;
@@ -4062,7 +4116,9 @@ begin
     Value.Lock := True;
     Self.FValueList[PValue^.Ref] := Value;
   finally
+    {$ifdef SE_THREADS}
     LeaveCriticalSection(CS);
+    {$endif}
   end;
 end;
 
@@ -4070,7 +4126,9 @@ procedure TSEGarbageCollector.Unlock(const PValue: PSEValue);
 var
   Value: TSEGCValue;
 begin
+  {$ifdef SE_THREADS}
   EnterCriticalSection(CS);
+  {$endif}
   try
     if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) and (PValue^.Kind <> sevkPascalObject) then
       Exit;
@@ -4078,7 +4136,9 @@ begin
     Value.Lock := False;
     Self.FValueList[PValue^.Ref] := Value;
   finally
+    {$ifdef SE_THREADS}
     LeaveCriticalSection(CS);
+    {$endif}
   end;
 end;
 
@@ -4098,7 +4158,6 @@ var
   I: Integer;
 begin
   Result := TSEVM.Create;
-  Result.IsThread := True;
   Result.StackSize := Self.StackSize;
   Result.Parent := Self.Parent;
   Result.IsPaused := False;
@@ -4239,7 +4298,6 @@ constructor TSEVM.Create;
 begin
   inherited;
   Self.CodePtr := 0;
-  Self.IsThread := False;
   Self.IsPaused := False;
   Self.IsDone := True;
   Self.StackSize := 2048;
@@ -4266,7 +4324,9 @@ begin
   Self.Binaries.Free;
   if VMList <> nil then
     VMList.Remove(Self);
-  if not Self.IsThread then
+  {$ifdef SE_THREADS}
+  if Self.ThreadOwner = nil then
+  {$endif}
   begin
     Self.ConstStrings.Free;
     Self.SymbolList.Free;
@@ -5734,11 +5794,13 @@ begin
   Self.BinaryPtr := BinaryPtrLocal;
 end;
 
+{$ifdef SE_THREADS}
 constructor TSEVMThread.Create(const AVM: TSEVM; const Fn: TSEValue; const Args: PSEValue; const ArgCount: Cardinal);
 var
   I: Integer;
 begin
   Self.VM := AVM.Fork;
+  Self.VM.ThreadOwner := Self;
   for I := 0 to ArgCount - 1 do
   begin
     Self.VM.StackPtr[0] := Args[I];
@@ -5746,7 +5808,6 @@ begin
   end;
   Self.VM.StackPtr := Self.VM.StackPtr + Self.VM.Parent.FuncScriptList[Fn.VarFuncIndx].VarCount;
   Self.VM.BinaryPtr := Self.VM.Parent.FuncScriptList[Fn.VarFuncIndx].BinaryPos;
-  Self.IsDone := False;
 
   inherited Create(True);
   Self.VM.Parent.VMThreadList.Add(Self);
@@ -5763,9 +5824,9 @@ begin
         Writeln('[TSEVMThread] ', E.Message);
     end;
   finally
-    Self.IsDone := True;
     Self.VM.Parent.VMThreadList.Remove(Self);
     Self.Terminate;
+    Self.IsDone := True;
   end;
 end;
 
@@ -5774,13 +5835,16 @@ begin
   Self.VM.Free;
   inherited;
 end;
+{$endif}
 
 constructor TEvilC.Create(const StackSize: LongWord = 2048);
 begin
   inherited Create;
   Self.VM := TSEVM.Create;
   Self.VM.StackSize := StackSize;
+  {$ifdef SE_THREADS}
   Self.VMThreadList := TSEVMThreadList.Create;
+  {$endif}
   Self.GlobalVarSymbols := TStringList.Create;
   Self.TokenList := TSETokenList.Create;
   Self.OpcodeInfoList := TSEOpcodeInfoList.Create;
@@ -5950,9 +6014,11 @@ begin
   Self.RegisterFunc('json_parse', @TBuiltInFunction(nil).SEJSONParse, 1);
   Self.RegisterFunc('json_stringify', @TBuiltInFunction(nil).SEJSONStringify, 1);
   {$endif}
+  Self.RegisterFunc('pasobject_classname', @TBuiltInFunction(nil).SEPasObjectClassName, 1);
   Self.RegisterFunc('assert', @TBuiltInFunction(nil).SEAssert, 2);
   Self.RegisterFunc('chr', @TBuiltInFunction(nil).SEChar, 1);
   Self.RegisterFunc('ord', @TBuiltInFunction(nil).SEOrd, 1);
+  {$ifdef SE_THREADS}
   Self.RegisterFunc('thread_create', @TBuiltInFunction(nil).SEThreadCreate, -1);
   Self.RegisterFunc('thread_start', @TBuiltInFunction(nil).SEThreadStart, 1);
   Self.RegisterFunc('thread_is_terminated', @TBuiltInFunction(nil).SEThreadIsTerminated, 1);
@@ -5967,6 +6033,7 @@ begin
   Self.RegisterFunc('event_set', @TBuiltInFunction(nil).SEEventSet, 1);
   Self.RegisterFunc('event_wait', @TBuiltInFunction(nil).SEEventWait, 1);
   Self.RegisterFunc('event_reset', @TBuiltInFunction(nil).SEEventReset, 1);
+  {$endif}
   Self.AddDefaultConsts;
   Self.Source := '';
 end;
@@ -5977,9 +6044,11 @@ var
 begin
   for I := 0 to Self.FuncScriptList.Count - 1 do
     Self.FuncScriptList[I].VarSymbols.Free;
+  {$ifdef SE_THREADS}
   for I := Self.VMThreadList.Count - 1 downto 0 do
     Self.VMThreadList[I].Terminate;
   FreeAndNil(Self.VMThreadList);
+  {$endif}
   FreeAndNil(Self.VM);
   FreeAndNil(Self.TokenList);
   FreeAndNil(Self.OpcodeInfoList);
@@ -9679,8 +9748,13 @@ begin
   inherited;
 end;
 
+var
+  I: Integer;
+
 initialization
+  {$ifdef SE_THREADS}
   InitCriticalSection(CS);
+  {$endif}
   FS := FormatSettings;
   FS.DecimalSeparator := '.';
   SENull.Kind := sevkNull;
@@ -9692,13 +9766,25 @@ initialization
   GC.AllocMap(@ScriptVarMap);
 
 finalization
-  DoneCriticalSection(CS);
-  DynlibMap.Free;
   if VMList <> nil then
+  begin
+    for I := VMList.Count - 1 downto 0 do
+    begin
+      if VMList[I].ThreadOwner <> nil then
+      begin
+        VMList[I].ThreadOwner.Terminate;
+        while not VMList[I].ThreadOwner.IsDone do Sleep(16);
+      end;
+    end;
     VMList.Free;
+  end;
   VMList := nil;
   GC.Free;
   ScriptCacheMap.Free;
+  DynlibMap.Free;
+  {$ifdef SE_THREADS}
+  DoneCriticalSection(CS);
+  {$endif}
 
 end.
 
