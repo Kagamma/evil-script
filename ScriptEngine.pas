@@ -71,6 +71,7 @@ uses
 const
   // Time in miliseconds before GC starts collecting memory
   SE_MEM_TIME = 1000 * 30;
+  SE_STACK_RESERVE = 2;
 
 type
   TSENumber = Double;
@@ -478,7 +479,7 @@ type
   public
     IsDone: Boolean;
     VM: TSEVM;
-    constructor Create(const AVM: TSEVM; const Fn: TSEValue; const Args: PSEValue; const ArgCount: Cardinal);
+    constructor Create(const AVM: TSEVM; const Fn: TSEValue; const Args: PSEValue; const ArgCount, AStackSize: Cardinal);
     destructor Destroy; override;
     procedure Execute; override;
   end;
@@ -518,7 +519,7 @@ type
     procedure Reset;
     procedure Exec;
     procedure BinaryClear;
-    function Fork: TSEVM;
+    function Fork(const AStackSize: Cardinal): TSEVM;
     procedure ModifyGlobalVariable(const AName: String; const AValue: TSEValue);
   end;
 
@@ -2520,10 +2521,10 @@ var
   Thread: TSEVMThread;
 begin
   SEValidateType(@Args[0], sevkFunction, 1, {$I %CURRENTROUTINE%});
-  Thread := TSEVMThread.Create(VM, Args[0], @Args[1], ArgCount - 1);
+  Thread := TSEVMThread.Create(VM, Args[0], @Args[1], ArgCount - 1, 512);
   GC.AllocPascalObject(@Result, Thread, True);
   // Push "self" onto stack
-  Thread.VM.Stack[(8 - 1) + ArgCount] := Result;
+  Thread.VM.Stack[(SE_STACK_RESERVE - 1) + ArgCount] := Result;
 end;
 
 class function TBuiltInFunction.SEThreadStart(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -4160,22 +4161,22 @@ begin
   Self.Binaries.Value^.Data[0] := TSEBinary.Create;
 end;
 
-function TSEVM.Fork: TSEVM;
+function TSEVM.Fork(const AStackSize: Cardinal): TSEVM;
 var
   StackCount: Cardinal;
   I: Integer;
 begin
   Result := TSEVM.Create;
-  Result.StackSize := Self.StackSize;
+  Result.StackSize := AStackSize;
   Result.Parent := Self.Parent;
   Result.IsPaused := False;
   Result.IsDone := False;
   Result.Parent.IsDone := False;
   Result.Global := Self.Global.Ref;
-  SetLength(Result.Stack, Result.StackSize);
+  SetLength(Result.Stack, AStackSize);
   SetLength(Result.Frame, Result.FrameSize);
   SetLength(Result.Trap, Result.TrapSize);
-  Result.StackPtr := PSEValue(@Result.Stack[0]) + 8;
+  Result.StackPtr := PSEValue(@Result.Stack[0]) + SE_STACK_RESERVE;
   Result.FramePtr := @Result.Frame[0];
   Result.FramePtr^.Stack := Result.StackPtr;
   Result.TrapPtr := @Result.Trap[0];
@@ -4356,8 +4357,9 @@ begin
   SetLength(Self.Trap, Self.TrapSize);
   FillChar(Self.Global.Value^.Data[0], Self.Parent.GlobalVarCount * SizeOf(TSEValue), 0);
   FillChar(Self.Stack[0], Length(Self.Stack) * SizeOf(TSEValue), 0);
-  FillChar(Self.Frame[0], Length(Self.Frame) * SizeOf(TSEFrame), 0);
-  FillChar(Self.Trap[0], Length(Self.Trap) * SizeOf(TSETrap), 0);
+  // The GC does not walk through Frames and Traps so we do not need to be filled those with null
+  // FillChar(Self.Frame[0], Length(Self.Frame) * SizeOf(TSEFrame), 0);
+  // FillChar(Self.Trap[0], Length(Self.Trap) * SizeOf(TSETrap), 0);
   Self.FramePtr := @Self.Frame[0];
   Self.StackPtr := @Self.Stack[0];
   Self.FramePtr^.Stack := Self.StackPtr;
@@ -5803,11 +5805,11 @@ begin
 end;
 
 {$ifdef SE_THREADS}
-constructor TSEVMThread.Create(const AVM: TSEVM; const Fn: TSEValue; const Args: PSEValue; const ArgCount: Cardinal);
+constructor TSEVMThread.Create(const AVM: TSEVM; const Fn: TSEValue; const Args: PSEValue; const ArgCount, AStackSize: Cardinal);
 var
   I: Integer;
 begin
-  Self.VM := AVM.Fork;
+  Self.VM := AVM.Fork(AStackSize);
   Self.VM.ThreadOwner := Self;
   for I := 0 to ArgCount - 1 do
   begin
@@ -7149,7 +7151,7 @@ var
   end;
 
   procedure ParseFuncCall(const Name: String); forward;
-  procedure ParseFuncRefCallByRewind(const RewindStartAdd: Integer; const ThisRefIdent: PSEIdent = nil); forward;
+  procedure ParseFuncRefCall(const ThisRefIdent: PSEIdent = nil); forward;
   procedure ParseFuncRefCallByName(const Name: String); forward;
   procedure ParseBlock(const IsCase: Boolean = False); forward;
   procedure ParseArrayAssign; forward;
@@ -7497,8 +7499,20 @@ var
     PushConstCount: Integer = 0;
     OpCountStart: Integer;
     IsTailed: Boolean = False;
+    FuncRefIdent: TSEIdent;
+    FuncRefToken: TSEToken;
 
     procedure Logic; forward;
+
+    procedure AllocFuncRef;
+    begin
+      if FuncRefToken.Value = '' then
+      begin
+        FuncRefToken.Value := '___f' + Self.InternalIdent;
+        FuncRefToken.Kind := tkIdent;
+        FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False);
+      end;
+    end;
 
     procedure EmitExpr(const Data: array of TSEValue); inline;
     var
@@ -7708,6 +7722,9 @@ var
             NextToken;
             ParseExpr;
             NextTokenExpected([tkSquareBracketClose]);
+            AllocFuncRef;
+            EmitAssignVar(FuncRefIdent);
+            EmitPushVar(FuncRefIdent, True);
             EmitExpr([Pointer(opPushArrayPop), SENull]);
             PeepholeArrayAssignOptimization;
             Tail;
@@ -7718,6 +7735,9 @@ var
             IsTailed := True;
             NextToken;
             Token := NextTokenExpected([tkIdent]);
+            AllocFuncRef;
+            EmitAssignVar(FuncRefIdent);
+            EmitPushVar(FuncRefIdent, True);
             EmitExpr([Pointer(opPushArrayPopString), Pointer(CreateConstString(Token.Value))]);
             Tail;
           end;
@@ -7726,13 +7746,11 @@ var
 
     procedure Factor;
     var
-      Token, Token2, FuncRefToken: TSEToken;
+      Token, Token2: TSEToken;
       Ident: PSEIdent;
       FuncValue: TSEValue;
       Ind: Integer;
       P: Pointer;
-      RewindStartAddr: Integer;
-      FuncRefIdent: TSEIdent;
 
       procedure FuncTail;
       var
@@ -7741,23 +7759,17 @@ var
         while PeekAtNextToken.Kind = tkBracketOpen do
         begin
           if FuncRefToken.Value <> '' then
-            ParseFuncRefCallByRewind(RewindStartAddr, @FuncRefIdent)
+            ParseFuncRefCall(@FuncRefIdent)
           else
-            ParseFuncRefCallByRewind(RewindStartAddr, Ident);
+            ParseFuncRefCall(Ident);
           IsFirst := True;
           while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
           begin
             if IsFirst then
             begin
-              if FuncRefToken.Value = '' then
-              begin
-                FuncRefToken.Value := '___f' + Self.InternalIdent;
-                FuncRefToken.Kind := tkIdent;
-                FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False);
-              end;
+              AllocFuncRef;
               IsFirst := False;
               EmitAssignVar(FuncRefIdent);
-              RewindStartAddr := Self.Binary.Count;
             end;
             EmitPushVar(FuncRefIdent, True);
             Tail;
@@ -7817,7 +7829,6 @@ var
                       EmitExpr([Pointer(opPushConst), Ident^.ConstValue]);
                     end else
                     begin
-                      RewindStartAddr := Self.Binary.Count;
                       case PeekAtNextToken.Kind of
                         tkSquareBracketOpen:
                           begin
@@ -7877,7 +7888,6 @@ var
                     FuncRefToken.Kind := tkIdent;
                     FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False);
                     EmitAssignVar(FuncRefIdent);
-                    RewindStartAddr := Self.Binary.Count;
                     EmitPushVar(FuncRefIdent, True);
                     Tail;
                     FuncTail;
@@ -8090,14 +8100,18 @@ var
     Emit([Pointer(opCallRef), Pointer(0), Pointer(ArgCount), Pointer(DeepCount)]);
   end;
 
-  procedure ParseFuncRefCallByRewind(const RewindStartAdd: Integer; const ThisRefIdent: PSEIdent = nil);
+  procedure ParseFuncRefCall(const ThisRefIdent: PSEIdent = nil);
   var
+    FuncIdent: TSEIdent;
+    FuncToken: TSEToken;
     Token: TSEToken;
     ArgCount: Integer = 1;
-    RewindCount: Integer;
     This: PSEIdent;
   begin
-    RewindCount := Self.Binary.Count - RewindStartAdd;
+    FuncToken.Value := '___fn' + Self.InternalIdent;
+    FuncToken.Kind := tkIdent;
+    FuncIdent := CreateIdent(ikVariable, FuncToken, True, False);
+    EmitAssignVar(FuncIdent);
     NextTokenExpected([tkBracketOpen]);
     // Allocate stack for result
     Emit([Pointer(opPushConst), SENull]);
@@ -8121,8 +8135,7 @@ var
       else
         Emit([Pointer(opPushConst), SENull]);
     end;
-    // Func def already exists in stack, rewind to access it
-    Rewind(RewindStartAdd, RewindCount);
+    EmitPushVar(FuncIdent);
     Emit([Pointer(opCallRef), Pointer(0), Pointer(ArgCount), Pointer(0)]);
   end;
 
@@ -8871,7 +8884,6 @@ var
 
   procedure ParseAssignTail;
   var
-    RewindStartAddr: Integer;
     Token, FuncRefToken: TSEToken;
     FuncRefIdent: TSEIdent;
   begin
@@ -8884,7 +8896,6 @@ var
         FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False);
       end;
       EmitAssignVar(FuncRefIdent);
-      RewindStartAddr := Self.Binary.Count;
       EmitPushVar(FuncRefIdent, True);
       while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
       begin
@@ -8894,6 +8905,8 @@ var
               NextToken;
               ParseExpr;
               NextTokenExpected([tkSquareBracketClose]);
+              EmitAssignVar(FuncRefIdent);
+              EmitPushVar(FuncRefIdent, True);
               Emit([Pointer(opPushArrayPop), SENull]);
               PeepholeArrayAssignOptimization;
             end;
@@ -8901,13 +8914,15 @@ var
             begin
               NextToken;
               Token := NextTokenExpected([tkIdent]);
+              EmitAssignVar(FuncRefIdent);
+              EmitPushVar(FuncRefIdent, True);
               Emit([Pointer(opPushArrayPopString), Pointer(CreateConstString(Token.Value))]);
             end;
         end;
       end;
       if PeekAtNextToken.Kind = tkBracketOpen then
       begin
-        ParseFuncRefCallByRewind(RewindStartAddr, @FuncRefIdent);
+        ParseFuncRefCall(@FuncRefIdent);
       end;
     end;
     Emit([Pointer(opPopConst)]);
@@ -8931,7 +8946,7 @@ var
     Ident := FindVar(Name);
     if Ident^.IsAssigned and Ident^.IsConst then
       Error(Format('Cannot reassign value to constant "%s"', [Name]), PeekAtNextToken);
-    RewindStartAddr := Self.Binary.Count;
+      RewindStartAddr := Self.Binary.Count;
     VarStartTokenPos := Pos;
     if not IsAccess then
     begin
@@ -9162,7 +9177,7 @@ var
     Token: TSEToken;
     Ident: TSEIdent;
     List: TList;
-    I, J, RewindStartAddr, AssertStartAddr: Integer;
+    I, J: Integer;
   begin
     Token := PeekAtNextToken;
     case Token.Kind of
@@ -9449,7 +9464,7 @@ begin
   Self.VM.IsPaused := False;
   Self.VM.IsDone := False;
   Self.VM.FramePtr := @Self.VM.Frame[0];
-  Self.VM.StackPtr := PSEValue(@Self.VM.Stack[0]) + 8;
+  Self.VM.StackPtr := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVE;
   Self.VM.FramePtr^.Stack := Self.VM.StackPtr;
   Self.VM.TrapPtr := @Self.VM.Trap[0];
   Dec(Self.VM.TrapPtr);
@@ -9464,7 +9479,7 @@ begin
   end;
   if Self.VM.BinaryPtr <> 0 then
   begin
-    Stack := PSEValue(@Self.VM.Stack[0]) + 8;
+    Stack := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVE;
     for I := 0 to Length(Args) - 1 do
     begin
       Stack[I] := Args[I];
@@ -9487,7 +9502,7 @@ begin
     Result := SENull;
     if Self.VM.IsPaused or Self.VM.IsYielded then
     begin
-      Stack := PSEValue(@Self.VM.Stack[0]) + 8;
+      Stack := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVE;
       for I := 0 to Self.FuncScriptList.Count - 1 do
       begin
         if Name = Self.FuncScriptList[I].Name then
@@ -9506,7 +9521,7 @@ begin
       Self.VM.IsPaused := False;
       Self.VM.IsDone := False;
       Self.VM.FramePtr := @Self.VM.Frame[0];
-      Self.VM.StackPtr := PSEValue(@Self.VM.Stack[0]) + 8;
+      Self.VM.StackPtr := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVE;
       Self.VM.FramePtr^.Stack := Self.VM.StackPtr;
       Self.VM.TrapPtr := @Self.VM.Trap[0];
       Dec(Self.VM.TrapPtr);
@@ -9521,7 +9536,7 @@ begin
       end;
       if Self.VM.BinaryPtr <> 0 then
       begin
-        Stack := PSEValue(@Self.VM.Stack[0]) + 8;
+        Stack := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVE;
         for I := 0 to Length(Args) - 1 do
         begin
           Stack[I] := Args[I];
