@@ -21,7 +21,7 @@ Enable `SE_LIBFFI` if you need to call external functions from DLLs/SOs.
 - Due to the lack of AST, only constant folding and peephole optimizations are implemented.
 - The virtual machine is stack-based, with super instructions to speed up certain operations.
 
-![image](https://github.com/user-attachments/assets/2b9c85fa-4234-4fac-b10b-405b0852b147)
+<img width="598" height="366" alt="image" src="https://github.com/user-attachments/assets/6d5a21af-57f0-4a34-9fa3-38998beb5e31" />
 
 poca: https://github.com/BeRo1985/poca
 
