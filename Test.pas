@@ -196,7 +196,7 @@ begin
   Writeln('--- ResultTestRun ---');
   SE.Source := ResultTest;
   SE.Exec;
-  Writeln(SE.VM.Global[0].VarNumber); // The first global variable is always "result"
+  Writeln(SE.VM.Global.Value^.Data[0].VarNumber); // The first global variable is always "result"
 end;
 
 begin
