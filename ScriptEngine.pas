@@ -813,6 +813,8 @@ procedure SEMapSet(constref V: TSEValue; constref S: String; const A: TSEValue);
 procedure SEMapSet(constref V, I: TSEValue; const A: TSEValue); inline; overload;
 function SEMapIsValidArray(constref V: TSEValue): Boolean; inline;
 procedure SEDisAsm(const VM: TSEVM; var Res: String);
+function SEGet(const AName: String): TSEValue;
+procedure SESet(const AName: String; const AValue: TSEValue);
 
 operator := (V: TSENumber) R: TSEValue;
 operator := (V: String) R: TSEValue;
@@ -1366,6 +1368,42 @@ begin
   finally
     Res := SB.ToString;
     SB.Free;
+  end;
+end;
+
+function SEGet(const AName: String): TSEValue;
+begin
+  {$ifdef SE_THREADS}
+  EnterCriticalSection(CS);
+  {$endif}
+  try
+    try
+      Exit(SEMapGet(ScriptVarMap, AName))
+    except
+      on E: Exception do
+        Result := SENull;
+    end;
+  finally
+    {$ifdef SE_THREADS}
+    LeaveCriticalSection(CS);
+    {$endif}
+  end;
+end;
+
+procedure SESet(const AName: String; const AValue: TSEValue);
+begin  {$ifdef SE_THREADS}
+  EnterCriticalSection(CS);
+  {$endif}
+  try
+    try
+      SEMapSet(ScriptVarMap, AName, AValue);
+    except
+      on E: Exception do ;
+    end;
+  finally
+    {$ifdef SE_THREADS}
+    LeaveCriticalSection(CS);
+    {$endif}
   end;
 end;
 
