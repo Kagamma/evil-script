@@ -1,0 +1,93 @@
+fn push(a, v) {
+  a[length(a)] = v
+}
+
+fn pop(a) {
+  idx = length(a) - 1
+  result = a[idx]
+  map_key_delete(a, idx)
+}
+
+fn generate_maze(w, h) {
+  maze = []
+  for i = 0 to w - 1 {
+    maze[i] = []
+    for j = 0 to h - 1 {
+      maze[i][j] = 1
+    }
+  }
+
+  stack = []
+  x = 1
+  y = 1
+  maze[x][y] = 0
+  push(stack, [x, y])
+  while length(stack) > 0 {
+    neighbors = []
+    if ((x > 1) && (maze[x - 2][y] != 0)) {
+      push(neighbors, [x - 2, y])
+    }
+    if ((x < (w - 2)) && (maze[x + 2][y] != 0)) {
+      push(neighbors, [x + 2, y])
+    }
+    if ((y > 1) && (maze[x][y - 2] != 0)) {
+      push(neighbors, [x, y - 2])
+    }
+    if ((y < (h - 2)) && (maze[x][y + 2] != 0)) {
+      push(neighbors, [x, y + 2])
+    }
+    if (length(neighbors) > 0) {
+      next = neighbors[floor(rnd() * length(neighbors))]
+      nx = next[0]
+      ny = next[1]
+      maze[nx][ny] = 0
+      maze[x + (nx - x) / 2][y + (ny - y) / 2] = 0
+      push(stack, [nx, ny])
+      x = nx
+      y = ny
+    } else {
+      last = pop(stack)
+      x = last[0]
+      y = last[1]
+    }
+  }
+
+  // Entrance
+  while true {
+    col = random(h)
+    if (maze[1][col] == 0) {
+      maze[0][col] = 0
+      break
+    }
+  }
+
+  // Exit
+  while true {
+    row = random(w)
+    if (maze[w - 2][row] == 0) {
+      maze[w - 1][row] = 0
+      break
+    }
+  }
+
+  return (maze)
+}
+
+fn render(maze) {
+  w = length(maze);
+  h = length(maze[0]);
+  for j = 0 to h - 1 {
+    for i = 0 to w - 1 {
+      if (maze[i][j] == 1) {
+        write('#');
+      } else {
+        write(' ');
+      }
+    }
+    write("\n");
+  }
+}
+
+maze = generate_maze(41, 13);
+
+render(maze);

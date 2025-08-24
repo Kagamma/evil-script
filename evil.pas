@@ -76,6 +76,7 @@ begin
           IsA := True;
       end;
   end;
+  Randomize;
   SE := TScriptEngine.Create;
   SE.OptimizePeephole := IsO;
   SE.OptimizeConstantFolding := IsO;
