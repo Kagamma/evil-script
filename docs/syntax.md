@@ -42,7 +42,7 @@ A simple hello world looks like this:
 writeln('Hello, World!')
 ```
 
-#### Architecture
+### Architecture
 
 The compiler itself is a one-pass compiler. It follows Niklaus Wirth’s design, completely skips AST generation and generates binary directly.
 
@@ -60,19 +60,19 @@ Each evil script instance has it's own functions and global storage. A script fu
 
 ## Overview
 
-#### Imperative and structured
+### Imperative and structured
 Evil script supports structured programming in the style of C. It  supports function and block scoping. Evil script does not require semicolons to separate statements.
 
 Control flow can be achieved using while, for, do / while, if / else, and switch / case statements. Functions are weakly typed and can accept and return any type.
 
-#### Weakly typed
+### Weakly typed
 Evil script is weakly typed. This means that in most, but not all cases, certain types are implicitly assigned based on the operation being performed.
 
-#### Dynamic
+### Dynamic
 Evil script is a dynamic language. This means that a variable can point
 to any type at runtime.
 
-#### Types
+### Types
 
 ```
 string, number, boolean, map, buffer, function, pasobject, null
@@ -99,7 +99,7 @@ Strings, Maps and Buffers are subject to automatic memory management.
 You do not have to worry about allocation and deallocation of these data
 types.
 
-#### Scopes
+### Scopes
 Evil script supports lexical scoping, meaning that a variable's scope is determined by its position in the source code.
 
 Variables are block-scoped. They are accessible only within the scope in which they are declared and any nested scopes.
@@ -110,10 +110,10 @@ Evil script does not support closures. Try to access local variables from a nest
 
 ## A quick tour
 
-#### Code reuse
+### Code reuse
 `using 'path/to/source_code.evil'`
 
-#### Operators
+### Operators
 
 ```
 Operator                                        Precedence
@@ -141,7 +141,7 @@ Bitwise operator     Description
 
 Evil script does not support logic operators, thus it does not distinguish between =, &, | and ==, &&, ||, allowing them to be used interchangeably.
 
-#### Variable declarations
+### Variable declarations
 
 ```
 a = 5
@@ -194,7 +194,7 @@ d['a'] = 5
 
 - Strings are copy-on-write, while maps are passed by reference.
 
-#### Statements
+### Statements
 
 ```
 expressions = a + b * c / d + (5 - 2)
@@ -224,7 +224,7 @@ bitwise_right_shift = a >> b
 ternary = a != 5 ? 2 : 4
 ```
 
-#### If block
+### If block
 
 ```
 if (a < b) & (c < d) {
@@ -236,7 +236,7 @@ if (a < b) & (c < d) {
 }
 ```
 
-#### While block
+### While block
 
 ```
 i = 0
@@ -251,7 +251,7 @@ while i < a {
 }
 ```
 
-#### Do-while block
+### Do-while block
 
 ```
 i = 0
@@ -266,7 +266,7 @@ do {
 } while i < a
 ```
 
-#### For block
+### For block
 
 ```
 for i = 0 to 4 {
@@ -293,7 +293,7 @@ for i = 4 downto 0 step 0.5 {
 
 ```
 
-#### For-in block
+### For-in block
 
 For-in block only work correctly with valid array.
 
@@ -310,7 +310,7 @@ for value, index in [1, 2, 5, 7, 9] {
 }
 ```
 
-#### Switch-case block
+### Switch-case block
 
 ```
 a = 5
@@ -359,7 +359,7 @@ switch s {
 }
 ```
 
-#### Function declaration
+### Function declaration
 
 ```
 fn foo() {
@@ -397,7 +397,7 @@ There're 2 ways to return a value:
 
 Note: While we allow the declaration of nested functions, the lack of closures mean they cannot access any local variables from the parent function if called outside of parent function.
 
-#### Function reference
+### Function reference
 
 ```
 fn add(a, b) {
@@ -412,7 +412,7 @@ writeln(calc.add(2, 4)) // Print "6"
 writeln(calc.add = add_ref) // Print "true"
 ```
 
-#### Anonymous function
+### Anonymous function
 
 ```
 fn test(func) {
@@ -434,7 +434,7 @@ fn(n) result = n + 1
 fn(n) { result = n + 1 }
 ```
 
-#### Self
+### Self
 
 - Evil script does not support true OOP. Instead, "object instance" containing the callee will pass itself to callee as `self`.
 - The main reason for this mechanism instead of true OOP is performance: This way it doesn't require a separate "method reference" type, which typically uses twice the memory (which result in additional memory allocations due to the way script engine keeps data), compared to a normal "function reference".
@@ -488,7 +488,7 @@ while true {
 }
 ```
 
-#### Try-catch
+### Try-catch
 
 ```
 fn test() {
@@ -504,7 +504,7 @@ try {
 }
 ```
 
-#### Comment
+### Comment
 
 ```
 // A comment
@@ -516,7 +516,7 @@ try {
 */
 ```
 
-#### Import external functions from dynamic libraries
+### Import external functions from dynamic libraries
 ```
 import 'test.dll' {
   fn Add(i32, i32): i32
@@ -544,7 +544,7 @@ List of supported data types:
 
 By default, `import` supports `Microsoft x64 calling convention` on Windows, and `System V AMD64 ABI` on Linux. There's no way to change calling convention at the moment.
 
-#### Assert
+### Assert
 ```
 assert(expr, 'Error message')
 ```

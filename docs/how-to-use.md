@@ -12,7 +12,7 @@ Below is an overview document that briefly explains how to integrate Evil script
 
 ## TScriptEngine
 
-#### A quick tour
+### A quick tour
 Declare an evil script instance:
 ```
 var
@@ -33,7 +33,7 @@ Execute the script:
   SE.Exec;
 ```
 
-#### Execute a function
+### Execute a function
 Given the following script:
 ```
 a = 5
@@ -51,7 +51,7 @@ Execute a named function inside the script, then shows the result on screen:
   Writeln(SE.ExecFuncOnly('add', [7]).VarNumber); // Should be 12
 ```
 
-#### Register new functions
+### Register new functions
 Declares a new function. The function below will accept 2 parameters,  add them together and return the result:
 ```
 type
@@ -71,7 +71,7 @@ Register the function to the script engine:
   SE.Source := 'a = add(2, 3)';
 ```
 
-#### Register new functions with the `self` variable
+### Register new functions with the `self` variable
 Declares a new function. The function below will accept 2 parameters,  add them together and assign the result to `self.value`:
 ```
 type
@@ -93,19 +93,19 @@ Register the function to the script engine:
 'obj.add(2, 3)';
 ```
 
-#### Exec, ExecFunc, ExecFuncOnly
+### Exec, ExecFunc, ExecFuncOnly
 - `Exec` is used when you want to execute the script until it's done (check the `TScriptEngine.IsDone` flag). `yield` can be used to quit the script and return later.
 - `ExecFunc` executes the script once to initialize global values, then executes the function. `yield` can be used to quit the script and return later.
 - `ExecFuncOnly` executes the function only. `yield` CANNOT be used.
 
-#### Change a global variable
+### Change a global variable
 Useful if we want to modify a global variable after intialized them via `TScriptEngine.Exec()`
 ```
   SE.VM.ModifyGlobalVariable('a', NewValue);
 ```
 
 ## TSEValue
-#### Overview
+### Overview
 A 16-bit data structure. `TSEValue.Kind` stores the type of variable, which can be one of the following values: sevkNumber, sevkBoolean, sevkString, sevkMap, sevkBuffer, sevkFunction, sevkPascalObject, sevkNull.
 
 - Declares a new TSEValue:
