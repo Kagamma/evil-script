@@ -9,6 +9,7 @@
 - [Memory management](#memory-management)
 - [Misc](#misc)
 - [Multithreading](#multithreading)
+- [Strings](#strings)
 
 ## Base64
 `base64_encode(buf: buffer): string`
@@ -390,13 +391,8 @@ Returns length of string, map or buffer.
 - Reset the event. Any threads calling `event_wait()` will be suspended.
 
 ## Strings
-`numbers(s: string): map`
-- Converts words to map of numbers.
-  + Input: two thousands five hundreds kg of stones arrived at ten o'clock
-  + Output: [2500, 10]
-
 `string_concat(s, s1, s2: string)`
-- Concatenates s1 and s2 and save result to s, without creating a new copy of s. Use this instead of =s = s1 + s2= if you try to concatenate a lot of strings.
+- Concatenates s1 and s2 and save result to s, without creating a new copy of s. Use this instead of `s = s1 + s2` if you try to concatenate a lot of strings.
 
 `string_empty(s)`
 - Empties string s. It is used to set a string built by /string_concat()/ back to an empty string.

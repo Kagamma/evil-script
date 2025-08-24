@@ -5,8 +5,9 @@ Below is an overview document that briefly explains how to integrate Evil script
   + [Execute a function](#execute-a-function)
   + [Register new functions](#register-new-functions)
   + [Register new functions with the self variable](#register-new-functions-with-the-self-variable)
+  + [Yield](#yield)
   + [Exec, ExecFunc, ExecFuncOnly](#exec-execfunc-execfunconly)
-  + [Change a global variable](change-a-global-variable)
+  + [Change a global variable](#change-a-global-variable)
 - [TSEValue](#tsevalue)
   + [Overview](#overview)
 
@@ -31,6 +32,11 @@ Pass the source code to the script engine. Note that `TScriptEngine.Reset` will 
 Execute the script:
 ```
   SE.Exec;
+```
+Force script recompilation, without reset the state:
+```
+  SE.Lex;
+  SE.Parse;
 ```
 
 ### Execute a function
@@ -67,7 +73,7 @@ end;
 ```
 Register the function to the script engine:
 ```
-  SE.RegisterFunc('add', @TCustomFunctions.Add, 2);
+  SE.RegisterFunc('add', @TCustomFunctions(nil).Add, 2);
   SE.Source := 'a = add(2, 3)';
 ```
 
@@ -87,16 +93,39 @@ end;
 ```
 Register the function to the script engine:
 ```
-  SE.RegisterFuncWithSelf('add', @TCustomFunctions.Add, 2);
+  SE.RegisterFuncWithSelf('add', @TCustomFunctions(nil).Add, 2);
   SE.Source :=
 'obj = [ value: 0, add: add ]' + #10 +
 'obj.add(2, 3)';
 ```
 
+#### Yield
+`yield` is useful when you need to temporarily exit the script, perform tasks on the Pascal side, and then resume the script where it left off.
+
+Consider the following script:
+```
+  i = 0
+  while i < 3 {
+    // Exit the script. The next time it will start from where it left off
+    yield
+    // Do something
+    i += 1
+  }
+```
+
+On Pascal side, we call `TScriptEngine.Exec` in a loop until `IsDone` flag is set to `true`:
+```
+  while not SE.IsDone do
+  begin
+    SE.Exec;
+    // Do something else
+  end;
+```
+
 ### Exec, ExecFunc, ExecFuncOnly
 - `Exec` is used when you want to execute the script until it's done (check the `TScriptEngine.IsDone` flag). `yield` can be used to quit the script and return later.
-- `ExecFunc` executes the script once to initialize global values, then executes the function. `yield` can be used to quit the script and return later.
-- `ExecFuncOnly` executes the function only. `yield` CANNOT be used.
+- `ExecFunc` executes a named function. If you want to initialize global variables, call `Exec` before `ExecFunc`. `yield` can be used to quit the script and return later.
+- `ExecFuncOnly` similar to `ExecFunc` except it's one time only and because of that `yield` CANNOT be used.
 
 ### Change a global variable
 Useful if we want to modify a global variable after intialized them via `TScriptEngine.Exec()`
@@ -106,7 +135,7 @@ Useful if we want to modify a global variable after intialized them via `TScript
 
 ## TSEValue
 ### Overview
-A 16-bit data structure. `TSEValue.Kind` stores the type of variable, which can be one of the following values: sevkNumber, sevkBoolean, sevkString, sevkMap, sevkBuffer, sevkFunction, sevkPascalObject, sevkNull.
+A 16-byte data structure. `TSEValue.Kind` stores the type of variable, which can be one of the following values: sevkNumber, sevkBoolean, sevkString, sevkMap, sevkBuffer, sevkFunction, sevkPascalObject, sevkNull.
 
 - Declares a new TSEValue:
 ```
@@ -119,19 +148,34 @@ A 16-bit data structure. `TSEValue.Kind` stores the type of variable, which can 
 - Assign number:
 ```
   V := 5;
+  // Equivalent to:
+  // V.Kind := sevkNumber;
+  // V.VarNumber := 5;
 ```
 - Assign boolean value:
 ```
   V := True;
+  // Equivalent to:
+  // V.Kind := sevkBoolean;
+  // V.VarBoolean := True;
 ```
 - Assign string:
 ```
   V := 'This is a string';
+  // Equivalent to GC.AllocString(@V, 'This is a string');
+  // You can access the string directly via V.VarString^
 ```
-- Assign a map:
+- Create a new map:
 ```
   GC.AllocMap(@V);
   // We can read / write the map via V.GetValue() / V.SetValue() helpers.
+  // You can access map instance directly via V.VarMap
+```
+- Create a new buffer:
+```
+  // 1024 bytes
+  GC.AllocBuffer(@V, 1024);
+  // Access to buffer via V.VarBuffer^.Ptr pointer. DO NOT touch V.VarBuffer^.Base pointer.
 ```
 - Assign a Pascal object:
 ```
@@ -150,11 +194,7 @@ A 16-bit data structure. `TSEValue.Kind` stores the type of variable, which can 
   // - sefkScript = Evil script function.
   V.VarFuncKind := sefkScript;
 
-  // VarFuncIndx is either:
-  // - Function index, in case VarFuncKind = sefkScript
-  // - Function pointer, in case VarFuncKind = sefkNative
-  // We can look for function index via TScriptEngine.FindFuncScript()
-  // or function pointer via TScriptEngine.FindFuncNative()
+  // VarFuncIndx is function index.
+  // We can look for function index via TScriptEngine.FindFuncScript() or TScriptEngine.FindFuncNative()
   V.VarFuncIndx := 2;
-
 ```

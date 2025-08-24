@@ -27,12 +27,6 @@
   + [Comment](#comment)
   + [Import external functions from dynamic libraries](#import-external-functions-from-dynamic-libraries)
   + [Assert](#assert)
-  + [Scopes](#)
-  + [Scopes](#)
-  + [Scopes](#)
-  + [Scopes](#)
-  + [Scopes](#)
-  + [Scopes](#)
 
 ## Introduction
 Evil script is a simple and lightweight scripting language. It's syntax is influenced by C, Pascal and Lua.
