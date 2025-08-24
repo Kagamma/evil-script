@@ -7,7 +7,8 @@
   + [Dynamic](#dynamic)
   + [Types](#types)
   + [Scopes](#scopes)
-- [A quick tour](#a-quick-tour)
+  + [Memory management](#memory-management)
+- [Syntax](#syntax)
   + [Code reuse](#code-reuse)
   + [Operators](#operators)
   + [Variable declarations](#variable-declarations)
@@ -89,10 +90,6 @@ languages like C or Pascal. It is basically a space within the system
 memory that is used to store raw data for just about anything. Underneath
 a buffer is just a pointer and you can perform pointer arimethic on it.
 
-Strings, Maps and Buffers are subject to automatic memory management.
-You do not have to worry about allocation and deallocation of these data
-types.
-
 ### Scopes
 Evil script supports lexical scoping, meaning that a variable's scope is determined by its position in the source code.
 
@@ -102,7 +99,14 @@ Variables declared in a function are local to that function by default. If a glo
 
 Evil script does not support closures. Try to access local variables from a nested function may cause unexpected behaviors.
 
-## A quick tour
+### Memory management
+Strings, Maps, Buffers and managed PasObject are subject to automatic memory management. You do not have to worry about allocation and deallocation of these data types.
+
+The virtual machine employs a simple mark-and-sweep garbage collector that operates periodically to reclaim memory. This garbage collection algorithm works in two phases: the "mark" phase, where it identifies all objects still in use by tracing references from active program variables, and the "sweep" phase, where it reclaims memory from objects no longer referenced. The collector runs predictably, meaning it is triggered at regular intervals or when specific memory thresholds are reached, balancing performance and memory efficiency.
+
+Users can invoke GC manually via `mem_gc()` function.
+
+## Syntax
 
 ### Code reuse
 `using 'path/to/source_code.evil'`

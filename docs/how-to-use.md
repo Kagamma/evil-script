@@ -14,14 +14,14 @@ Below is an overview document that briefly explains how to integrate Evil script
 ## TScriptEngine
 
 ### A quick tour
-Declare an evil script instance:
+Declares an evil script instance:
 ```
 var
   SE: TScriptEngine;
 ...
   SE := TScriptEngine.Create;
 ```
-Reset the script engine to default state:
+Resets the script engine to default state:
 ```
   SE.Reset;
 ```
@@ -29,11 +29,11 @@ Pass the source code to the script engine. Note that `TScriptEngine.Reset` will 
 ```
   SE.Source := 'writeln("hello, world!")';
 ```
-Execute the script:
+Executes the script:
 ```
   SE.Exec;
 ```
-Force script recompilation, without reset the state:
+Forces script recompilation, without reset the state:
 ```
   SE.Lex;
   SE.Parse;
@@ -48,11 +48,11 @@ fn add(b) {
   result = a + b
 }
 ```
-Execute the script once to initialize global variables:
+Executes the script once to initialize global variables:
 ```
   SE.Exec;
 ```
-Execute a named function inside the script, then shows the result on screen:
+Executes a named function inside the script, then shows the result on screen:
 ```
   Writeln(SE.ExecFuncOnly('add', [7]).VarNumber); // Should be 12
 ```
@@ -141,43 +141,43 @@ A 16-byte data structure. `TSEValue.Kind` stores the type of variable, which can
 ```
   var V: TSEValue;
 ```
-- Assign null value:
+- Assigns null value:
 ```
   V := SENull;
 ```
-- Assign number:
+- Assigns number:
 ```
   V := 5;
   // Equivalent to:
   // V.Kind := sevkNumber;
   // V.VarNumber := 5;
 ```
-- Assign boolean value:
+- Assigns boolean value:
 ```
   V := True;
   // Equivalent to:
   // V.Kind := sevkBoolean;
   // V.VarBoolean := True;
 ```
-- Assign string:
+- Assigns string:
 ```
   V := 'This is a string';
   // Equivalent to GC.AllocString(@V, 'This is a string');
   // You can access the string directly via V.VarString^
 ```
-- Create a new map:
+- Creates a new map:
 ```
   GC.AllocMap(@V);
   // We can read / write the map via V.GetValue() / V.SetValue() helpers.
   // You can access map instance directly via V.VarMap
 ```
-- Create a new buffer:
+- Creates a new buffer:
 ```
   // 1024 bytes
   GC.AllocBuffer(@V, 1024);
   // Access to buffer via V.VarBuffer^.Ptr pointer. DO NOT touch V.VarBuffer^.Base pointer.
 ```
-- Assign a Pascal object:
+- Assigns a Pascal object:
 ```
   // If IsManaged is true, then the script engine's garbage collector will automatically free AnObjectInstance when the variable is unreachable.
   GC.AllocPascalObject(@V, AnObjectInstance, IsManaged);
@@ -185,7 +185,7 @@ A 16-byte data structure. `TSEValue.Kind` stores the type of variable, which can
   // Access the object
   Obj := V.VarPascalObject^.Value;
 ```
-- Assign a function:
+- Assigns a function:
 ```
   V.Kind := sevkFunction;
 

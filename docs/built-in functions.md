@@ -32,31 +32,31 @@
 - Sets the first `count` bytes of the block of memory pointed by `buffer` to the specified value (interpreted as an unsigned char).
 
 `buffer_u16_fill(buffer: buffer, value, count: number): number`
-- Sets the first `count ` 2` bytes of the block of memory pointed by `buffer` to the specified value (interpreted as an unsigned short).
+- Sets the first `count ` 2 bytes of the block of memory pointed by `buffer` to the specified value (interpreted as an unsigned short).
 
 `buffer_u32_fill(buffer: buffer, value, count: number): number`
-- Sets the first `count ` 4` bytes of the block of memory pointed by `buffer` to the specified value (interpreted as an unsigned int).
+- Sets the first `count ` 4 bytes of the block of memory pointed by `buffer` to the specified value (interpreted as an unsigned int).
 
 `buffer_u64_fill(buffer: buffer, value, count: number): number`
-- Sets the first `count ` 8` bytes of the block of memory pointed by `buffer` to the specified value (interpreted as an unsigned long long).
+- Sets the first `count ` 8 bytes of the block of memory pointed by `buffer` to the specified value (interpreted as an unsigned long long).
 
 `buffer_i8_fill(buffer: buffer, value, count: number): number`
 - Sets the first `count` bytes of the block of memory pointed by `buffer` to the specified value (interpreted as an char).
 
 `buffer_i16_fill(buffer: buffer, value, count: number): number`
-- Sets the first `count ` 2` bytes of the block of memory pointed by `buffer` to the specified value (interpreted as an short).
+- Sets the first `count ` 2 bytes of the block of memory pointed by `buffer` to the specified value (interpreted as an short).
 
 `buffer_i32_fill(buffer: buffer, value, count: number): number`
-- Sets the first `count ` 4` bytes of the block of memory pointed by `buffer` to the specified value (interpreted as an int).
+- Sets the first `count ` 4 bytes of the block of memory pointed by `buffer` to the specified value (interpreted as an int).
 
 `buffer_i64_fill(buffer: buffer, value, count: number): number`
-- Sets the first `count ` 8` bytes of the block of memory pointed by `buffer` to the specified value (interpreted as an long long).
+- Sets the first `count ` 8 bytes of the block of memory pointed by `buffer` to the specified value (interpreted as an long long).
 
 `buffer_f32_fill(buffer: buffer, value, count: number): number`
-- Sets the first `count ` 4` bytes of the block of memory pointed by `buffer` to the specified value (interpreted as an float).
+- Sets the first `count ` 4 bytes of the block of memory pointed by `buffer` to the specified value (interpreted as an float).
 
 `buffer_f64_fill(buffer: buffer, value, count: number): number`
-- Sets the first `count ` 8` bytes of the block of memory pointed by `buffer` to the specified value (interpreted as an double).
+- Sets the first `count ` 8 bytes of the block of memory pointed by `buffer` to the specified value (interpreted as an double).
 
 `buffer_u8_get(buffer: buffer): number`
 - Gets 1-byte unsigned data from buffer.
