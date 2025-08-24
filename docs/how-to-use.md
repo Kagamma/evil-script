@@ -8,7 +8,7 @@ Below is an overview document that briefly explains how to integrate Evil script
   + [Exec, ExecFunc, ExecFuncOnly](#exec-execfunc-execfunconly)
   + [Change a global variable](change-a-global-variable)
 - [TSEValue](#tsevalue)
-  + [A quick tour](#a-quick-tour)
+  + [Overview](#overview)
 
 ## TScriptEngine
 
@@ -105,7 +105,7 @@ Useful if we want to modify a global variable after intialized them via `TScript
 ```
 
 ## TSEValue
-#### A quick tour
+#### Overview
 A 16-bit data structure. `TSEValue.Kind` stores the type of variable, which can be one of the following values: sevkNumber, sevkBoolean, sevkString, sevkMap, sevkBuffer, sevkFunction, sevkPascalObject, sevkNull.
 
 - Declares a new TSEValue:
@@ -145,14 +145,14 @@ A 16-bit data structure. `TSEValue.Kind` stores the type of variable, which can 
 ```
   V.Kind := sevkFunction;
 
-  // VarFuncKind tells the type of function:
-  // sefkNative = Pascal function registered via TScriptEngine.RegisterFunc() / TScriptEngine.RegisterFuncWithSelf().
-  // sefkScript = Evil script function.
+  // VarFuncKind stores the type of function:
+  // - sefkNative = Pascal function registered via TScriptEngine.RegisterFunc() / TScriptEngine.RegisterFuncWithSelf().
+  // - sefkScript = Evil script function.
   V.VarFuncKind := sefkScript;
 
   // VarFuncIndx is either:
-  // Function index, in case VarFuncKind = sefkScript
-  // Function pointer, in case VarFuncKind = sefkNative
+  // - Function index, in case VarFuncKind = sefkScript
+  // - Function pointer, in case VarFuncKind = sefkNative
   // We can look for function index via TScriptEngine.FindFuncScript()
   // or function pointer via TScriptEngine.FindFuncNative()
   V.VarFuncIndx := 2;
