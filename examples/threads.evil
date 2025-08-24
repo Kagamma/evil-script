@@ -23,6 +23,9 @@ thread_start(t3)
 thread_start(t4)
 
 // Wait until all the threads terminated
-while !(thread_is_terminated(t1) && thread_is_terminated(t2) && thread_is_terminated(t3) && thread_is_terminated(t4)) {}
+thread_wait(t1)
+thread_wait(t2)
+thread_wait(t3)
+thread_wait(t4)
 
 writeln('Finished in ', ticks() - t, ' ms.')

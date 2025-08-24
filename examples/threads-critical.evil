@@ -30,4 +30,5 @@ sleep(1) // Make sure t1 start first by sleeping a bit
 thread_start(t2)
 
 // Wait until all the threads terminated
-while !(thread_is_terminated(t1) && thread_is_terminated(t2)) {}
+thread_wait(t1)
+thread_wait(t2)
