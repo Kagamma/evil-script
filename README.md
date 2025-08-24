@@ -4,8 +4,8 @@ It has been tested and works on the following platforms: DOS (go32v2), Windows (
 
 Enable `SE_LIBFFI` if you need to call external functions from DLLs/SOs.
 
-#### Features
-- https://github.com/Kagamma/satania-buddy/wiki/Scripting-Reference
+#### Documentations
+- https://github.com/Kagamma/evil-script/tree/main/docs
 
 #### Building
 - `fpc -O4 evil.pas`
@@ -15,6 +15,7 @@ Enable `SE_LIBFFI` if you need to call external functions from DLLs/SOs.
 
 #### How to embedded into applications
 - See `Test.pas` and `evil.pas` source code
+- Also see https://github.com/Kagamma/evil-script/tree/main/docs/how-to-use.md
 
 #### About compiler
 - The compiler itself is a one-pass compiler. It follows Niklaus Wirth’s design, completely skips AST generation and generates binary directly.
