@@ -71,7 +71,7 @@ uses
 const
   // Time in miliseconds before GC starts collecting memory
   SE_MEM_TIME = 1000 * 30;
-  SE_STACK_RESERVE = 2;
+  SE_STACK_RESERVED = 2;
 
 type
   TSENumber = Double;
@@ -2524,7 +2524,7 @@ begin
   Thread := TSEVMThread.Create(VM, Args[0], @Args[1], ArgCount - 1, 512);
   GC.AllocPascalObject(@Result, Thread, True);
   // Push "self" onto stack
-  Thread.VM.Stack[(SE_STACK_RESERVE - 1) + ArgCount] := Result;
+  Thread.VM.Stack[(SE_STACK_RESERVED - 1) + ArgCount] := Result;
 end;
 
 class function TBuiltInFunction.SEThreadStart(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -4176,7 +4176,7 @@ begin
   SetLength(Result.Stack, AStackSize);
   SetLength(Result.Frame, Result.FrameSize);
   SetLength(Result.Trap, Result.TrapSize);
-  Result.StackPtr := PSEValue(@Result.Stack[0]) + SE_STACK_RESERVE;
+  Result.StackPtr := PSEValue(@Result.Stack[0]) + SE_STACK_RESERVED;
   Result.FramePtr := @Result.Frame[0];
   Result.FramePtr^.Stack := Result.StackPtr;
   Result.TrapPtr := @Result.Trap[0];
@@ -9464,7 +9464,7 @@ begin
   Self.VM.IsPaused := False;
   Self.VM.IsDone := False;
   Self.VM.FramePtr := @Self.VM.Frame[0];
-  Self.VM.StackPtr := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVE;
+  Self.VM.StackPtr := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
   Self.VM.FramePtr^.Stack := Self.VM.StackPtr;
   Self.VM.TrapPtr := @Self.VM.Trap[0];
   Dec(Self.VM.TrapPtr);
@@ -9479,7 +9479,7 @@ begin
   end;
   if Self.VM.BinaryPtr <> 0 then
   begin
-    Stack := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVE;
+    Stack := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
     for I := 0 to Length(Args) - 1 do
     begin
       Stack[I] := Args[I];
@@ -9502,7 +9502,7 @@ begin
     Result := SENull;
     if Self.VM.IsPaused or Self.VM.IsYielded then
     begin
-      Stack := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVE;
+      Stack := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
       for I := 0 to Self.FuncScriptList.Count - 1 do
       begin
         if Name = Self.FuncScriptList[I].Name then
@@ -9521,7 +9521,7 @@ begin
       Self.VM.IsPaused := False;
       Self.VM.IsDone := False;
       Self.VM.FramePtr := @Self.VM.Frame[0];
-      Self.VM.StackPtr := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVE;
+      Self.VM.StackPtr := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
       Self.VM.FramePtr^.Stack := Self.VM.StackPtr;
       Self.VM.TrapPtr := @Self.VM.Trap[0];
       Dec(Self.VM.TrapPtr);
@@ -9536,7 +9536,7 @@ begin
       end;
       if Self.VM.BinaryPtr <> 0 then
       begin
-        Stack := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVE;
+        Stack := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
         for I := 0 to Length(Args) - 1 do
         begin
           Stack[I] := Args[I];

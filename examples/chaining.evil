@@ -1,0 +1,38 @@
+f1 = fn(a) {   
+  writeln('f1 is called!')
+  writeln('self: ', self)
+  writeln('a:  ', a)
+  return (self)
+}
+
+a = []
+a.b = []
+a.b.c = f1
+
+e = a.b
+
+fn d() {
+  return (a)
+}
+
+z = [ d: d ]
+
+d().b.c(1)
+writeln('')
+
+a.b.c(1)
+writeln('')
+
+e.c(1)
+writeln('')
+
+z.d().b.c(1) 
+writeln('')
+
+writeln('return 1: ', d().b.c(1))
+writeln('')
+
+writeln('return 2: ', a.b.c(1).c)
+writeln('')
+
+writeln('return 3: ', z.d().b.c(e.c).c)
