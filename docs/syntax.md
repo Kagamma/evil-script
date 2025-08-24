@@ -3,7 +3,6 @@
   + [Architecture](#architecture)
 - [Overview](#overview)
   + [Imperative and structured](#imperative-and-structured)
-  + [Weakly typed](#weekly-typed)
   + [Dynamic](#dynamic)
   + [Types](#types)
   + [Scopes](#scopes)
@@ -59,9 +58,6 @@ Each evil script instance has it's own functions and global storage. A script fu
 Evil script supports structured programming in the style of C. It  supports function and block scoping. Evil script does not require semicolons to separate statements.
 
 Control flow can be achieved using while, for, do / while, if / else, and switch / case statements. Functions are weakly typed and can accept and return any type.
-
-### Weakly typed
-Evil script is weakly typed. This means that in most, but not all cases, certain types are implicitly assigned based on the operation being performed.
 
 ### Dynamic
 Evil script is a dynamic language. This means that a variable can point
