@@ -273,7 +273,7 @@ for i = 4 downto 0 {
   break
 }
 
-For loop can accept floating point numbers, and step is not necessary 1:
+// For loop can accept floating point numbers, and step is not necessary 1:
 
 for i = 0 to 4.2 step 0.2 {
   writeln(i)
@@ -427,6 +427,19 @@ fn(n) = n + 1
 fn(n) result = n + 1
 
 fn(n) { result = n + 1 }
+```
+- Anonymous functions can access local variables from parent functions
+```
+fn test2(f) {
+  writeln(f())
+}
+
+fn test() {
+  a = 2
+  test2(f() = a) // Should print '2'
+}
+
+test()
 ```
 
 ### Self

@@ -168,7 +168,7 @@ A 16-byte data structure. `TSEValue.Kind` stores the type of variable, which can
 - Creates a new map:
 ```
   GC.AllocMap(@V);
-  // We can read / write the map via V.GetValue() / V.SetValue() helpers.
+  // You can read / write the map via V.GetValue() / V.SetValue() helpers.
   // You can access map instance directly via V.VarMap
 ```
 - Creates a new buffer:
