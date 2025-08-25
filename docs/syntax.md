@@ -87,13 +87,11 @@ memory that is used to store raw data for just about anything. Underneath
 a buffer is just a pointer and you can perform pointer arimethic on it.
 
 ### Scopes
-Evil script supports lexical scoping, meaning that a variable's scope is determined by its position in the source code.
-
 Variables are block-scoped. They are accessible only within the scope in which they are declared and any nested scopes.
 
 Variables declared in a function are local to that function by default. If a global variable has the same name, the `local` prefix is needed. Such variables are stored on the stack.
 
-Evil script does not support closures. Try to access local variables from a nested function may cause unexpected behaviors.
+Evil script does not support closures. Try to access parent function's local variables from a nested function may cause unexpected behaviors.
 
 ### Memory management
 Strings, Maps, Buffers and managed PasObject are subject to automatic memory management. You do not have to worry about allocation and deallocation of these data types.
@@ -386,8 +384,8 @@ add = fn(a, b) {
 ```
 
 There're 2 ways to return a value:
-- Assign function result to =result= variable
-- Use =return=. Note that you need to wrap expression in brackets, for example =return (true)=
+- Assign function result to `result` variable
+- Use =return=. Note that you need to wrap expression in brackets, for example `return (true)`
 
 Note: While we allow the declaration of nested functions, the lack of closures mean they cannot access any local variables from the parent function if called outside of parent function.
 
@@ -413,10 +411,13 @@ fn test(func) {
   func('Satania')
 }
 
+fn calc(f) {
+  result = f(5, 3)
+}
+
 test(fn(v) writeln('Hello, ${v}!'))
-test(fn(v) {
-  writeln('Goodbye, ${v}!')
-})
+test(fn(v) writeln('Goodbye, ${v}!'))
+writeln(calc(fn(a, b) = a + b))
 ```
 
 - The following function declarations are the same:
