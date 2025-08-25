@@ -385,7 +385,7 @@ add = fn(a, b) {
 
 There're 2 ways to return a value:
 - Assign function result to `result` variable
-- Use =return=. Note that you need to wrap expression in brackets, for example `return (true)`
+- Use `return`. Note that you need to wrap expression in brackets, for example `return (true)`
 
 Note: While we allow the declaration of nested functions, the lack of closures mean they cannot access any local variables from the parent function if called outside of parent function.
 

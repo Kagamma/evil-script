@@ -142,7 +142,7 @@
 
 ## Coroutines
 `coroutine_create(function, any...): pasobject`
-- Creates a new coroutine with the the provided function and returns thread's pasobject instance. The first argument must be a function, any additional arguments will be passed to that function when the coroutine starts. The coroutine's pasobject instance is passed to the function as `self`.
+- Creates a new coroutine with the provided function and returns coroutine's pasobject instance. The first argument must be a function, any additional arguments will be passed to that function when the coroutine starts. The coroutine's pasobject instance is passed to the function as `self`.
 
 `coroutine_resume(pasobject): any`
 - Begin or resume coroutine execution. Returns value set by either `yield` or `result`.
@@ -206,9 +206,6 @@
 `fs_directory_exists(path: string): boolean`.
 - Checks if a directory is exists.
 
-`fs_directory_config_get(): string`
-- Returns satania-buddy's config directory path.
-
 `fs_file_read_binary(filename: string): buffer`
 - Reads content from file..
 
@@ -218,14 +215,8 @@
 `fs_file_write_binary(filename: string, buf: buffer, buf_size: number)`
 - Writes content at the end file. If the file is not exist then a new file is created.
 
-`fs_file_read(filename: string): string`
-- Deprecated, use `fs_file_read_text()` instead.
-
 `fs_file_read_text(filename: string): string`
 - Reads text from file.
-
-`fs_file_write(filename, text: string)`
-- Deprecated, use `fs_file_write_text()` instead.
 
 `fs_file_write_text(filename, text: string)`
 - Writes text at the end of file. If the file is not exist then a new file is created.
