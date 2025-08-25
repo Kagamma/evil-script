@@ -7325,7 +7325,7 @@ var
   procedure ParseFuncRefCallByName(const Name: String); forward;
   procedure ParseBlock(const IsCase: Boolean = False); forward;
   procedure ParseArrayAssign; forward;
-  procedure ParseFuncAnonDecl; forward;
+  procedure ParseFuncAnonDecl(const ATraversal: Cardinal = 1); forward;
 
   function OpToOp1(const Op: TSEOpcode): TSEOpcode; inline;
   begin
@@ -7662,7 +7662,7 @@ var
     until not IsOptimized;
   end;
 
-  procedure ParseExpr;
+  procedure ParseExpr(const IsParsedAtFuncCall: Boolean = False);
   type
     TProc = TSENestedProc;
   var
@@ -7979,7 +7979,10 @@ var
             PushConstCount := 0;
             IsTailed := True;
             NextToken;
-            ParseFuncAnonDecl;
+            if IsParsedAtFuncCall then
+              ParseFuncAnonDecl(2)
+            else
+              ParseFuncAnonDecl;
           end;
         tkIdent:
           begin
@@ -8249,7 +8252,7 @@ var
       NextToken;
     while not (Token.Kind = tkBracketClose) do
     begin
-      ParseExpr;
+      ParseExpr(True);
       Inc(ArgCount);
       Token := NextTokenExpected([tkComma, tkBracketClose]);
     end;
@@ -8290,7 +8293,7 @@ var
       NextToken;
     while not (Token.Kind = tkBracketClose) do
     begin
-      ParseExpr;
+      ParseExpr(True);
       Inc(ArgCount);
       Token := NextTokenExpected([tkComma, tkBracketClose]);
     end;
@@ -8323,7 +8326,7 @@ var
       NextToken;
     while not (Token.Kind = tkBracketClose) do
     begin
-      ParseExpr;
+      ParseExpr(True);
       Inc(ArgCount);
       Token := NextTokenExpected([tkComma, tkBracketClose]);
     end;
@@ -8371,7 +8374,7 @@ var
       NextTokenExpected([tkBracketOpen]);
       for I := 0 to DefinedArgCount - 1 do
       begin
-        ParseExpr;
+        ParseExpr(True);
         if I < DefinedArgCount - 1 then
           NextTokenExpected([tkComma]);
         Inc(ArgCount);
@@ -8382,7 +8385,7 @@ var
     begin
       NextTokenExpected([tkBracketOpen]);
       repeat
-        ParseExpr;
+        ParseExpr(True);
         Token := NextTokenExpected([tkComma, tkBracketClose]);
         Inc(ArgCount);
       until Token.Kind = tkBracketClose;
@@ -8431,7 +8434,7 @@ var
       begin
         Token := NextTokenExpected([tkIdent]);
         Name := Token.Value;
-        if (FuncTraversal = 0) and (FindFunc(Name) <> nil) then
+        if (Self.FuncTraversal = 0) and (FindFunc(Name) <> nil) then
           Error(Format('Duplicate function declaration "%s"', [Token.Value]), Token);
       end else
       begin
@@ -8490,14 +8493,14 @@ var
     end;
   end;
 
-  procedure ParseFuncAnonDecl;
+  procedure ParseFuncAnonDecl(const ATraversal: Cardinal = 1);
   var
     I, J: Integer;
     FuncValue: TSEValue;
     Ind: Integer;
     P: Pointer;
   begin
-    Inc(FuncTraversal);
+    Inc(Self.FuncTraversal, ATraversal);
     Self.LocalVarCountList.Add(-1);
     Self.ScopeStack.Push(Self.VarList.Count);
     Self.ScopeFunc.Push(Self.FuncScriptList.Count + 1);
@@ -8511,7 +8514,7 @@ var
         Self.FuncScriptList.Ptr(J)^.Name := '';
     end;
     Self.LocalVarCountList.Delete(Self.LocalVarCountList.Count - 1);
-    Dec(FuncTraversal);
+    Dec(Self.FuncTraversal, ATraversal);
     //
     P := FindFunc(Token.Value, FuncValue.VarFuncKind, Ind);
     if P = nil then
@@ -9420,7 +9423,7 @@ var
             ParseVarAssign('result', False, False);
             NextTokenExpected([tkBracketClose]);
           end;
-          if FuncTraversal = 0 then
+          if Self.FuncTraversal = 0 then
             Emit([Pointer(opHlt)])
           else
           begin
@@ -9430,7 +9433,7 @@ var
       tkFunctionDecl:
         begin
           NextToken;
-          Inc(FuncTraversal);
+          Inc(Self.FuncTraversal);
           Self.LocalVarCountList.Add(-1);
           Self.ScopeStack.Push(Self.VarList.Count);
           Self.ScopeFunc.Push(Self.FuncScriptList.Count + 1);
@@ -9444,7 +9447,7 @@ var
               Self.FuncScriptList.Ptr(J)^.Name := '';
           end;
           Self.LocalVarCountList.Delete(Self.LocalVarCountList.Count - 1);
-          Dec(FuncTraversal);
+          Dec(Self.FuncTraversal);
         end;
       tkYield:
         begin
@@ -9587,7 +9590,7 @@ begin
   Self.VarList[1] := Ident;
   ErrorLn := -1;
   ErrorCol := -1;
-  FuncTraversal := 0;
+  Self.FuncTraversal := 0;
   Self.FuncCurrent := -1;
 end;
 
