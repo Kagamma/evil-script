@@ -6528,11 +6528,12 @@ begin
                     NextChar;
                     if not (PeekAtNextChar in ['0'..'9', 'A'..'F', 'a'..'f']) then
                       Error('Invalid number');
+                    S := '';
                     while PeekAtNextChar in ['0'..'9', 'A'..'F', 'a'..'f'] do
                     begin
-                      Token.Value := Token.Value + NextChar;
+                      S := S + NextChar;
                     end;
-                    Token.Value := UTF8Encode(UnicodeChar(Hex2Dec64(Token.Value)));
+                    Token.Value := Token.Value + UTF8Encode(UnicodeChar(Hex2Dec64(S)));
                   end else
                   if C <> #0 then
                   begin
