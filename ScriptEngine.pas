@@ -9670,7 +9670,7 @@ begin
   {$endif}
   try
     Result := SENull;
-    if Self.VM.IsPaused or Self.VM.IsYielded then
+    if (not Self.VM.IsDone) and (Self.VM.IsPaused or Self.VM.IsYielded) then
     begin
       Stack := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
       for I := 0 to Self.FuncScriptList.Count - 1 do
