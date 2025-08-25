@@ -153,8 +153,8 @@
 `coroutine_terminate(pasobject)`
 - Set the `terminated` flag of the coroutine to `true`.
 
-`coroutine_is_executing(pasobject): boolean`
-- Returns `true` if the coroutine is executing. Useful to detect if a function is executing inside a coroutine.
+`coroutine_is_running(pasobject): boolean`
+- Returns `true` if the coroutine is running. Useful to detect if a function is executing inside a coroutine.
 
 ## Datetime
 `ticks(): number`

@@ -6168,7 +6168,7 @@ begin
     Self.RegisterFunc('coroutine_resume', @TBuiltInFunction(nil).SECoroutineResume, 1);
     Self.RegisterFunc('coroutine_is_terminated', @TBuiltInFunction(nil).SECoroutineIsTerminated, 1);
     Self.RegisterFunc('coroutine_terminate', @TBuiltInFunction(nil).SECoroutineTerminate, 1);
-    Self.RegisterFunc('coroutine_is_executing', @TBuiltInFunction(nil).SECoroutineIsExecuting, 1);
+    Self.RegisterFunc('coroutine_is_running', @TBuiltInFunction(nil).SECoroutineIsExecuting, 1);
     {$ifdef SE_THREADS}
     Self.RegisterFunc('thread_create', @TBuiltInFunction(nil).SEThreadCreate, -1);
     Self.RegisterFunc('thread_start', @TBuiltInFunction(nil).SEThreadStart, 1);
