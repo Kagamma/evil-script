@@ -255,8 +255,8 @@ type
     procedure SetValue(constref S: String; const A: TSEValue); inline; overload;
     procedure SetValue(I: TSEValue; const A: TSEValue); inline; overload;
     function ContainsKey(constref S: String): Boolean; inline; overload;
-    procedure Lock; inline;
-    procedure Unlock; inline;
+    procedure UnManaged; inline;
+    procedure Managed; inline;
     function Clone: TSEValue; inline;
     function IsValidArray: Boolean; inline;
     procedure FromJSON(constref S: String);
@@ -297,6 +297,10 @@ type
 
   TSEGarbageCollector = class
   private
+    FLockFlag: Boolean;
+    {$ifdef SE_THREADS}
+    FLock: TRTLCriticalSection;
+    {$endif}
     FAllocatedMem: Int64;
     FObjects: Cardinal;
     FValueList: TSEGCValueList;
@@ -314,8 +318,10 @@ type
     procedure AllocMap(const PValue: PSEValue);
     procedure AllocString(const PValue: PSEValue; const S: String);
     procedure AllocPascalObject(const PValue: PSEValue; const Obj: TObject; const IsManaged: Boolean);
-    procedure Lock(const PValue: PSEValue);
-    procedure Unlock(const PValue: PSEValue);
+    procedure UnManaged(const PValue: PSEValue);
+    procedure Managed(const PValue: PSEValue);
+    procedure Lock;
+    procedure Unlock;
     property ValueList: TSEGCValueList read FValueList;
     property AllocatedMem: Int64 read FAllocatedMem write FAllocatedMem;
   end;
@@ -1523,14 +1529,14 @@ begin
   Exit(TSEValueMap(Self.VarMap).Map.{$ifdef SE_MAP_AVK959}Contains{$else}ContainsKey{$endif}(S));
 end;
 
-procedure TSEValueHelper.Lock; inline;
+procedure TSEValueHelper.UnManaged; inline;
 begin
-  GC.Lock(@Self);
+  GC.UnManaged(@Self);
 end;
 
-procedure TSEValueHelper.Unlock; inline;
+procedure TSEValueHelper.Managed; inline;
 begin
-  GC.Unlock(@Self);
+  GC.Managed(@Self);
 end;
 
 function TSEValueHelper.Clone: TSEValue; inline;
@@ -3873,6 +3879,9 @@ var
   Ref0: TSEGCValue;
 begin
   inherited;
+  {$ifdef SE_THREADS}
+  InitCriticalSection(Self.FLock);
+  {$endif}
   Self.FValueList := TSEGCValueList.Create;
   Self.FValueList.Capacity := 4096;
   Self.FValueList.Add(Ref0);
@@ -3896,6 +3905,9 @@ begin
   Self.Sweep;
   Self.FValueList.Free;
   Self.FValueAvailStack.Free;
+  {$ifdef SE_THREADS}
+  DoneCriticalSection(Self.FLock);
+  {$endif}
   inherited;
 end;
 
@@ -4070,6 +4082,8 @@ var
   Binary: TSEBinary;
   T: QWord;
 begin
+  if Self.FLockFlag then
+    Exit;
   {$ifdef SE_THREADS}
   EnterCriticalSection(CS);
   {$endif}
@@ -4117,6 +4131,7 @@ begin
   finally
     {$ifdef SE_THREADS}
     LeaveCriticalSection(CS);
+    LeaveCriticalSection(Self.FLock);
     {$endif}
   end;
 end;
@@ -4200,7 +4215,7 @@ begin
   end;
 end;
 
-procedure TSEGarbageCollector.Lock(const PValue: PSEValue);
+procedure TSEGarbageCollector.UnManaged(const PValue: PSEValue);
 var
   Value: TSEGCValue;
 begin
@@ -4220,7 +4235,7 @@ begin
   end;
 end;
 
-procedure TSEGarbageCollector.Unlock(const PValue: PSEValue);
+procedure TSEGarbageCollector.Managed(const PValue: PSEValue);
 var
   Value: TSEGCValue;
 begin
@@ -4238,6 +4253,22 @@ begin
     LeaveCriticalSection(CS);
     {$endif}
   end;
+end;
+
+procedure TSEGarbageCollector.Lock;
+begin
+  {$ifdef SE_THREADS}
+  EnterCriticalSection(Self.FLock);
+  {$endif}
+  Self.FLockFlag := True;
+end;
+
+procedure TSEGarbageCollector.Unlock;
+begin
+  Self.FLockFlag := False;
+  {$ifdef SE_THREADS}
+  LeaveCriticalSection(Self.FLock);
+  {$endif}
 end;
 
 procedure TSEVM.BinaryClear;
