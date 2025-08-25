@@ -1,6 +1,7 @@
 ## Table of Contents
 - [Base64](#base64)
 - [Buffers](#buffers)
+- [Coroutines](#coroutines)
 - [Datetime](#datetime)
 - [File system](#file-system)
 - [JSON](#json)
@@ -138,6 +139,19 @@
 
 `array_to_buffer_f64(a: map): buffer`
 - Converts a valid array to a buffer. The buffer's type of data is double.
+
+## Coroutines
+`coroutine_create(function, any...): pasobject`
+- Creates a new coroutine with the the provided function and returns thread's pasobject instance. The first argument must be a function, any additional arguments will be passed to that function when the coroutine starts. The coroutine's pasobject instance is passed to the function as `self`.
+
+`coroutine_resume(pasobject): any`
+- Begin or resume coroutine execution. Returns value set by either `yield` or `result`.
+
+`coroutine_is_terminated(pasobject): boolean`
+- Check if coroutine's `terminated` flag is set. Returns `true` if the flag is set.
+
+`coroutine_terminate(pasobject)`
+- Set the `terminated` flag of the coroutine to `true`.
 
 ## Datetime
 `ticks(): number`

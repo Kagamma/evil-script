@@ -483,9 +483,18 @@ type
     destructor Destroy; override;
     procedure Execute; override;
   end;
-
   TSEVMThreadList = specialize TList<TSEVMThread>;
   {$endif}
+
+  TSEVMCoroutine = class
+    IsDone: Boolean;
+    IsTerminated: Boolean;
+    VM: TSEVM;
+    constructor Create(const AVM: TSEVM; const Fn: TSEValue; const Args: PSEValue; const ArgCount, AStackSize: Cardinal);
+    destructor Destroy; override;
+    function Execute: TSEValue;
+  end;
+  TSEVMCoroutineList = specialize TList<TSEVMCoroutine>;
 
   TEvilC = class;
   TSEVM = class
@@ -494,6 +503,7 @@ type
     {$ifdef SE_THREADS}
     ThreadOwner: TSEVMThread;
     {$endif}
+    CoroutineOwner: TSEVMCoroutine;
     IsPaused: Boolean;
     IsDone: Boolean;
     IsYielded: Boolean;
@@ -992,6 +1002,10 @@ type
     class function SEAssert(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEChar(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEOrd(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SECoroutineCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SECoroutineResume(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SECoroutineIsTerminated(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SECoroutineTerminate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     {$ifdef SE_THREADS}
     class function SEThreadCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEThreadStart(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -2551,6 +2565,35 @@ end;
 class function TBuiltInFunction.SEOrd(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 begin
   Result := Byte(Args[0].VarString^[1]);
+end;
+
+class function TBuiltInFunction.SECoroutineCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+var
+  Coroutine: TSEVMCoroutine;
+begin
+  SEValidateType(@Args[0], sevkFunction, 1, {$I %CURRENTROUTINE%});
+  Coroutine := TSEVMCoroutine.Create(VM, Args[0], @Args[1], ArgCount - 1, 512);
+  GC.AllocPascalObject(@Result, Coroutine, True);
+  // Push "self" onto stack
+  Coroutine.VM.Stack[(SE_STACK_RESERVED - 1) + ArgCount] := Result;
+end;
+
+class function TBuiltInFunction.SECoroutineResume(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+begin
+  SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
+  Result := TSEVMCoroutine(Args[0].VarPascalObject^.Value).Execute;
+end;
+
+class function TBuiltInFunction.SECoroutineIsTerminated(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+begin
+  SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
+  Result := TSEVMCoroutine(Args[0].VarPascalObject^.Value).IsTerminated;
+end;
+
+class function TBuiltInFunction.SECoroutineTerminate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+begin
+  SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
+  TSEVMCoroutine(Args[0].VarPascalObject^.Value).IsTerminated := True;
 end;
 
 {$ifdef SE_THREADS}
@@ -4365,14 +4408,12 @@ begin
 end;
 
 destructor TSEVM.Destroy;
-var
-  I: Integer;
 begin
   Self.Binaries.Free;
   if VMList <> nil then
     VMList.Remove(Self);
   {$ifdef SE_THREADS}
-  if Self.ThreadOwner = nil then
+  if (Self.ThreadOwner = nil) and (Self.CoroutineOwner = nil) then
   {$endif}
   begin
     Self.ConstStrings.Free;
@@ -5517,7 +5558,10 @@ begin
           BinaryLocal := Self.Binaries.Value^.Data[BinaryPtrLocal].Ptr(0);
           Dec(Self.FramePtr);
           if Self.FramePtr < @Self.Frame[0] then
+          begin
+            Self.IsDone := True;
             Break;
+          end;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelAssignGlobalVar{$else}opAssignGlobalVar{$endif}:
@@ -5885,6 +5929,47 @@ begin
 end;
 {$endif}
 
+constructor TSEVMCoroutine.Create(const AVM: TSEVM; const Fn: TSEValue; const Args: PSEValue; const ArgCount, AStackSize: Cardinal);
+var
+  I: Integer;
+begin
+  inherited Create;
+  Self.VM := AVM.Fork(AStackSize);
+  Self.VM.CoroutineOwner := Self;
+  for I := 0 to ArgCount - 1 do
+  begin
+    Self.VM.StackPtr[0] := Args[I];
+    Inc(Self.VM.StackPtr);
+  end;
+  Self.VM.StackPtr := Self.VM.StackPtr + Self.VM.Parent.FuncScriptList[Fn.VarFuncIndx].VarCount;
+  Self.VM.BinaryPtr := Self.VM.Parent.FuncScriptList[Fn.VarFuncIndx].BinaryPos;
+end;
+
+function TSEVMCoroutine.Execute: TSEValue;
+begin
+  if not Self.IsTerminated then
+  begin
+    try
+      Self.VM.Exec;
+      Result := (PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED - 1)^;
+      if Self.VM.IsDone then
+      begin
+        Self.IsTerminated := True;
+        Self.IsDone := True;
+      end;
+    except
+      on E: Exception do
+        Writeln('[TSEVMCoroutine] ', E.Message);
+    end;
+  end;
+end;
+
+destructor TSEVMCoroutine.Destroy;
+begin
+  Self.VM.Free;
+  inherited;
+end;
+
 constructor TEvilC.Create(const StackSize: LongWord = 2048);
 begin
   inherited Create;
@@ -6068,6 +6153,11 @@ begin
     Self.RegisterFunc('assert', @TBuiltInFunction(nil).SEAssert, 2);
     Self.RegisterFunc('chr', @TBuiltInFunction(nil).SEChar, 1);
     Self.RegisterFunc('ord', @TBuiltInFunction(nil).SEOrd, 1);
+
+    Self.RegisterFunc('coroutine_create', @TBuiltInFunction(nil).SECoroutineCreate, -1);
+    Self.RegisterFunc('coroutine_resume', @TBuiltInFunction(nil).SECoroutineResume, 1);
+    Self.RegisterFunc('coroutine_is_terminated', @TBuiltInFunction(nil).SECoroutineIsTerminated, 1);
+    Self.RegisterFunc('coroutine_terminate', @TBuiltInFunction(nil).SECoroutineTerminate, 1);
     {$ifdef SE_THREADS}
     Self.RegisterFunc('thread_create', @TBuiltInFunction(nil).SEThreadCreate, -1);
     Self.RegisterFunc('thread_start', @TBuiltInFunction(nil).SEThreadStart, 1);
@@ -9322,7 +9412,7 @@ var
             NextToken;
             Token.Kind := tkEqual;
             TokenList.Insert(Pos + 1, Token); // Insert equal token
-            ParseVarAssign('___result', False, False);
+              ParseVarAssign('result', False, False);
             NextTokenExpected([tkBracketClose]);
           end;
           Emit([Pointer(opYield)]);

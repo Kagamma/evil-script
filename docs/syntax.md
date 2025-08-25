@@ -94,7 +94,7 @@ Variables declared in a function are local to that function by default. If a glo
 Evil script does not support closures. Try to access parent function's local variables from a nested function may cause unexpected behaviors.
 
 ### Memory management
-Strings, Maps, Buffers and managed PasObject are subject to automatic memory management. You do not have to worry about allocation and deallocation of these data types.
+Strings, Maps, Buffers and managed PasObjects are subject to automatic memory management. You do not have to worry about allocation and deallocation of these data types.
 
 The virtual machine employs a simple mark-and-sweep garbage collector that operates periodically to reclaim memory. This garbage collection algorithm works in two phases: the "mark" phase, where it identifies all objects still in use by tracing references from active program variables, and the "sweep" phase, where it reclaims memory from objects no longer referenced. The collector runs predictably, meaning it is triggered at regular intervals or when specific memory thresholds are reached, balancing performance and memory efficiency.
 
@@ -475,12 +475,14 @@ writeln(obj2.test())
 
 ### Yield
 
-- Quit the script and returns to main process. When the process execute the script in next frame, it will continue at where yield's called.
+- If calls outside coroutines: Quit the script and returns to main process. When the process executes the script again, it will continue at where yield's called.
 
+- If calls inside coroutines: Quit the current coroutine. When the script resumes the coroutine, it will continue at where yield's called.
+
+- `yield (expressions)` is equivalent to:
 ```
-while true {
+  result = expressions
   yield
-}
 ```
 
 ### Try-catch
