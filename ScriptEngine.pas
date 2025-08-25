@@ -488,6 +488,7 @@ type
 
   TSEVMCoroutine = class
     IsDone: Boolean;
+    IsExecuting: Boolean;
     IsTerminated: Boolean;
     VM: TSEVM;
     constructor Create(const AVM: TSEVM; const Fn: TSEValue; const Args: PSEValue; const ArgCount, AStackSize: Cardinal);
@@ -1006,6 +1007,7 @@ type
     class function SECoroutineResume(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SECoroutineIsTerminated(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SECoroutineTerminate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SECoroutineIsExecuting(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     {$ifdef SE_THREADS}
     class function SEThreadCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEThreadStart(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -2594,6 +2596,12 @@ class function TBuiltInFunction.SECoroutineTerminate(const VM: TSEVM; const Args
 begin
   SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
   TSEVMCoroutine(Args[0].VarPascalObject^.Value).IsTerminated := True;
+end;
+
+class function TBuiltInFunction.SECoroutineIsExecuting(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+begin
+  SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
+  Result := TSEVMCoroutine(Args[0].VarPascalObject^.Value).IsExecuting;
 end;
 
 {$ifdef SE_THREADS}
@@ -5950,7 +5958,9 @@ begin
   if not Self.IsTerminated then
   begin
     try
+      Self.IsExecuting := True;
       Self.VM.Exec;
+      Self.IsExecuting := False;
       Result := (PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED - 1)^;
       if Self.VM.IsDone then
       begin
@@ -6158,6 +6168,7 @@ begin
     Self.RegisterFunc('coroutine_resume', @TBuiltInFunction(nil).SECoroutineResume, 1);
     Self.RegisterFunc('coroutine_is_terminated', @TBuiltInFunction(nil).SECoroutineIsTerminated, 1);
     Self.RegisterFunc('coroutine_terminate', @TBuiltInFunction(nil).SECoroutineTerminate, 1);
+    Self.RegisterFunc('coroutine_is_executing', @TBuiltInFunction(nil).SECoroutineIsExecuting, 1);
     {$ifdef SE_THREADS}
     Self.RegisterFunc('thread_create', @TBuiltInFunction(nil).SEThreadCreate, -1);
     Self.RegisterFunc('thread_start', @TBuiltInFunction(nil).SEThreadStart, 1);
