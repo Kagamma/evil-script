@@ -3915,7 +3915,6 @@ begin
   if GetTickCount64 - Self.FTicks > SE_MEM_TIME then
   begin
     Self.GC;
-    Self.FTicks := GetTickCount64;
   end;
 end;
 
@@ -3927,7 +3926,6 @@ begin
   if (Ticks > SE_MEM_TIME) or ((Self.FObjects + 100) div (Self.FValueAvailStack.Count + 100) > 2) then
   begin
     Self.GC;
-    Self.FTicks := GetTickCount64;
   end;
 end;
 
@@ -4103,6 +4101,7 @@ begin
     LeaveCriticalSection(CS);
     LeaveCriticalSection(Self.FLock);
     {$endif}
+    Self.FTicks := GetTickCount64;
   end;
 end;
 
