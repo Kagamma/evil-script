@@ -190,6 +190,7 @@ type
   TSEListStack = specialize TStack<TList>;
   TSEScopeStack = specialize TStack<Integer>;
   TSEIntegerList = specialize TList<Integer>;
+  TSECardinalList = specialize TList<Cardinal>;
 
   TSEFuncKind = (sefkNative, sefkScript, sefkImport);
 
@@ -313,7 +314,7 @@ type
     FObjects: Cardinal;
     FValueList: TSEGCValueList;
     FValueAvailStack: TSEGCValueAvailStack;
-    FValueUsed: TSEIntegerList;
+    FValueUsed: TSECardinalList;
     FTicks: QWord;
     procedure Sweep;
   public
@@ -332,6 +333,7 @@ type
     procedure Lock;
     procedure Unlock;
     property ValueList: TSEGCValueList read FValueList;
+    property ObjectCount: Cardinal read FObjects;
   end;
 
   TSECallingConvention = (
@@ -3871,7 +3873,7 @@ begin
   Self.FValueList.Add(Ref0);
   Self.FValueAvailStack := TSEGCValueAvailStack.Create;
   Self.FValueAvailStack.Capacity := 65536 * 32;
-  Self.FValueUsed := TSEIntegerList.Create;
+  Self.FValueUsed := TSECardinalList.Create;
   Self.FValueUsed.Capacity := 65536 * 32;
   Self.FTicks := GetTickCount64;
 end;
@@ -3906,15 +3908,14 @@ begin
   begin
     PValue^.Ref := Self.FValueList.Count;
     Value.Value := PValue^;
-    Self.FValueUsed.Add(Self.FValueList.Count);
     Self.FValueList.Add(Value);
   end else
   begin
     PValue^.Ref := Self.FValueAvailStack.Pop;
     Value.Value := PValue^;
-    Self.FValueUsed.Add(PValue^.Ref);
     Self.FValueList[PValue^.Ref] := Value;
   end;
+  Self.FValueUsed.Add(PValue^.Ref);
   Inc(Self.FObjects);
 end;
 
@@ -3950,7 +3951,7 @@ var
   end;
 
 begin
-  for I := Self.FValueList.Count - 1 downto 1 do
+  for I := 1 to Self.FValueList.Count - 1 do
   begin
     Value := Self.FValueList.Ptr(I);
     if Value^.Garbage then
@@ -3995,6 +3996,9 @@ begin
             Add;
           end;
       end;
+    end else
+    begin
+      Self.FValueUsed.Add(I);
     end;
   end;
 end;
@@ -4016,10 +4020,6 @@ procedure TSEGarbageCollector.GC;
     begin
       try
         case Value^.Value.Kind of
-          sevkBuffer:
-            Self.FValueUsed.Add(Value^.Value.Ref);
-          sevkString:
-            Self.FValueUsed.Add(Value^.Value.Ref);
           sevkMap:
             begin
               if PValue^.VarMap <> nil then
@@ -4040,7 +4040,6 @@ procedure TSEGarbageCollector.GC;
                   end;
                 end;
               end;
-              Self.FValueUsed.Add(Value^.Value.Ref);
             end;
         end;
       except
@@ -4060,7 +4059,7 @@ var
   P, P2: PSEValue;
   V: TSEValue;
   VM: TSEVM;
-  I, J, K: Integer;
+  I, J: Integer;
   Key: String;
   Cache: TSECache;
   Binary: TSEBinary;
@@ -4075,7 +4074,7 @@ begin
     Writeln('[GC] Number of objects before cleaning: ', Self.FObjects);
     Writeln('[GC] Number of objects in object pool: ', Self.FValueAvailStack.Count);
     {$endif}
-    for I := 1 to Self.FValueUsed.Count - 1 do
+    for I := 0 to Self.FValueUsed.Count - 1 do
     begin
       Value := Self.FValueList.Ptr(Self.FValueUsed[I]);
       Value^.Garbage := not Value^.Lock;
@@ -4085,7 +4084,7 @@ begin
     begin
       VM := VMList[I];
       P := @VM.Stack[0];
-      while P <= VM.StackPtr + 1 do
+      while P <= VM.StackPtr do
       begin
         Mark(P);
         Inc(P);
@@ -4113,7 +4112,6 @@ begin
   finally
     {$ifdef SE_THREADS}
     LeaveCriticalSection(CS);
-    LeaveCriticalSection(Self.FLock);
     {$endif}
     Self.FTicks := GetTickCount64;
   end;
