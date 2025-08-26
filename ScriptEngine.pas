@@ -159,7 +159,7 @@ type
   TSEOpcodeInfoListAncestor = specialize TList<TSEOpcodeInfo>;
   TSEOpcodeInfoList = class(TSEOpcodeInfoListAncestor)
   public
-    function Ptr(const P: Integer): PSEOpcodeInfo;
+    function Ptr(const P: Cardinal): PSEOpcodeInfo;
   end;
 
   TSENestedProc = procedure is nested;
@@ -287,12 +287,17 @@ type
   TSEValueArray = array of TSEValue;
   PPSEValue = ^PSEValue;
 
+  PSEGCValue = ^TSEGCValue;
   TSEGCValue = record
     Value: TSEValue;
     Garbage: Boolean;
     Lock: Boolean;
   end;
-  TSEGCValueList = specialize TList<TSEGCValue>;
+  TSEGCValueListAncestor = specialize TList<TSEGCValue>;
+  TSEGCValueList = class(TSEGCValueListAncestor)
+  public
+    function Ptr(const P: Cardinal): PSEGCValue;
+  end;
   TSEGCValueAvailStack = specialize TStack<Integer>;
 
   TSEGarbageCollector = class
@@ -384,26 +389,26 @@ type
   TSEFuncNativeListAncestor = specialize TList<TSEFuncNativeInfo>;
   TSEFuncNativeList = class(TSEFuncNativeListAncestor)
   public
-    function Ptr(const P: Integer): PSEFuncNativeInfo;
+    function Ptr(const P: Cardinal): PSEFuncNativeInfo;
   end;
 
   TSEFuncScriptListAncestor = specialize TList<TSEFuncScriptInfo>;
   TSEFuncScriptList = class(TSEFuncScriptListAncestor)
   public
-    function Ptr(const P: Integer): PSEFuncScriptInfo;
+    function Ptr(const P: Cardinal): PSEFuncScriptInfo;
   end;
 
   TSEFuncImportListAncestor = specialize TList<TSEFuncImportInfo>;
   TSEFuncImportList = class(TSEFuncImportListAncestor)
   public
-    function Ptr(const P: Integer): PSEFuncImportInfo;
+    function Ptr(const P: Cardinal): PSEFuncImportInfo;
   end;
 
   TSEBinaryAncestor = specialize TList<TSEValue>;
   TSEBinary = class(TSEBinaryAncestor)
   public
     BinaryName: String;
-    function Ptr(const P: Integer): PSEValue;
+    function Ptr(const P: Cardinal): PSEValue;
   end;
 
   TSESymbolKind = (
@@ -420,7 +425,7 @@ type
   TSESymbolListAncestor = specialize TList<TSESymbol>;
   TSESymbolList = class(TSESymbolListAncestor)
   public
-    function Ptr(const P: Integer): PSESymbol;
+    function Ptr(const P: Cardinal): PSESymbol;
   end;
 
   TSELineOfCode = record
@@ -731,7 +736,7 @@ type
   TSEIdentListAncestor = specialize TList<TSEIdent>;
   TSEIdentList = class(TSEIdentListAncestor)
   public
-    function Ptr(const P: Integer): PSEIdent;
+    function Ptr(const P: Cardinal): PSEIdent;
   end;
 
   TSEToken = record
@@ -3128,37 +3133,42 @@ begin
   Result := TObject(Args[0].VarPascalObject^.Value).ClassName;
 end;
 
-function TSEOpcodeInfoList.Ptr(const P: Integer): PSEOpcodeInfo; inline;
+function TSEGCValueList.Ptr(const P: Cardinal): PSEGCValue; inline;
 begin
   Result := @FItems[P];
 end;
 
-function TSEFuncNativeList.Ptr(const P: Integer): PSEFuncNativeInfo; inline;
+function TSEOpcodeInfoList.Ptr(const P: Cardinal): PSEOpcodeInfo; inline;
 begin
   Result := @FItems[P];
 end;
 
-function TSEFuncScriptList.Ptr(const P: Integer): PSEFuncScriptInfo; inline;
+function TSEFuncNativeList.Ptr(const P: Cardinal): PSEFuncNativeInfo; inline;
 begin
   Result := @FItems[P];
 end;
 
-function TSEFuncImportList.Ptr(const P: Integer): PSEFuncImportInfo; inline;
+function TSEFuncScriptList.Ptr(const P: Cardinal): PSEFuncScriptInfo; inline;
 begin
   Result := @FItems[P];
 end;
 
-function TSEIdentList.Ptr(const P: Integer): PSEIdent; inline;
+function TSEFuncImportList.Ptr(const P: Cardinal): PSEFuncImportInfo; inline;
 begin
   Result := @FItems[P];
 end;
 
-function TSEBinary.Ptr(const P: Integer): PSEValue; inline;
+function TSEIdentList.Ptr(const P: Cardinal): PSEIdent; inline;
 begin
   Result := @FItems[P];
 end;
 
-function TSESymbolList.Ptr(const P: Integer): PSESymbol; inline;
+function TSEBinary.Ptr(const P: Cardinal): PSEValue; inline;
+begin
+  Result := @FItems[P];
+end;
+
+function TSESymbolList.Ptr(const P: Cardinal): PSESymbol; inline;
 begin
   Result := @FItems[P];
 end;
@@ -3922,17 +3932,16 @@ procedure TSEGarbageCollector.AddToList(const PValue: PSEValue); inline;
 var
   Value: TSEGCValue;
 begin
+  Value := Default(TSEGCValue);
   if Self.FValueAvailStack.Count = 0 then
   begin
     PValue^.Ref := Self.FValueList.Count;
     Value.Value := PValue^;
-    Value.Lock := False;
     Self.FValueList.Add(Value);
   end else
   begin
     PValue^.Ref := Self.FValueAvailStack.Pop;
     Value.Value := PValue^;
-    Value.Lock := False;
     Self.FValueList[PValue^.Ref] := Value;
   end;
   Inc(Self.FObjects);
@@ -3961,13 +3970,12 @@ end;
 
 procedure TSEGarbageCollector.Sweep; inline;
 var
-  Value: TSEGCValue;
+  Value: PSEGCValue;
   I, MS: Integer;
 
   procedure Add;
   begin
-    Value.Value.Kind := sevkNull;
-    Self.FValueList[I] := Value;
+    Value^.Value.Kind := sevkNull;
     Self.FValueAvailStack.Push(I);
     Dec(Self.FObjects);
   end;
@@ -3975,51 +3983,51 @@ var
 begin
   for I := Self.FValueList.Count - 1 downto 1 do
   begin
-    Value := Self.FValueList[I];
-    if Value.Garbage then
+    Value := Self.FValueList.Ptr(I);
+    if Value^.Garbage then
     begin
-      case Value.Value.Kind of
+      case Value^.Value.Kind of
         sevkMap:
           begin
-            if Value.Value.VarMap <> nil then
+            if Value^.Value.VarMap <> nil then
             begin
-              Value.Value.VarMap.Free;
+              Value^.Value.VarMap.Free;
             end;
             Add;
           end;
         sevkString:
           begin
-            if Value.Value.VarString <> nil then
+            if Value^.Value.VarString <> nil then
             begin
-              MS := Length(Value.Value.VarString^);
+              MS := Length(Value^.Value.VarString^);
               Self.FAllocatedMem := Self.FAllocatedMem - MS;
-              Value.Value.VarString^ := '';
-              Dispose(Value.Value.VarString);
+              Value^.Value.VarString^ := '';
+              Dispose(Value^.Value.VarString);
             end;
             Add;
           end;
         sevkBuffer:
           begin
-            if Value.Value.VarBuffer <> nil then
+            if Value^.Value.VarBuffer <> nil then
             begin
-              if Value.Value.VarBuffer^.Base <> nil then
+              if Value^.Value.VarBuffer^.Base <> nil then
               begin
-                MS := MemSize(Value.Value.VarBuffer^.Base) - 16;
+                MS := MemSize(Value^.Value.VarBuffer^.Base) - 16;
                 Self.FAllocatedMem := Self.FAllocatedMem - MS;
-                FreeMem(Value.Value.VarBuffer^.Base);
+                FreeMem(Value^.Value.VarBuffer^.Base);
               end;
-              Dispose(Value.Value.VarBuffer);
+              Dispose(Value^.Value.VarBuffer);
             end;
             Add;
           end;
         sevkPascalObject:
           begin
-            if Value.Value.VarPascalObject <> nil then
+            if Value^.Value.VarPascalObject <> nil then
             begin
-              if Value.Value.VarPascalObject^.IsManaged then
-                Value.Value.VarPascalObject^.Value.Free;
+              if Value^.Value.VarPascalObject^.IsManaged then
+                Value^.Value.VarPascalObject^.Value.Free;
               Self.FAllocatedMem := Self.FAllocatedMem - SizeOf(TSEPascalObject);
-              Dispose(Value.Value.VarPascalObject);
+              Dispose(Value^.Value.VarPascalObject);
             end;
             Add;
           end;
@@ -4031,20 +4039,20 @@ end;
 procedure TSEGarbageCollector.GC;
   procedure Mark(const PValue: PSEValue); inline;
   var
-    Value: TSEGCValue;
+    Value: PSEGCValue;
     RValue: TSEValue;
     Key: String;
     I: Integer;
   begin
     if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) and (PValue^.Kind <> sevkPascalObject) then
       Exit;
-    Value := Self.FValueList[PValue^.Ref];
-    if not Value.Garbage then
+    Value := Self.FValueList.Ptr(PValue^.Ref);
+    if not Value^.Garbage then
       Exit;
-    if Value.Value.VarPointer = PValue^.VarPointer then
+    if Value^.Value.VarPointer = PValue^.VarPointer then
     begin
       try
-        case Value.Value.Kind of
+        case Value^.Value.Kind of
           sevkMap:
             begin
               if PValue^.VarMap <> nil then
@@ -4073,13 +4081,12 @@ procedure TSEGarbageCollector.GC;
           {$endif}
         end;
       end;
-      Value.Garbage := False;
+      Value^.Garbage := False;
     end;
-    Self.FValueList[PValue^.Ref] := Value;
   end;
 
 var
-  Value: TSEGCValue;
+  Value: PSEGCValue;
   P, P2: PSEValue;
   V: TSEValue;
   VM: TSEVM;
@@ -4102,9 +4109,8 @@ begin
     {$endif}
     for I := 1 to Self.FValueList.Count - 1 do
     begin
-      Value := Self.FValueList[I];
-      Value.Garbage := not Value.Lock;
-      Self.FValueList[I] := Value;
+      Value := Self.FValueList.Ptr(I);
+      Value^.Garbage := not Value^.Lock;
     end;
     for I := 0 to VMList.Count - 1 do
     begin
