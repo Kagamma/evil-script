@@ -144,8 +144,11 @@
 `coroutine_create(function, any...): pasobject`
 - Creates a new coroutine with the provided function and returns coroutine's pasobject instance. The first argument must be a function, any additional arguments will be passed to that function when the coroutine starts. The coroutine's pasobject instance is passed to the function as `self`.
 
-`coroutine_resume(pasobject): any`
+`coroutine_start(pasobject): any`
 - Begin or resume coroutine execution. Returns value set by either `yield` or `result`.
+
+`coroutine_resume(pasobject): any`
+- Alias to `coroutine_start`.
 
 `coroutine_is_terminated(pasobject): boolean`
 - Check if coroutine's `terminated` flag is set. Returns `true` if the flag is set.
@@ -357,7 +360,7 @@ Returns length of string, map or buffer.
 - Creates a new thread with the the provided function and returns thread's pasobject instance. The first argument must be a function, any additional arguments will be passed to that function when the thread starts. The thread's pasobject instance is passed to the function as `self`.
 
 `thread_start(pasobject)`
-- Begin thread execution.
+- Begin / resume thread execution.
 
 `thread_is_terminated(pasobject): boolean`
 - Check if thread's `terminated` flag is set. Returns `true` if the flag is set.
@@ -366,7 +369,7 @@ Returns length of string, map or buffer.
 - Suspends the execution of a running thread.
 
 `thread_resume(pasobject)`
-- Resume the execution of a suspended thread.
+- Alias to `thread_start`.
 
 `thread_terminate(pasobject)`
 - Set the `terminated` flag of the thread to `true`.

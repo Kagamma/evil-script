@@ -1019,7 +1019,6 @@ type
     class function SEThreadStart(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEThreadIsTerminated(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEThreadSuspend(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-    class function SEThreadResume(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEThreadTerminate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEThreadWait(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SECriticalCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -2639,13 +2638,6 @@ begin
   SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
   if not TSEVMThread(Args[0].VarPascalObject^.Value).Terminated then
     TSEVMThread(Args[0].VarPascalObject^.Value).Suspend;
-end;
-
-class function TBuiltInFunction.SEThreadResume(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-begin
-  SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
-  if not TSEVMThread(Args[0].VarPascalObject^.Value).Terminated then
-    TSEVMThread(Args[0].VarPascalObject^.Value).Resume;
 end;
 
 class function TBuiltInFunction.SEThreadTerminate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -6196,6 +6188,7 @@ begin
     Self.RegisterFunc('ord', @TBuiltInFunction(nil).SEOrd, 1);
 
     Self.RegisterFunc('coroutine_create', @TBuiltInFunction(nil).SECoroutineCreate, -1);
+    Self.RegisterFunc('coroutine_start', @TBuiltInFunction(nil).SECoroutineResume, 1);
     Self.RegisterFunc('coroutine_resume', @TBuiltInFunction(nil).SECoroutineResume, 1);
     Self.RegisterFunc('coroutine_is_terminated', @TBuiltInFunction(nil).SECoroutineIsTerminated, 1);
     Self.RegisterFunc('coroutine_terminate', @TBuiltInFunction(nil).SECoroutineTerminate, 1);
@@ -6205,7 +6198,7 @@ begin
     Self.RegisterFunc('thread_start', @TBuiltInFunction(nil).SEThreadStart, 1);
     Self.RegisterFunc('thread_is_terminated', @TBuiltInFunction(nil).SEThreadIsTerminated, 1);
     Self.RegisterFunc('thread_suspend', @TBuiltInFunction(nil).SEThreadSuspend, 1);
-    Self.RegisterFunc('thread_resume', @TBuiltInFunction(nil).SEThreadResume, 1);
+    Self.RegisterFunc('thread_resume', @TBuiltInFunction(nil).SEThreadStart, 1);
     Self.RegisterFunc('thread_terminate', @TBuiltInFunction(nil).SEThreadTerminate, 1);
     Self.RegisterFunc('thread_wait', @TBuiltInFunction(nil).SEThreadWait, 1);
     Self.RegisterFunc('critical_create', @TBuiltInFunction(nil).SECriticalCreate, 0);
