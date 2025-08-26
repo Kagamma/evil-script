@@ -187,6 +187,10 @@ type
   end;
   PSEPascalObject = ^TSEPascalObject;
 
+  TSEListStack = specialize TStack<TList>;
+  TSEScopeStack = specialize TStack<Integer>;
+  TSEIntegerList = specialize TList<Integer>;
+
   TSEFuncKind = (sefkNative, sefkScript, sefkImport);
 
   PSEValue = ^TSEValue;
@@ -309,6 +313,7 @@ type
     FObjects: Cardinal;
     FValueList: TSEGCValueList;
     FValueAvailStack: TSEGCValueAvailStack;
+    FValueUsed: TSEIntegerList;
     FTicks: QWord;
     procedure Sweep;
   public
@@ -437,9 +442,6 @@ type
   TSEConstMap = specialize TSEDictionary<String, TSEValue>;
   TSEStack = TSEBinaryAncestor;
   TSEVarMap = TSEValue;
-  TSEListStack = specialize TStack<TList>;
-  TSEScopeStack = specialize TStack<Integer>;
-  TSEIntegerList = specialize TList<Integer>;
   TSEFrame = record
     Code: Integer;
     Stack: PSEValue;
@@ -3864,10 +3866,13 @@ begin
   InitCriticalSection(Self.FLock);
   {$endif}
   Self.FValueList := TSEGCValueList.Create;
-  Self.FValueList.Capacity := 65536 * 8;
+  Self.FValueList.Capacity := 65536 * 32;
+  Ref0 := Default(TSEGCValue);
   Self.FValueList.Add(Ref0);
   Self.FValueAvailStack := TSEGCValueAvailStack.Create;
-  Self.FValueAvailStack.Capacity := 65536 * 8;
+  Self.FValueAvailStack.Capacity := 65536 * 32;
+  Self.FValueUsed := TSEIntegerList.Create;
+  Self.FValueUsed.Capacity := 65536 * 32;
   Self.FTicks := GetTickCount64;
 end;
 
@@ -3883,8 +3888,9 @@ begin
     Self.FValueList[I] := Value;
   end;
   Self.Sweep;
-  Self.FValueList.Free;
+  Self.FValueUsed.Free;
   Self.FValueAvailStack.Free;
+  Self.FValueList.Free;
   {$ifdef SE_THREADS}
   DoneCriticalSection(Self.FLock);
   {$endif}
@@ -3900,11 +3906,13 @@ begin
   begin
     PValue^.Ref := Self.FValueList.Count;
     Value.Value := PValue^;
+    Self.FValueUsed.Add(Self.FValueList.Count);
     Self.FValueList.Add(Value);
   end else
   begin
     PValue^.Ref := Self.FValueAvailStack.Pop;
     Value.Value := PValue^;
+    Self.FValueUsed.Add(PValue^.Ref);
     Self.FValueList[PValue^.Ref] := Value;
   end;
   Inc(Self.FObjects);
@@ -4008,9 +4016,14 @@ procedure TSEGarbageCollector.GC;
     begin
       try
         case Value^.Value.Kind of
+          sevkBuffer:
+            Self.FValueUsed.Add(Value^.Value.Ref);
+          sevkString:
+            Self.FValueUsed.Add(Value^.Value.Ref);
           sevkMap:
             begin
               if PValue^.VarMap <> nil then
+              begin
                 if SEMapIsValidArray(PValue^) then
                 begin
                   for I := 0 to TSEValueMap(PValue^.VarMap).Count - 1 do
@@ -4026,6 +4039,8 @@ procedure TSEGarbageCollector.GC;
                     Mark(@RValue);
                   end;
                 end;
+              end;
+              Self.FValueUsed.Add(Value^.Value.Ref);
             end;
         end;
       except
@@ -4049,7 +4064,6 @@ var
   Key: String;
   Cache: TSECache;
   Binary: TSEBinary;
-  T: QWord;
 begin
   if Self.FLockFlag then
     Exit;
@@ -4060,13 +4074,13 @@ begin
     {$ifdef SE_LOG}
     Writeln('[GC] Number of objects before cleaning: ', Self.FObjects);
     Writeln('[GC] Number of objects in object pool: ', Self.FValueAvailStack.Count);
-    T := GetTickCount64;
     {$endif}
-    for I := Self.FValueList.Count - 1 downto 1 do
+    for I := 1 to Self.FValueUsed.Count - 1 do
     begin
-      Value := Self.FValueList.Ptr(I);
+      Value := Self.FValueList.Ptr(Self.FValueUsed[I]);
       Value^.Garbage := not Value^.Lock;
     end;
+    Self.FValueUsed.Count := 0;
     for I := 0 to VMList.Count - 1 do
     begin
       VM := VMList[I];
@@ -9523,10 +9537,10 @@ begin
   Self.GlobalVarSymbols.Add('___result');
   for I := 0 to Self.FuncScriptList.Count - 1 do
     Self.FuncScriptList[I].VarSymbols.Free;
-  Self.FuncScriptList.Clear;
-  Self.FuncImportList.Clear;
+  Self.FuncScriptList.Count := 0;
+  Self.FuncImportList.Count := 0;
   Self.CurrentFileList.Clear;
-  Self.LocalVarCountList.Clear;
+  Self.LocalVarCountList.Count := 0;
   Self.VM.Reset;
 
   Self.VM.BinaryClear;
@@ -9537,9 +9551,9 @@ begin
   Self.IsDone := False;
   Self.IsParsed := False;
   Self.IsLex := False;
-  Self.VarList.Clear;
-  Self.TokenList.Clear;
-  Self.OpcodeInfoList.Clear;
+  Self.VarList.Count := 0;
+  Self.TokenList.Count := 0;
+  Self.OpcodeInfoList.Count := 0;
   Self.IncludeList.Clear;
   Self.ScopeFunc.Clear;
   Self.ScopeStack.Clear;
@@ -9842,8 +9856,8 @@ var
   FuncScriptInfo: TSEFuncScriptInfo;
 begin
   Self.VM.BinaryClear;
-  Self.VM.SymbolList.Clear;
-  Self.LineOfCodeList.Clear;
+  Self.VM.SymbolList.Count := 0;
+  Self.LineOfCodeList.Count := 0;
   Self.GlobalVarSymbols.Clear;
   for I := 0 to Cache.LineOfCodeList.Count - 1 do
     Self.LineOfCodeList.Add(Cache.LineOfCodeList[I]);
