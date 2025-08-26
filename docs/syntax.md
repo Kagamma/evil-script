@@ -492,9 +492,9 @@ writeln(obj2.test())
 
 - If calls inside coroutines: Quit the current coroutine. When the script resumes the coroutine, it will continue at where yield's called.
 
-- `yield (expressions)` is equivalent to:
+- `yield (expression)` is equivalent to:
 ```
-  result = expressions
+  result = expression
   yield
 ```
 
