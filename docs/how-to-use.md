@@ -135,7 +135,7 @@ Useful if we want to modify a global variable after intialized them via `TScript
 
 ## TSEValue
 ### Overview
-A 24-byte data structure. `TSEValue.Kind` stores the type of variable, which can be one of the following values: sevkNumber, sevkBoolean, sevkString, sevkMap, sevkBuffer, sevkFunction, sevkPascalObject, sevkNull.
+A 16-byte data structure. `TSEValue.Kind` stores the type of variable, which can be one of the following values: sevkNumber, sevkBoolean, sevkString, sevkMap, sevkBuffer, sevkFunction, sevkPascalObject, sevkNull.
 
 - Declares a new TSEValue:
 ```
