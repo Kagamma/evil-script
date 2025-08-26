@@ -971,13 +971,11 @@ type
     class function SEMax(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEPow(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SESleep(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-    class function SEStringEmpty(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEStringGrep(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEStringSplit(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEStringFind(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEStringInsert(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEStringDelete(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-    class function SEStringConcat(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEStringCompare(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEStringReplace(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEStringReplaceIgnoreCase(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -2216,12 +2214,6 @@ begin
   Sleep(Round(Args[0].VarNumber));
 end;
 
-class function TBuiltInFunction.SEStringEmpty(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-begin
-  if Args[0].Kind = sevkString then
-    Args[0].VarString^ := '';
-end;
-
 class function TBuiltInFunction.SEStringGrep(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 var
   I: Integer;
@@ -2265,13 +2257,6 @@ begin
   Delete(Args[0].VarString^, Round(Args[1].VarNumber + 1), Round(Args[2].VarNumber));
   {$endif}
   Result := Args[0].VarString^;
-end;
-
-class function TBuiltInFunction.SEStringConcat(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-begin
-  Result := Args[0];
-  // Since we mess with GC, manually update mem used
-  Result.VarString^ := Args[1].VarString^ + Args[2].VarString^;
 end;
 
 class function TBuiltInFunction.SEStringCompare(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -6093,7 +6078,6 @@ begin
     Self.RegisterFunc('range', @TBuiltInFunction(nil).SERange, -1);
     Self.RegisterFunc('pow', @TBuiltInFunction(nil).SEPow, 2);
     Self.RegisterFunc('sleep', @TBuiltInFunction(nil).SESleep, 1);
-    Self.RegisterFunc('string_empty', @TBuiltInFunction(nil).SEStringEmpty, 1);
     Self.RegisterFunc('string_grep', @TBuiltInFunction(nil).SEStringGrep, 2);
     Self.RegisterFunc('string_format', @TBuiltInFunction(nil).SEStringFormat, 2);
     Self.RegisterFunc('string_split', @TBuiltInFunction(nil).SEStringSplit, 2);
@@ -6105,7 +6089,6 @@ begin
     Self.RegisterFunc('string_uppercase', @TBuiltInFunction(nil).SEStringUpperCase, 1);
     Self.RegisterFunc('string_lowercase', @TBuiltInFunction(nil).SEStringLowerCase, 1);
     Self.RegisterFunc('string_find_regex', @TBuiltInFunction(nil).SEStringFindRegex, 2);
-    Self.RegisterFunc('string_concat', @TBuiltInFunction(nil).SEStringConcat, 3);
     Self.RegisterFunc('string_compare', @TBuiltInFunction(nil).SEStringCompare, 2);
     Self.RegisterFunc('string_trim', @TBuiltInFunction(nil).SEStringTrim, 1);
     Self.RegisterFunc('string_trim_left', @TBuiltInFunction(nil).SEStringTrimLeft, 1);

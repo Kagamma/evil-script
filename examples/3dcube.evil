@@ -89,11 +89,11 @@ fn draw_screen() {
     sline = buf[i]
     for j = 0 to width - 1 {
       if sline[j] != 0
-        string_concat(s, s, '#')
+        s += '#'
       else
-        string_concat(s, s, ' ')
+        s += ' '
     }
-    string_concat(s, s, '\n')
+    s += '\n'
   }
   write(s)
 }
@@ -105,4 +105,5 @@ while true {
   draw_cube(1)
   draw_screen()
   sleep(10)
+  mem_gc() // Manually call gc to void irregular interrupt
 }
