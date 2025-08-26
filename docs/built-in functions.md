@@ -314,8 +314,11 @@ Returns map contains all keys from map `a`.
 `array_resize(a: map, size: number): map`
 Resizes a valid array.
 
-`array_to_map(arr: array): map`
+`array_to_map(arr: map): map`
 Converts array `arr` to map. Note that `arr` itself will be converted.
+
+`array_fill(arr: map, v: any): map`
+Fills array `arr` with `v`.
 
 `length(a: map/string)`
 Returns length of string, map or buffer.

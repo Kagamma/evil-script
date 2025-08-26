@@ -1,0 +1,17 @@
+beer = 99
+
+for n = beer downto 1 {
+  writeln(
+'${n} bottles of beer on the wall.
+${n} bottles of beer.
+Take one down, pass it around,
+${n - 1} bottles of beer on the wall.'
+  );
+}
+
+writeln(
+'No more bottles of beer on the wall,
+no more bottles of beer.
+Go to the store and buy some more,
+99 bottles of beer on the wall...'
+)

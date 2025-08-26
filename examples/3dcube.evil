@@ -1,14 +1,5 @@
-// clear screen
-
 const width = 80
 const height = 40
-
-buf = []
-array_resize(buf, height)
-for i = 0 to width - 1 {
-  buf[i] = []
-  array_resize(buf[i], width)
-}
 
 vertices = [
   -1,-1,-1,-1,-1, 1,-1, 1,-1, -1, 1, 1, 1,-1,-1, 1,-1, 1, 1, 1,-1, 1, 1, 1
@@ -23,11 +14,16 @@ ya = 0.02
 za = 0.04
 zoom = 20
 
+buf = []
+array_resize(buf, height)
+for i = 0 to width - 1 {
+  buf[i] = []
+  array_resize(buf[i], width)
+}
+
 fn clear_buffer() {
   for i = 0 to height - 1 {
-    sline = buf[i]
-    for j = 0 to width - 1
-      sline[j] = 0
+    array_fill(buf[i], 0)
   }
 }
 
