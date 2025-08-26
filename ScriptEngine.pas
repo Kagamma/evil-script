@@ -794,9 +794,11 @@ type
     procedure Reset;
     function Exec: TSEValue;
     // Execute a function only, currently this does not support yield!
-    function ExecFuncOnly(const Name: String; const Args: array of TSEValue): TSEValue;
+    function ExecFuncOnly(const Name: String; const Args: array of TSEValue): TSEValue; overload;
     // This method is equivalent of calling Exec(), then ExecFuncOnly()
-    function ExecFunc(const Name: String; const Args: array of TSEValue): TSEValue;
+    function ExecFunc(const Name: String; const Args: array of TSEValue): TSEValue; overload;
+    function ExecFuncOnly(const AIndex: Integer; const Args: array of TSEValue): TSEValue; overload;
+    function ExecFunc(const AIndex: Integer; const Args: array of TSEValue): TSEValue; overload;
     procedure RegisterFunc(const Name: String; const Func: TSEFunc; const ArgCount: Integer);
     procedure RegisterFuncWithSelf(const Name: String; const Func: TSEFuncWithSelf; const ArgCount: Integer);
     function RegisterScriptFunc(const Name: String; const ArgCount: Integer): PSEFuncScriptInfo;
@@ -9618,49 +9620,82 @@ end;
 function TEvilC.ExecFuncOnly(const Name: String; const Args: array of TSEValue): TSEValue;
 var
   I: Integer;
-  Stack: PSEValue;
 begin
-  if not Self.IsLex then
-    Self.Lex;
-  if not Self.IsParsed then
-  begin
-    Self.Parse;
-  end;
-  Self.VM.CodePtr := 0;
-  Self.VM.BinaryPtr := 0;
-  Self.VM.IsPaused := False;
-  Self.VM.IsDone := False;
-  Self.VM.FramePtr := @Self.VM.Frame[0];
-  Self.VM.StackPtr := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
-  Self.VM.FramePtr^.Stack := Self.VM.StackPtr;
-  Self.VM.TrapPtr := @Self.VM.Trap[0];
-  Dec(Self.VM.TrapPtr);
-  for I := 0 to Self.FuncScriptList.Count - 1 do
+  for I := Self.FuncScriptList.Count - 1 downto 0 do
   begin
     if Name = Self.FuncScriptList[I].Name then
     begin
-      Self.VM.BinaryPtr := Self.FuncScriptList[I].BinaryPos;
-      Self.VM.StackPtr := Self.VM.StackPtr + Self.FuncScriptList[I].ArgCount + Self.FuncScriptList[I].VarCount;
-      Break;
+      Exit(Self.ExecFuncOnly(I, Args));
     end;
   end;
-  if Self.VM.BinaryPtr <> 0 then
-  begin
-    Stack := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
-    for I := 0 to Length(Args) - 1 do
+  Exit(SENull);
+end;
+
+function TEvilC.ExecFuncOnly(const AIndex: Integer; const Args: array of TSEValue): TSEValue;
+var
+  I: Integer;
+  Stack: PSEValue;
+  Func: PSEFuncScriptInfo;
+begin
+  {$ifdef SE_PROFILER}
+  FrameProfiler.Start('TEvilC.ExecFunc');
+  {$endif}
+  try
+    if not Self.IsLex then
+      Self.Lex;
+    if not Self.IsParsed then
     begin
-      Stack[I] := Args[I];
+      Self.Parse;
     end;
-    Self.VM.Exec;
-    Exit(Stack[-1]);
-  end else
-    Exit(SENull);
+    Self.VM.CodePtr := 0;
+    Self.VM.BinaryPtr := 0;
+    Self.VM.IsPaused := False;
+    Self.VM.IsDone := False;
+    Self.VM.FramePtr := @Self.VM.Frame[0];
+    Self.VM.StackPtr := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
+    Self.VM.FramePtr^.Stack := Self.VM.StackPtr;
+    Self.VM.TrapPtr := @Self.VM.Trap[0];
+    Dec(Self.VM.TrapPtr);
+    Func := Self.FuncScriptList.Ptr(AIndex);
+    Self.VM.BinaryPtr := Func^.BinaryPos;
+    Self.VM.StackPtr := Self.VM.StackPtr + Func^.ArgCount + Func^.VarCount;
+    if Self.VM.BinaryPtr <> 0 then
+    begin
+      Stack := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
+      for I := 0 to Length(Args) - 1 do
+      begin
+        Stack[I] := Args[I];
+      end;
+      Self.VM.Exec;
+      Exit(Stack[-1]);
+    end else
+      Exit(SENull);
+  finally
+    {$ifdef SE_PROFILER}
+    FrameProfiler.Stop('TEvilC.ExecFunc');
+    {$endif}
+  end;
 end;
 
 function TEvilC.ExecFunc(const Name: String; const Args: array of TSEValue): TSEValue;
 var
   I: Integer;
+begin
+  for I := Self.FuncScriptList.Count - 1 downto 0 do
+  begin
+    if Name = Self.FuncScriptList[I].Name then
+    begin
+      Exit(Self.ExecFunc(I, Args));
+    end;
+  end;
+  Exit(SENull);
+end;
+
+function TEvilC.ExecFunc(const AIndex: Integer; const Args: array of TSEValue): TSEValue;
+var
+  I: Integer;
   Stack: PSEValue;
+  Func: PSEFuncScriptInfo;
 begin
   {$ifdef SE_PROFILER}
   FrameProfiler.Start('TEvilC.ExecFunc');
@@ -9669,17 +9704,11 @@ begin
     Result := SENull;
     if (not Self.VM.IsDone) and (Self.VM.IsPaused or Self.VM.IsYielded) then
     begin
-      Stack := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
-      for I := 0 to Self.FuncScriptList.Count - 1 do
+      Self.VM.Exec;
+      if Self.VM.IsDone then
       begin
-        if Name = Self.FuncScriptList[I].Name then
-        begin
-          Self.VM.Exec;
-          if Self.VM.IsDone then
-          begin
-            Exit(Stack[-1]);
-          end;
-        end;
+        Stack := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
+        Exit(Stack[-1]);
       end;
     end else
     begin
@@ -9692,15 +9721,9 @@ begin
       Self.VM.FramePtr^.Stack := Self.VM.StackPtr;
       Self.VM.TrapPtr := @Self.VM.Trap[0];
       Dec(Self.VM.TrapPtr);
-      for I := 0 to Self.FuncScriptList.Count - 1 do
-      begin
-        if Name = Self.FuncScriptList[I].Name then
-        begin
-          Self.VM.BinaryPtr := Self.FuncScriptList[I].BinaryPos;
-          Self.VM.StackPtr := Self.VM.StackPtr + Self.FuncScriptList[I].ArgCount + Self.FuncScriptList[I].VarCount;
-          Break;
-        end;
-      end;
+      Func := Self.FuncScriptList.Ptr(AIndex);
+      Self.VM.BinaryPtr := Func^.BinaryPos;
+      Self.VM.StackPtr := Self.VM.StackPtr + Func^.ArgCount + Func^.VarCount;
       if Self.VM.BinaryPtr <> 0 then
       begin
         Stack := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
