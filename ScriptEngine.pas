@@ -306,7 +306,6 @@ type
     {$ifdef SE_THREADS}
     FLock: TRTLCriticalSection;
     {$endif}
-    FAllocatedMem: Int64;
     FObjects: Cardinal;
     FValueList: TSEGCValueList;
     FValueAvailStack: TSEGCValueAvailStack;
@@ -328,7 +327,6 @@ type
     procedure Lock;
     procedure Unlock;
     property ValueList: TSEGCValueList read FValueList;
-    property AllocatedMem: Int64 read FAllocatedMem write FAllocatedMem;
   end;
 
   TSECallingConvention = (
@@ -1012,7 +1010,6 @@ type
     class function SEDTGetHour(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEDTGetMinute(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEGCObjectCount(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-    class function SEGCUsed(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEGCCollect(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEAssert(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEChar(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -2274,9 +2271,7 @@ class function TBuiltInFunction.SEStringConcat(const VM: TSEVM; const Args: PSEV
 begin
   Result := Args[0];
   // Since we mess with GC, manually update mem used
-  GC.AllocatedMem := GC.AllocatedMem - Length(Args[1].VarString^);
   Result.VarString^ := Args[1].VarString^ + Args[2].VarString^;
-  GC.AllocatedMem := GC.AllocatedMem + Length(Args[1].VarString^);
 end;
 
 class function TBuiltInFunction.SEStringCompare(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -2565,11 +2560,6 @@ end;
 class function TBuiltInFunction.SEGCObjectCount(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 begin
   Result := GC.ValueList.Count - 1;
-end;
-
-class function TBuiltInFunction.SEGCUsed(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-begin
-  Result := GC.AllocatedMem;
 end;
 
 class function TBuiltInFunction.SEGCCollect(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -3750,10 +3740,6 @@ end;
 
 destructor TSEValueMap.Destroy;
 begin
-  if Self.FIsValidArray then
-    GC.AllocatedMem := GC.AllocatedMem - Self.Count * SizeOf(TSEValue)
-  else
-    GC.AllocatedMem := GC.AllocatedMem - 1024;
   Self.FMap.Free;
   inherited;
 end;
@@ -3766,7 +3752,6 @@ begin
   begin
     for I := 0 to Self.Count - 1 do
       Self.FMap.AddOrSetValue(IntToStr(I), Self[I]);
-    GC.AllocatedMem := GC.AllocatedMem - Self.Count * SizeOf(TSEValue) + 1024;
     Self.FIsValidArray := False;
     Self.Clear;
   end;
@@ -3782,9 +3767,7 @@ begin
   begin
     if Index > Self.Count - 1 then
     begin
-      GC.AllocatedMem := GC.AllocatedMem - Self.Count * SizeOf(TSEValue);
       Self.Count := Index + 1;
-      GC.AllocatedMem := GC.AllocatedMem + Self.Count * SizeOf(TSEValue);
     end;
     Self.FItems[Index] := AValue;
   end else
@@ -3805,9 +3788,7 @@ begin
   begin
     if Index > Self.Count - 1 then
     begin
-      GC.AllocatedMem := GC.AllocatedMem - Self.Count * SizeOf(TSEValue);
       Self.Count := Index + 1;
-      GC.AllocatedMem := GC.AllocatedMem + Self.Count * SizeOf(TSEValue);
     end;
     Self.FItems[Index] := AValue;
   end else
@@ -3831,7 +3812,6 @@ begin
     if Index <= Self.Count - 1 then
     begin
       Self.Delete(Index);
-      GC.AllocatedMem := GC.AllocatedMem - SizeOf(TSEValue);
     end;
   end else
   begin
@@ -3846,7 +3826,6 @@ begin
     if Index <= Self.Count - 1 then
     begin
       Self.Delete(Index);
-      GC.AllocatedMem := GC.AllocatedMem - SizeOf(TSEValue);
     end;
   end else
   begin
@@ -3900,12 +3879,11 @@ begin
   InitCriticalSection(Self.FLock);
   {$endif}
   Self.FValueList := TSEGCValueList.Create;
-  Self.FValueList.Capacity := 4096;
+  Self.FValueList.Capacity := 65536 * 8;
   Self.FValueList.Add(Ref0);
   Self.FValueAvailStack := TSEGCValueAvailStack.Create;
-  Self.FValueAvailStack.Capacity := 4096;
+  Self.FValueAvailStack.Capacity := 65536 * 8;
   Self.FTicks := GetTickCount64;
-  Self.FAllocatedMem := 0;
 end;
 
 destructor TSEGarbageCollector.Destroy;
@@ -3999,9 +3977,6 @@ begin
           begin
             if Value^.Value.VarString <> nil then
             begin
-              MS := Length(Value^.Value.VarString^);
-              Self.FAllocatedMem := Self.FAllocatedMem - MS;
-              Value^.Value.VarString^ := '';
               Dispose(Value^.Value.VarString);
             end;
             Add;
@@ -4012,8 +3987,6 @@ begin
             begin
               if Value^.Value.VarBuffer^.Base <> nil then
               begin
-                MS := MemSize(Value^.Value.VarBuffer^.Base) - 16;
-                Self.FAllocatedMem := Self.FAllocatedMem - MS;
                 FreeMem(Value^.Value.VarBuffer^.Base);
               end;
               Dispose(Value^.Value.VarBuffer);
@@ -4026,7 +3999,6 @@ begin
             begin
               if Value^.Value.VarPascalObject^.IsManaged then
                 Value^.Value.VarPascalObject^.Value.Free;
-              Self.FAllocatedMem := Self.FAllocatedMem - SizeOf(TSEPascalObject);
               Dispose(Value^.Value.VarPascalObject);
             end;
             Add;
@@ -4107,7 +4079,7 @@ begin
     Writeln('[GC] Number of objects in object pool: ', Self.FValueAvailStack.Count);
     T := GetTickCount64;
     {$endif}
-    for I := 1 to Self.FValueList.Count - 1 do
+    for I := Self.FValueList.Count - 1 downto 1 do
     begin
       Value := Self.FValueList.Ptr(I);
       Value^.Garbage := not Value^.Lock;
@@ -4116,7 +4088,7 @@ begin
     begin
       VM := VMList[I];
       P := @VM.Stack[0];
-      while P <= VM.StackPtr do
+      while P <= VM.StackPtr + 1 do
       begin
         Mark(P);
         Inc(P);
@@ -4166,7 +4138,6 @@ begin
       PValue^.VarBuffer^.Base := nil;
       PValue^.VarBuffer^.Ptr := nil;
     end;
-    Self.FAllocatedMem := Self.FAllocatedMem + Size;
     Self.AddToList(PValue);
   finally
     {$ifdef SE_THREADS}
@@ -4200,7 +4171,6 @@ begin
     PValue^.Kind := sevkString;
     New(PValue^.VarString);
     PValue^.VarString^ := S;
-    Self.FAllocatedMem := Self.FAllocatedMem + Length(PValue^.VarString^);
     Self.AddToList(PValue);
   finally
     {$ifdef SE_THREADS}
@@ -4219,7 +4189,6 @@ begin
     New(PValue^.VarPascalObject);
     PValue^.VarPascalObject^.Value := Obj;
     PValue^.VarPascalObject^.IsManaged := IsManaged;
-    Self.FAllocatedMem := Self.FAllocatedMem + SizeOf(TSEPascalObject);
     Self.AddToList(PValue);
   finally
     {$ifdef SE_THREADS}
@@ -5568,7 +5537,6 @@ begin
       {$ifdef SE_COMPUTED_GOTO}labelCallNative{$else}opCallNative{$endif}:
         begin
         CallNative:
-         // GC.CheckForGCFast;
           FuncNativeInfo := Self.Parent.FuncNativeList.Ptr(Integer(BinaryLocal[CodePtrLocal + 1].VarPointer));
           ArgCount := Integer(BinaryLocal[CodePtrLocal + 2].VarPointer);
           StackPtrLocal := StackPtrLocal - ArgCount;
@@ -5582,6 +5550,7 @@ begin
           end;
           Push(TV);
           Inc(CodePtrLocal, 4);
+          GC.CheckForGCFast;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelCallScript{$else}opCallScript{$endif}:
@@ -6179,7 +6148,6 @@ begin
     Self.RegisterFunc('abs', @TBuiltInFunction(nil).SEAbs, 1);
     Self.RegisterFunc('frac', @TBuiltInFunction(nil).SEFrac, 1);
     Self.RegisterFunc('mem_object_count', @TBuiltInFunction(nil).SEGCObjectCount, 0);
-    Self.RegisterFunc('mem_used', @TBuiltInFunction(nil).SEGCUsed, 0);
     Self.RegisterFunc('mem_gc', @TBuiltInFunction(nil).SEGCCollect, 0);
     Self.RegisterFunc('fs_file_delete', @TBuiltInFunction(nil).SEFileDelete, 1);
     Self.RegisterFunc('fs_file_rename', @TBuiltInFunction(nil).SEFileRename, 2);

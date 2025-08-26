@@ -324,9 +324,6 @@ Fills array `arr` with `v`.
 Returns length of string, map or buffer.
 
 ## Memory management
-`mem_used(): number`
-- Returns memory usage by script engine in bytes.
-
 `mem_object_count(): number`
 - Returns number of objects allocated by script engine.
 
