@@ -96,9 +96,9 @@ Evil script does not support closures. Try to access parent function's local var
 ### Memory management
 Strings, Maps, Buffers and managed PasObjects are subject to automatic memory management. You do not have to worry about allocation and deallocation of these data types.
 
-The virtual machine employs a simple mark-and-sweep garbage collector that operates periodically to reclaim memory. This garbage collection algorithm works in two phases: the "mark" phase, where it identifies all objects still in use by tracing references from active program variables, and the "sweep" phase, where it reclaims memory from objects no longer referenced. The collector runs predictably, meaning it is triggered at regular intervals or when specific memory thresholds are reached, balancing performance and memory efficiency.
+The virtual machine utilizes a simple generational garbage collector that periodically reclaims memory by dividing objects into young and old generations, optimizing performance for short-lived objects and efficiently managing long-lived ones. It runs every 5 seconds, triggering collection when the number of allocated objects exceeds the previous cycle by 700.
 
-Users can invoke GC manually via `mem_gc()` function.
+Users can invoke GC manually by calling `mem_gc()` function.
 
 ## Syntax
 

@@ -37,7 +37,7 @@ unit ScriptEngine;
 // enable this to replace FP's TDirectory with avk959's TGChainHashMap. It is a lot faster than TDirectory.
 // requires https://github.com/avk959/LGenerics
 // note: enable this will undef SE_MAP_SHORTSTRING, because this optimization is not necessary for TGChainHashMap
-{.$define SE_MAP_AVK959}
+{$define SE_MAP_AVK959}
 {$ifdef SE_MAP_AVK959}
   {$undef SE_MAP_SHORTSTRING}
   {$define TSEDictionary := TGChainHashMap}
@@ -297,7 +297,9 @@ type
     Value: TSEValue;
     Garbage: Boolean;
     Lock: Boolean;
-    Prev, Next: Cardinal;
+    Prev,
+    Next,
+    Visit: Cardinal;
   end;
   TSEGCValueListAncestor = specialize TList<TSEGCValue>;
   TSEGCValueList = class(TSEGCValueListAncestor)
@@ -312,19 +314,23 @@ type
     {$ifdef SE_THREADS}
     FLock: TRTLCriticalSection;
     {$endif}
-    FObjects: Cardinal;
+    FObjects,
+    FObjectsLastTimeVisited,
+    FObjectsOld: Cardinal;
     FValueList: TSEGCValueList;
     FValueAvailStack: TSEGCValueAvailStack;
-    FValueLast: Cardinal;
+    FValueLastYoung,
+    FValueLastOld: Cardinal;
+    FRunCount: Cardinal;
     FTicks: QWord;
-    procedure Sweep;
+    procedure Sweep(const AFirst: Cardinal);
   public
     constructor Create;
     destructor Destroy; override;
     procedure AddToList(const PValue: PSEValue);
     procedure CheckForGC;
     procedure CheckForGCFast;
-    procedure GC;
+    procedure GC(const Forced: Boolean = False);
     procedure AllocBuffer(const PValue: PSEValue; const Size: Integer);
     procedure AllocMap(const PValue: PSEValue);
     procedure AllocString(const PValue: PSEValue; const S: String);
@@ -335,6 +341,8 @@ type
     procedure Unlock;
     property ValueList: TSEGCValueList read FValueList;
     property ObjectCount: Cardinal read FObjects;
+    property OldObjectCount: Cardinal read FObjectsOld;
+    property RunCount: Cardinal read FRunCount;
   end;
 
   TSECallingConvention = (
@@ -1077,7 +1085,7 @@ var
 {$ifdef SE_THREADS}
 threadvar
 {$endif}
-  IsInsideThread: Cardinal;
+  IsThread: Cardinal;
 
 function PointStrToFloat(S: String): Double; inline;
 begin
@@ -2559,7 +2567,7 @@ end;
 
 class function TBuiltInFunction.SEGCCollect(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 begin
-  GC.GC;
+  GC.GC(True);
   Result := SENull;
 end;
 
@@ -3865,6 +3873,40 @@ begin
   Result := @Self.FItems[I];
 end;
 
+function DumpCallStack: String;
+var
+  I: Longint;
+  prevbp: Pointer;
+  CallerFrame,
+  CallerAddress,
+  bp: Pointer;
+const
+  MaxDepth = 20;
+begin
+  Result := '';
+  bp := get_frame;
+  // This trick skip SendCallstack item
+  // bp:= get_caller_frame(get_frame);
+  try
+    prevbp := bp - 1;
+    I := 0;
+    while bp > prevbp do begin
+       CallerAddress := get_caller_addr(bp);
+       CallerFrame := get_caller_frame(bp);
+       if (CallerAddress = nil) then
+         Break;
+       Result := Result + BackTraceStrFunc(CallerAddress) + LineEnding;
+       Inc(I);
+       if (I >= MaxDepth) or (CallerFrame = nil) then
+         Break;
+       prevbp := bp;
+       bp := CallerFrame;
+    end;
+  except
+    { prevent endless dump if an exception occured }
+  end;
+end;
+
 constructor TSEGarbageCollector.Create;
 var
   Ref0: TSEGCValue;
@@ -3877,8 +3919,10 @@ begin
   Self.FValueList.Capacity := 65536 * 8;
   Ref0 := Default(TSEGCValue);
   Self.FValueList.Add(Ref0);
-  Self.FValueList.Add(Ref0);
-  Self.FValueLast := 1;
+  Self.FValueList.Add(Ref0); // Young generation's root
+  Self.FValueList.Add(Ref0); // Old generation's root
+  Self.FValueLastYoung := 1;
+  Self.FValueLastOld := 2;
   Self.FValueAvailStack := TSEGCValueAvailStack.Create;
   Self.FValueAvailStack.Capacity := 65536 * 8;
   Self.FTicks := GetTickCount64;
@@ -3895,7 +3939,8 @@ begin
     Value.Garbage := True;
     Self.FValueList[I] := Value;
   end;
-  Self.Sweep;
+  Self.Sweep(1);
+  Self.Sweep(2);
   Self.FValueAvailStack.Free;
   Self.FValueList.Free;
   {$ifdef SE_THREADS}
@@ -3909,7 +3954,7 @@ var
   Value: TSEGCValue;
 begin
   Value := Default(TSEGCValue);
-  Value.Prev := Self.FValueLast;
+  Value.Prev := Self.FValueLastYoung;
   if Self.FValueAvailStack.Count = 0 then
   begin
     PValue^.Ref := Self.FValueList.Count;
@@ -3921,8 +3966,8 @@ begin
     Value.Value := PValue^;
     Self.FValueList[PValue^.Ref] := Value;
   end;
-  Self.FValueList.Ptr(Self.FValueLast)^.Next := PValue^.Ref;
-  Self.FValueLast := PValue^.Ref;
+  Self.FValueList.Ptr(Self.FValueLastYoung)^.Next := PValue^.Ref;
+  Self.FValueLastYoung := PValue^.Ref;
   Inc(Self.FObjects);
 end;
 
@@ -3942,33 +3987,41 @@ begin
   end;
 end;
 
-procedure TSEGarbageCollector.Sweep; inline;
+procedure TSEGarbageCollector.Sweep(const AFirst: Cardinal); inline;
 var
   Value: PSEGCValue;
   I, MS: Integer;
+  LastPtr: PCardinal;
 
   procedure Detach;
   var
-    PrevValue,
-    NextValue: PSEGCValue;
+    PrevValue: PSEGCValue;
   begin
-    if I <> Self.FValueLast then
+    if I <> LastPtr^ then
     begin
       PrevValue := Self.FValueList.Ptr(Value^.Prev);
       PrevValue^.Next := Value^.Next;
       Self.FValueList.Ptr(Value^.Next)^.Prev := Value^.Prev;
     end else
     begin
-      Self.FValueLast := Value^.Prev;
-      Self.FValueList.Ptr(Self.FValueLast)^.Next := 0;
+      LastPtr^ := Value^.Prev;
+      Self.FValueList.Ptr(LastPtr^)^.Next := 0;
     end;
     Value^.Value.Kind := sevkNull;
     Self.FValueAvailStack.Push(I);
     Dec(Self.FObjects);
+    if AFirst = 2 then
+      Dec(Self.FObjectsOld);
   end;
 
 begin
-  I := Self.FValueList.Ptr(1)^.Next;
+  I := Self.FValueList.Ptr(AFirst)^.Next;
+  case AFirst of
+    1: LastPtr := @Self.FValueLastYoung;
+    2: LastPtr := @Self.FValueLastOld;
+    else
+      raise Exception.Create('AFirst must be 1 or 2!');
+  end;
   while I <> 0 do
   begin
     Value := Self.FValueList.Ptr(I);
@@ -4017,9 +4070,10 @@ begin
     end;
     I := Value^.Next;
   end;
+  Self.FObjectsLastTimeVisited := Self.FObjects;
 end;
 
-procedure TSEGarbageCollector.GC;
+procedure TSEGarbageCollector.GC(const Forced: Boolean = False);
   procedure Mark(const PValue: PSEValue); inline;
   var
     Value: PSEGCValue;
@@ -4063,6 +4117,7 @@ procedure TSEGarbageCollector.GC;
 
 var
   Value: PSEGCValue;
+  PrevValue: PSEGCValue;
   P, P2: PSEValue;
   V: TSEValue;
   VM: TSEVM;
@@ -4070,59 +4125,115 @@ var
   Key: String;
   Cache: TSECache;
   Binary: TSEBinary;
-  MarkCount: Integer = 0;
 begin
   if Self.FLockFlag then
     Exit;
-  if Self.FValueLast = 0 then
+  if Self.FValueLastYoung = 0 then
     Exit;
-  if IsInsideThread = 1 then
+  if (not Forced) and (Self.FObjectsLastTimeVisited + 700 > Self.FObjects) then
+    Exit;
+  if IsThread > 0 then
     Exit;
   {$ifdef SE_THREADS}
-  EnterCriticalSection(CS);
+  if TryEnterCriticalSection(CS) = 0 then
+  begin
+    Self.FTicks := GetTickCount64;
+    Exit;
+  end;
   {$endif}
   try
-    {$ifdef SE_LOG}
-    Writeln('[GC] Number of objects before cleaning: ', Self.FObjects);
-    Writeln('[GC] Number of objects in object pool: ', Self.FValueAvailStack.Count);
-    {$endif}
-    I := Self.FValueList.Ptr(1)^.Next;
-    while I <> 0 do
-    begin
-      Value := Self.FValueList.Ptr(I);
-      Value^.Garbage := not Value^.Lock;
-      I := Value^.Next;
-      Inc(MarkCount);
+    try
+      Inc(Self.FRunCount);
+      {$ifdef SE_LOG}
+      Writeln('[GC] Number of objects before cleaning: ', Self.FObjects);
+      Writeln('[GC] Number of old objects before cleaning: ', Self.FObjectsOld);
+      Writeln('[GC] Number of objects in object pool: ', Self.FValueAvailStack.Count);
+      {$endif}
+
+      I := Self.FValueList.Ptr(1)^.Next;
+      while I <> 0 do
+      begin
+        Value := Self.FValueList.Ptr(I);
+        J := I;
+        I := Value^.Next;
+        if Value^.Visit >= 10 then
+        begin
+          // Detach from young generation
+          if J <> Self.FValueLastYoung then
+          begin
+            PrevValue := Self.FValueList.Ptr(Value^.Prev);
+            PrevValue^.Next := Value^.Next;
+            Self.FValueList.Ptr(Value^.Next)^.Prev := Value^.Prev;
+          end else
+          begin
+            Self.FValueLastYoung := Value^.Prev;
+            Self.FValueList.Ptr(Self.FValueLastYoung)^.Next := 0;
+          end;
+          // Attach to old generation
+          Value^.Prev := Self.FValueLastOld;
+          Value^.Next := 0;
+          Self.FValueList.Ptr(Self.FValueLastOld)^.Next := J;
+          Self.FValueLastOld := J;
+          Inc(Self.FObjectsOld);
+        end else
+        begin
+          Value^.Garbage := not Value^.Lock;
+          Inc(Value^.Visit);
+        end;
+      end;
+
+      I := Self.FValueList.Ptr(2)^.Next;
+      while I <> 0 do
+      begin
+        Value := Self.FValueList.Ptr(I);
+        Value^.Garbage := not Value^.Lock;
+        I := Value^.Next;
+      end;
+
+      for I := 0 to VMList.Count - 1 do
+      begin
+        VM := VMList[I];
+        P := @VM.Stack[0];
+        while P <= VM.StackPtr do
+        begin
+          Mark(P);
+          Inc(P);
+        end;
+        P := @VM.Global.Value^.Data[0];
+        P2 := @VM.Global.Value^.Data[VM.Global.Value^.Size - 1];
+        while P <= P2 do
+        begin
+          Mark(P);
+          Inc(P);
+        end;
+        for Key in VM.Parent.ConstMap.Keys do
+        begin
+          V := VM.Parent.ConstMap[Key];
+          Mark(@V);
+        end;
+      end;
+      Mark(@ScriptVarMap);
+      if Self.FRunCount mod 10 = 0 then
+      begin
+        Sweep(2);
+      end else
+      begin
+        Sweep(1);
+      end;
+      {$ifdef SE_LOG}
+      Writeln('[GC] Number of objects after cleaning: ', Self.FObjects);
+      Writeln('[GC] Number of old objects after cleaning: ', Self.FObjectsOld);
+      Writeln('[GC] Number of objects in object pool: ', Self.FValueAvailStack.Count);
+      Writeln('[GC] Time: ', GetTickCount64 - T, 'ms');
+      {$endif}
+    except
+      on E: Exception do
+      begin
+        Writeln(DumpCallStack);
+        Writeln(E.Message);
+        Halt;
+      end;
     end;
-    for I := 0 to VMList.Count - 1 do
-    begin
-      VM := VMList[I];
-      P := @VM.Stack[0];
-      while P <= VM.StackPtr do
-      begin
-        Mark(P);
-        Inc(P);
-      end;
-      P := @VM.Global.Value^.Data[0];
-      P2 := @VM.Global.Value^.Data[VM.Global.Value^.Size - 1];
-      while P <= P2 do
-      begin
-        Mark(P);
-        Inc(P);
-      end;
-      for Key in VM.Parent.ConstMap.Keys do
-      begin
-        V := VM.Parent.ConstMap[Key];
-        Mark(@V);
-      end;
-    end;
-    Mark(@ScriptVarMap);
-    Sweep;
-    {$ifdef SE_LOG}
-    Writeln('[GC] Number of objects after cleaning: ', Self.FObjects);
-    Writeln('[GC] Number of objects in object pool: ', Self.FValueAvailStack.Count);
-    Writeln('[GC] Time: ', GetTickCount64 - T, 'ms');
-    {$endif}
   finally
     {$ifdef SE_THREADS}
     LeaveCriticalSection(CS);
@@ -4381,40 +4492,6 @@ begin
   end;
 end;
 
-function DumpCallStack: String;
-var
-  I: Longint;
-  prevbp: Pointer;
-  CallerFrame,
-  CallerAddress,
-  bp: Pointer;
-const
-  MaxDepth = 20;
-begin
-  Result := '';
-  bp := get_frame;
-  // This trick skip SendCallstack item
-  // bp:= get_caller_frame(get_frame);
-  try
-    prevbp := bp - 1;
-    I := 0;
-    while bp > prevbp do begin
-       CallerAddress := get_caller_addr(bp);
-       CallerFrame := get_caller_frame(bp);
-       if (CallerAddress = nil) then
-         Break;
-       Result := Result + BackTraceStrFunc(CallerAddress) + LineEnding;
-       Inc(I);
-       if (I >= MaxDepth) or (CallerFrame = nil) then
-         Break;
-       prevbp := bp;
-       bp := CallerFrame;
-    end;
-  except
-    { prevent endless dump if an exception occured }
-  end;
-end;
-
 constructor TSEVM.Create;
 begin
   inherited;
@@ -4491,7 +4568,6 @@ var
   This: TSEValue;
   CodePtrLocal: Integer;
   GlobalLocal: PSEValue;
-  StackPtrLocal: PSEValue;
   BinaryPtrLocal: Integer;
   BinaryLocal: PSEValue;
   FuncImport, P, PP, PC: Pointer;
@@ -4590,14 +4666,14 @@ var
 
   procedure Push(const Value: TSEValue); inline;
   begin
-    StackPtrLocal^ := Value;
-    Inc(StackPtrLocal);
+    Self.StackPtr^ := Value;
+    Inc(Self.StackPtr);
   end;
 
   function Pop: PSEValue; inline;
   begin
-    Dec(StackPtrLocal);
-    Result := StackPtrLocal;
+    Dec(Self.StackPtr);
+    Result := Self.StackPtr;
   end;
 
   procedure AssignGlobal(const I: Pointer; const Value: PSEValue); inline;
@@ -5063,7 +5139,6 @@ begin
     Exit;
   GlobalLocal := @Self.Global.Value^.Data[0];
   CodePtrLocal := Self.CodePtr;
-  StackPtrLocal := Self.StackPtr;
   BinaryPtrLocal := Self.BinaryPtr;
   BinaryLocal := Self.Binaries.Value^.Data[Self.BinaryPtr].Ptr(0);
   GC.CheckForGC;
@@ -5089,26 +5164,26 @@ begin
         begin
           A := Pop;
           if A^.Kind = sevkNumber then
-            StackPtrLocal^.VarNumber := A^.VarNumber + BinaryLocal[CodePtrLocal + 1].VarNumber
+            Self.StackPtr^.VarNumber := A^.VarNumber + BinaryLocal[CodePtrLocal + 1].VarNumber
           else
-            SEValueAdd(StackPtrLocal^, A^, BinaryLocal[CodePtrLocal + 1]);
-          Inc(StackPtrLocal);
+            SEValueAdd(Self.StackPtr^, A^, BinaryLocal[CodePtrLocal + 1]);
+          Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelOperatorMul0{$else}opOperatorMul0{$endif}:
         begin
           A := Pop;
-          StackPtrLocal^.VarNumber := A^.VarNumber * BinaryLocal[CodePtrLocal + 1].VarNumber;
-          Inc(StackPtrLocal);
+          Self.StackPtr^.VarNumber := A^.VarNumber * BinaryLocal[CodePtrLocal + 1].VarNumber;
+          Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelOperatorDiv0{$else}opOperatorDiv0{$endif}:
         begin
           A := Pop;
-          StackPtrLocal^.VarNumber := A^.VarNumber / BinaryLocal[CodePtrLocal + 1].VarNumber;
-          Inc(StackPtrLocal);
+          Self.StackPtr^.VarNumber := A^.VarNumber / BinaryLocal[CodePtrLocal + 1].VarNumber;
+          Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
@@ -5117,10 +5192,10 @@ begin
           B := Pop;
           A := Pop;
           if A^.Kind = sevkNumber then
-            StackPtrLocal^.VarNumber := A^.VarNumber + B^.VarNumber
+            Self.StackPtr^.VarNumber := A^.VarNumber + B^.VarNumber
           else
-            SEValueAdd(StackPtrLocal^, A^, B^);
-          Inc(StackPtrLocal);
+            SEValueAdd(Self.StackPtr^, A^, B^);
+          Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
@@ -5129,10 +5204,10 @@ begin
           B := Pop;
           A := Pop;
           if A^.Kind = sevkNumber then
-            StackPtrLocal^.VarNumber := A^.VarNumber - B^.VarNumber
+            Self.StackPtr^.VarNumber := A^.VarNumber - B^.VarNumber
           else
-            SEValueSub(StackPtrLocal^, A^, B^);
-          Inc(StackPtrLocal);
+            SEValueSub(Self.StackPtr^, A^, B^);
+          Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
@@ -5140,8 +5215,8 @@ begin
         begin
           B := Pop;
           A := Pop;
-          SEValueMul(StackPtrLocal^, A^, B^);
-          Inc(StackPtrLocal);
+          SEValueMul(Self.StackPtr^, A^, B^);
+          Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
@@ -5149,8 +5224,8 @@ begin
         begin
           B := Pop;
           A := Pop;
-          SEValueDiv(StackPtrLocal^, A^, B^);
-          Inc(StackPtrLocal);
+          SEValueDiv(Self.StackPtr^, A^, B^);
+          Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
@@ -5166,8 +5241,8 @@ begin
         begin
           B := Pop;
           A := Pop;
-          SEValueEqual(StackPtrLocal^, A^, B^);
-          Inc(StackPtrLocal);
+          SEValueEqual(Self.StackPtr^, A^, B^);
+          Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
@@ -5175,8 +5250,8 @@ begin
         begin
           B := Pop;
           A := Pop;
-          SEValueNotEqual(StackPtrLocal^, A^, B^);
-          Inc(StackPtrLocal);
+          SEValueNotEqual(Self.StackPtr^, A^, B^);
+          Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
@@ -5184,8 +5259,8 @@ begin
         begin
           B := Pop;
           A := Pop;
-          SEValueShiftLeft(StackPtrLocal^, A^, B^);
-          Inc(StackPtrLocal);
+          SEValueShiftLeft(Self.StackPtr^, A^, B^);
+          Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
@@ -5193,8 +5268,8 @@ begin
         begin
           B := Pop;
           A := Pop;
-          SEValueShiftRight(StackPtrLocal^, A^, B^);
-          Inc(StackPtrLocal);
+          SEValueShiftRight(Self.StackPtr^, A^, B^);
+          Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
@@ -5202,8 +5277,8 @@ begin
         begin
           B := Pop;
           A := Pop;
-          SEValueLesser(StackPtrLocal^, A^, B^);
-          Inc(StackPtrLocal);
+          SEValueLesser(Self.StackPtr^, A^, B^);
+          Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
@@ -5211,8 +5286,8 @@ begin
         begin
           B := Pop;
           A := Pop;
-          SEValueLesserOrEqual(StackPtrLocal^, A^, B^);
-          Inc(StackPtrLocal);
+          SEValueLesserOrEqual(Self.StackPtr^, A^, B^);
+          Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
@@ -5220,8 +5295,8 @@ begin
         begin
           B := Pop;
           A := Pop;
-          SEValueGreater(StackPtrLocal^, A^, B^);
-          Inc(StackPtrLocal);
+          SEValueGreater(Self.StackPtr^, A^, B^);
+          Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
@@ -5229,8 +5304,8 @@ begin
         begin
           B := Pop;
           A := Pop;
-          SEValueGreaterOrEqual(StackPtrLocal^, A^, B^);
-          Inc(StackPtrLocal);
+          SEValueGreaterOrEqual(Self.StackPtr^, A^, B^);
+          Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
@@ -5261,16 +5336,16 @@ begin
       {$ifdef SE_COMPUTED_GOTO}labelOperatorNot{$else}opOperatorNot{$endif}:
         begin
           A := Pop;
-          SEValueNot(StackPtrLocal^, A^);
-          Inc(StackPtrLocal);
+          SEValueNot(Self.StackPtr^, A^);
+          Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelOperatorNegative{$else}opOperatorNegative{$endif}:
         begin
           A := Pop;
-          SEValueNeg(StackPtrLocal^, A^);
-          Inc(StackPtrLocal);
+          SEValueNeg(Self.StackPtr^, A^);
+          Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
@@ -5280,10 +5355,10 @@ begin
           P := BinaryLocal[CodePtrLocal + 2].VarPointer;
           B := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
           if A^.Kind = sevkNumber then
-            StackPtrLocal^.VarNumber := A^.VarNumber + B^.VarNumber
+            Self.StackPtr^.VarNumber := A^.VarNumber + B^.VarNumber
           else
-            SEValueAdd(StackPtrLocal^, A^, B^);
-          Inc(StackPtrLocal);
+            SEValueAdd(Self.StackPtr^, A^, B^);
+          Inc(Self.StackPtr);
           Inc(CodePtrLocal, 3);
           DispatchGoto;
         end;
@@ -5293,10 +5368,10 @@ begin
           P := BinaryLocal[CodePtrLocal + 2].VarPointer;
           B := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
           if A^.Kind = sevkNumber then
-            StackPtrLocal^.VarNumber := A^.VarNumber - B^.VarNumber
+            Self.StackPtr^.VarNumber := A^.VarNumber - B^.VarNumber
           else
-            SEValueSub(StackPtrLocal^, A^, B^);
-          Inc(StackPtrLocal);
+            SEValueSub(Self.StackPtr^, A^, B^);
+          Inc(Self.StackPtr);
           Inc(CodePtrLocal, 3);
           DispatchGoto;
         end;
@@ -5305,8 +5380,8 @@ begin
           A := Pop;
           P := BinaryLocal[CodePtrLocal + 2].VarPointer;
           B := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
-          SEValueMul(StackPtrLocal^, A^, B^);
-          Inc(StackPtrLocal);
+          SEValueMul(Self.StackPtr^, A^, B^);
+          Inc(Self.StackPtr);
           Inc(CodePtrLocal, 3);
           DispatchGoto;
         end;
@@ -5315,8 +5390,8 @@ begin
           A := Pop;
           P := BinaryLocal[CodePtrLocal + 2].VarPointer;
           B := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
-          SEValueDiv(StackPtrLocal^, A^, B^);
-          Inc(StackPtrLocal);
+          SEValueDiv(Self.StackPtr^, A^, B^);
+          Inc(Self.StackPtr);
           Inc(CodePtrLocal, 3);
           DispatchGoto;
         end;
@@ -5327,10 +5402,10 @@ begin
           A := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
           B := GetVariable(BinaryLocal[CodePtrLocal + 2], PP);
           if A^.Kind = sevkNumber then
-            StackPtrLocal^.VarNumber := A^.VarNumber + B^.VarNumber
+            Self.StackPtr^.VarNumber := A^.VarNumber + B^.VarNumber
           else
-            SEValueAdd(StackPtrLocal^, A^, B^);
-          Inc(StackPtrLocal);
+            SEValueAdd(Self.StackPtr^, A^, B^);
+          Inc(Self.StackPtr);
           Inc(CodePtrLocal, 5);
           DispatchGoto;
         end;
@@ -5341,10 +5416,10 @@ begin
           A := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
           B := GetVariable(BinaryLocal[CodePtrLocal + 2], PP);
           if A^.Kind = sevkNumber then
-            StackPtrLocal^.VarNumber := A^.VarNumber - B^.VarNumber
+            Self.StackPtr^.VarNumber := A^.VarNumber - B^.VarNumber
           else
-            SEValueSub(StackPtrLocal^, A^, B^);
-          Inc(StackPtrLocal);
+            SEValueSub(Self.StackPtr^, A^, B^);
+          Inc(Self.StackPtr);
           Inc(CodePtrLocal, 5);
           DispatchGoto;
         end;
@@ -5354,8 +5429,8 @@ begin
           PP := BinaryLocal[CodePtrLocal + 4].VarPointer;
           A := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
           B := GetVariable(BinaryLocal[CodePtrLocal + 2], PP);
-          SEValueMul(StackPtrLocal^, A^, B^);
-          Inc(StackPtrLocal);
+          SEValueMul(Self.StackPtr^, A^, B^);
+          Inc(Self.StackPtr);
           Inc(CodePtrLocal, 5);
           DispatchGoto;
         end;
@@ -5365,8 +5440,8 @@ begin
           PP := BinaryLocal[CodePtrLocal + 4].VarPointer;
           A := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
           B := GetVariable(BinaryLocal[CodePtrLocal + 2], PP);
-          SEValueDiv(StackPtrLocal^, A^, B^);
-          Inc(StackPtrLocal);
+          SEValueDiv(Self.StackPtr^, A^, B^);
+          Inc(Self.StackPtr);
           Inc(CodePtrLocal, 5);
           DispatchGoto;
         end;
@@ -5432,7 +5507,7 @@ begin
         end;
       {$ifdef SE_COMPUTED_GOTO}labelPopConst{$else}opPopConst{$endif}:
         begin
-          Dec(StackPtrLocal); // Pop;
+          Dec(Self.StackPtr); // Pop;
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
@@ -5508,8 +5583,8 @@ begin
                 DeepCount := Integer(BinaryLocal[CodePtrLocal + 3].VarPointer);
                 if DeepCount = 0 then
                   raise Exception.Create('Not a function reference');
-                StackPtrLocal := StackPtrLocal - DeepCount;
-                C := StackPtrLocal;
+                Self.StackPtr := Self.StackPtr - DeepCount;
+                C := Self.StackPtr;
                 for I := 0 to DeepCount - 1 do
                 begin
                   TV2 := A^;
@@ -5526,7 +5601,7 @@ begin
             sefkScript:
               begin
                 if DeepCount > 1 then
-                  (StackPtrLocal - 1)^ := TV2;
+                  (Self.StackPtr - 1)^ := TV2;
                 goto CallScript;
               end;
             sefkImport:
@@ -5537,7 +5612,7 @@ begin
             sefkNative:
               begin
                 if DeepCount > 1 then
-                  (StackPtrLocal - 1)^ := TV2;
+                  (Self.StackPtr - 1)^ := TV2;
                 This := Pop^;
                 Dec(BinaryLocal[CodePtrLocal + 2].VarPointer); // ArgCount contains this, so we minus it by 1
                 goto CallNative;
@@ -5547,15 +5622,14 @@ begin
       {$ifdef SE_COMPUTED_GOTO}labelCallNative{$else}opCallNative{$endif}:
         begin
         CallNative:
-          Self.StackPtr := StackPtrLocal;
           GC.CheckForGCFast;
           FuncNativeInfo := Self.Parent.FuncNativeList.Ptr(Integer(BinaryLocal[CodePtrLocal + 1].VarPointer));
           ArgCount := Integer(BinaryLocal[CodePtrLocal + 2].VarPointer);
-          StackPtrLocal := StackPtrLocal - ArgCount;
+          Self.StackPtr := Self.StackPtr - ArgCount;
           if FuncNativeInfo^.Kind = sefnkNormal then
-            TV := TSEFunc(FuncNativeInfo^.Func)(Self, StackPtrLocal, ArgCount)
+            TV := TSEFunc(FuncNativeInfo^.Func)(Self, Self.StackPtr, ArgCount)
           else
-            TV := TSEFuncWithSelf(FuncNativeInfo^.Func)(Self, StackPtrLocal, ArgCount, This);
+            TV := TSEFuncWithSelf(FuncNativeInfo^.Func)(Self, Self.StackPtr, ArgCount, This);
           if IsDone then
           begin
             Exit;
@@ -5572,11 +5646,11 @@ begin
           Inc(Self.FramePtr);
           if Self.FramePtr > @Self.Frame[Self.FrameSize - 1] then
             raise Exception.Create('Too much recursion');
-          Self.FramePtr^.Stack := StackPtrLocal - ArgCount;
+          Self.FramePtr^.Stack := Self.StackPtr - ArgCount;
           Self.FramePtr^.Code := CodePtrLocal + 4;
           Self.FramePtr^.Binary := BinaryPtrLocal;
           Self.FramePtr^.Func := FuncScriptInfo;
-          StackPtrLocal := StackPtrLocal + FuncScriptInfo^.VarCount;
+          Self.StackPtr := Self.StackPtr + FuncScriptInfo^.VarCount;
           CodePtrLocal := 0;
           BinaryPtrLocal := FuncScriptInfo^.BinaryPos;
           BinaryLocal := Self.Binaries.Value^.Data[BinaryPtrLocal].Ptr(0);
@@ -5585,7 +5659,7 @@ begin
       {$ifdef SE_COMPUTED_GOTO}labelPopFrame{$else}opPopFrame{$endif}:
         begin
           CodePtrLocal := Self.FramePtr^.Code;
-          StackPtrLocal := Self.FramePtr^.Stack;
+          Self.StackPtr := Self.FramePtr^.Stack;
           BinaryPtrLocal := Self.FramePtr^.Binary;
           BinaryLocal := Self.Binaries.Value^.Data[BinaryPtrLocal].Ptr(0);
           Dec(Self.FramePtr);
@@ -5640,8 +5714,8 @@ begin
             C := Pop
           else
           begin
-            StackPtrLocal := StackPtrLocal - ArgCount;
-            C := StackPtrLocal;
+            Self.StackPtr := Self.StackPtr - ArgCount;
+            C := Self.StackPtr;
             for I := 1 to ArgCount - 1 do
             begin
               OC := C;
@@ -5716,8 +5790,8 @@ begin
             C := Pop
           else
           begin
-            StackPtrLocal := StackPtrLocal - ArgCount;
-            C := StackPtrLocal;
+            Self.StackPtr := Self.StackPtr - ArgCount;
+            C := Self.StackPtr;
             for I := 1 to ArgCount - 1 do
             begin
               OC := C;
@@ -5790,7 +5864,6 @@ begin
           Self.IsYielded := True;
           Inc(CodePtrLocal);
           Self.CodePtr := CodePtrLocal;
-          Self.StackPtr := StackPtrLocal;
           Self.BinaryPtr := BinaryPtrLocal;
           Exit;
         end;
@@ -5805,7 +5878,6 @@ begin
       {$ifdef SE_COMPUTED_GOTO}labelHlt{$else}opHlt{$endif}:
         begin
           Self.CodePtr := CodePtrLocal;
-          Self.StackPtr := StackPtrLocal;
           Self.BinaryPtr := BinaryPtrLocal;
           Self.IsDone := True;
           Self.Parent.IsDone := True;
@@ -5815,7 +5887,7 @@ begin
         begin
           Inc(Self.TrapPtr);
           Self.TrapPtr^.FramePtr := Self.FramePtr;
-          Self.TrapPtr^.Stack := StackPtrLocal;
+          Self.TrapPtr^.Stack := Self.StackPtr;
           Self.TrapPtr^.Binary := BinaryPtrLocal;
           Self.TrapPtr^.CatchCode := Integer(BinaryLocal[CodePtrLocal + 1].VarPointer);
           Inc(CodePtrLocal, 2);
@@ -5836,7 +5908,7 @@ begin
             TV := Pop^;
             Self.FramePtr := Self.TrapPtr^.FramePtr;
             CodePtrLocal := Self.TrapPtr^.CatchCode;
-            StackPtrLocal := Self.TrapPtr^.Stack;
+            Self.StackPtr := Self.TrapPtr^.Stack;
             BinaryPtrLocal := Self.TrapPtr^.Binary;
             BinaryLocal := Self.Binaries.Value^.Data[BinaryPtrLocal].Ptr(0);
             Push(TV);
@@ -5855,7 +5927,6 @@ begin
       if Self.IsPaused then
       begin
         Self.CodePtr := CodePtrLocal;
-        Self.StackPtr := StackPtrLocal;
         Self.BinaryPtr := BinaryPtrLocal;
         Exit;
       end;
@@ -5902,7 +5973,7 @@ begin
       begin
         Self.FramePtr := Self.TrapPtr^.FramePtr;
         CodePtrLocal := Self.TrapPtr^.CatchCode;
-        StackPtrLocal := Self.TrapPtr^.Stack;
+        Self.StackPtr := Self.TrapPtr^.Stack;
         BinaryPtrLocal := Self.FramePtr^.Binary;
         BinaryLocal := Self.Binaries.Value^.Data[BinaryPtrLocal].Ptr(0);
         Push(E.Message);
@@ -5914,7 +5985,6 @@ begin
     end;
   end;
   Self.CodePtr := CodePtrLocal;
-  Self.StackPtr := StackPtrLocal;
   Self.BinaryPtr := BinaryPtrLocal;
 end;
 
@@ -5940,7 +6010,7 @@ end;
 
 procedure TSEVMThread.Execute;
 begin
-  IsInsideThread := 1;
+  Inc(IsThread);
   try
     try
       Self.VM.Exec;
@@ -9982,7 +10052,7 @@ initialization
   GC := TSEGarbageCollector.Create;
   ScriptCacheMap := TSECacheMap.Create;
   GC.AllocMap(@ScriptVarMap);
-  IsInsideThread := 0;
+  IsThread := 0;
 
 finalization
   if VMList <> nil then
