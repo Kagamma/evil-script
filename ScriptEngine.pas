@@ -316,7 +316,6 @@ type
     FValueList: TSEGCValueList;
     FValueAvailStack: TSEGCValueAvailStack;
     FValueLast: Cardinal;
-    FValueCeil: Cardinal;
     FTicks: QWord;
     procedure Sweep;
   public
@@ -1074,6 +1073,11 @@ var
   {$endif}
   FS: TFormatSettings;
   CommonNativeFuncList: TSEFuncNativeList;
+
+{$ifdef SE_THREADS}
+threadvar
+{$endif}
+  IsInsideThread: Cardinal;
 
 function PointStrToFloat(S: String): Double; inline;
 begin
@@ -3931,13 +3935,9 @@ begin
 end;
 
 procedure TSEGarbageCollector.CheckForGC; inline;
-var
-  Ticks: QWord;
 begin
-  Ticks := GetTickCount64 - Self.FTicks;
-  if (Ticks > SE_MEM_TIME) or ((Self.FValueAvailStack.Count + Self.FValueCeil + 100) div ((FObjects + 100) div 2) <= 2) then
+  if GetTickCount64 - Self.FTicks > SE_MEM_TIME then
   begin
-    Inc(Self.FValueCeil, 10000);
     Self.GC;
   end;
 end;
@@ -4034,37 +4034,28 @@ procedure TSEGarbageCollector.GC;
       Exit;
     if Value^.Value.VarPointer = PValue^.VarPointer then
     begin
-      try
-        case Value^.Value.Kind of
-          sevkMap:
+      case Value^.Value.Kind of
+        sevkMap:
+          begin
+            if PValue^.VarMap <> nil then
             begin
-              if PValue^.VarMap <> nil then
+              if SEMapIsValidArray(PValue^) then
               begin
-                if SEMapIsValidArray(PValue^) then
+                for I := 0 to TSEValueMap(PValue^.VarMap).Count - 1 do
                 begin
-                  for I := 0 to TSEValueMap(PValue^.VarMap).Count - 1 do
-                  begin
-                    RValue := SEMapGet(PValue^, I);
-                    Mark(@RValue);
-                  end;
-                end else
+                  RValue := SEMapGet(PValue^, I);
+                  Mark(@RValue);
+                end;
+              end else
+              begin
+                for Key in TSEValueMap(PValue^.VarMap).Map.Keys do
                 begin
-                  for Key in TSEValueMap(PValue^.VarMap).Map.Keys do
-                  begin
-                    RValue := SEMapGet(PValue^, Key);
-                    Mark(@RValue);
-                  end;
+                  RValue := SEMapGet(PValue^, Key);
+                  Mark(@RValue);
                 end;
               end;
             end;
-        end;
-      except
-        on E: Exception do
-        begin
-          {$ifdef SE_LOG}
-          Writeln(E.Message);
-          {$endif}
-        end;
+          end;
       end;
       Value^.Garbage := False;
     end;
@@ -4084,6 +4075,8 @@ begin
   if Self.FLockFlag then
     Exit;
   if Self.FValueLast = 0 then
+    Exit;
+  if IsInsideThread = 1 then
     Exit;
   {$ifdef SE_THREADS}
   EnterCriticalSection(CS);
@@ -5554,6 +5547,8 @@ begin
       {$ifdef SE_COMPUTED_GOTO}labelCallNative{$else}opCallNative{$endif}:
         begin
         CallNative:
+          Self.StackPtr := StackPtrLocal;
+          GC.CheckForGCFast;
           FuncNativeInfo := Self.Parent.FuncNativeList.Ptr(Integer(BinaryLocal[CodePtrLocal + 1].VarPointer));
           ArgCount := Integer(BinaryLocal[CodePtrLocal + 2].VarPointer);
           StackPtrLocal := StackPtrLocal - ArgCount;
@@ -5567,7 +5562,6 @@ begin
           end;
           Push(TV);
           Inc(CodePtrLocal, 4);
-          GC.CheckForGCFast;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelCallScript{$else}opCallScript{$endif}:
@@ -5946,6 +5940,7 @@ end;
 
 procedure TSEVMThread.Execute;
 begin
+  IsInsideThread := 1;
   try
     try
       Self.VM.Exec;
@@ -9987,6 +9982,7 @@ initialization
   GC := TSEGarbageCollector.Create;
   ScriptCacheMap := TSECacheMap.Create;
   GC.AllocMap(@ScriptVarMap);
+  IsInsideThread := 0;
 
 finalization
   if VMList <> nil then
