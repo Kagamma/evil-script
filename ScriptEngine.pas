@@ -70,7 +70,7 @@ uses
 
 const
   // Time in miliseconds before GC starts collecting memory
-  SE_MEM_TIME = 1000 * 30;
+  SE_MEM_TIME = 1000 * 5;
   SE_STACK_RESERVED = 2;
 
 type
@@ -297,6 +297,7 @@ type
     Value: TSEValue;
     Garbage: Boolean;
     Lock: Boolean;
+    Prev, Next: Cardinal;
   end;
   TSEGCValueListAncestor = specialize TList<TSEGCValue>;
   TSEGCValueList = class(TSEGCValueListAncestor)
@@ -314,7 +315,8 @@ type
     FObjects: Cardinal;
     FValueList: TSEGCValueList;
     FValueAvailStack: TSEGCValueAvailStack;
-    FValueUsed: TSECardinalList;
+    FValueLast: Cardinal;
+    FValueCeil: Cardinal;
     FTicks: QWord;
     procedure Sweep;
   public
@@ -3868,13 +3870,13 @@ begin
   InitCriticalSection(Self.FLock);
   {$endif}
   Self.FValueList := TSEGCValueList.Create;
-  Self.FValueList.Capacity := 65536 * 32;
+  Self.FValueList.Capacity := 65536 * 8;
   Ref0 := Default(TSEGCValue);
   Self.FValueList.Add(Ref0);
+  Self.FValueList.Add(Ref0);
+  Self.FValueLast := 1;
   Self.FValueAvailStack := TSEGCValueAvailStack.Create;
-  Self.FValueAvailStack.Capacity := 65536 * 32;
-  Self.FValueUsed := TSECardinalList.Create;
-  Self.FValueUsed.Capacity := 65536 * 32;
+  Self.FValueAvailStack.Capacity := 65536 * 8;
   Self.FTicks := GetTickCount64;
 end;
 
@@ -3890,7 +3892,6 @@ begin
     Self.FValueList[I] := Value;
   end;
   Self.Sweep;
-  Self.FValueUsed.Free;
   Self.FValueAvailStack.Free;
   Self.FValueList.Free;
   {$ifdef SE_THREADS}
@@ -3904,6 +3905,7 @@ var
   Value: TSEGCValue;
 begin
   Value := Default(TSEGCValue);
+  Value.Prev := Self.FValueLast;
   if Self.FValueAvailStack.Count = 0 then
   begin
     PValue^.Ref := Self.FValueList.Count;
@@ -3915,7 +3917,8 @@ begin
     Value.Value := PValue^;
     Self.FValueList[PValue^.Ref] := Value;
   end;
-  Self.FValueUsed.Add(PValue^.Ref);
+  Self.FValueList.Ptr(Self.FValueLast)^.Next := PValue^.Ref;
+  Self.FValueLast := PValue^.Ref;
   Inc(Self.FObjects);
 end;
 
@@ -3932,8 +3935,9 @@ var
   Ticks: QWord;
 begin
   Ticks := GetTickCount64 - Self.FTicks;
-  if (Ticks > SE_MEM_TIME) or ((Self.FObjects + 100) div (Self.FValueAvailStack.Count + 100) > 2) then
+  if (Ticks > SE_MEM_TIME) or ((Self.FValueAvailStack.Count + Self.FValueCeil + 100) div ((FObjects + 100) div 2) <= 2) then
   begin
+    Inc(Self.FValueCeil, 10000);
     Self.GC;
   end;
 end;
@@ -3943,15 +3947,29 @@ var
   Value: PSEGCValue;
   I, MS: Integer;
 
-  procedure Add;
+  procedure Detach;
+  var
+    PrevValue,
+    NextValue: PSEGCValue;
   begin
+    if I <> Self.FValueLast then
+    begin
+      PrevValue := Self.FValueList.Ptr(Value^.Prev);
+      PrevValue^.Next := Value^.Next;
+      Self.FValueList.Ptr(Value^.Next)^.Prev := Value^.Prev;
+    end else
+    begin
+      Self.FValueLast := Value^.Prev;
+      Self.FValueList.Ptr(Self.FValueLast)^.Next := 0;
+    end;
     Value^.Value.Kind := sevkNull;
     Self.FValueAvailStack.Push(I);
     Dec(Self.FObjects);
   end;
 
 begin
-  for I := 1 to Self.FValueList.Count - 1 do
+  I := Self.FValueList.Ptr(1)^.Next;
+  while I <> 0 do
   begin
     Value := Self.FValueList.Ptr(I);
     if Value^.Garbage then
@@ -3963,7 +3981,7 @@ begin
             begin
               Value^.Value.VarMap.Free;
             end;
-            Add;
+            Detach;
           end;
         sevkString:
           begin
@@ -3971,7 +3989,7 @@ begin
             begin
               Dispose(Value^.Value.VarString);
             end;
-            Add;
+            Detach;
           end;
         sevkBuffer:
           begin
@@ -3983,7 +4001,7 @@ begin
               end;
               Dispose(Value^.Value.VarBuffer);
             end;
-            Add;
+            Detach;
           end;
         sevkPascalObject:
           begin
@@ -3993,13 +4011,11 @@ begin
                 Value^.Value.VarPascalObject^.Value.Free;
               Dispose(Value^.Value.VarPascalObject);
             end;
-            Add;
+            Detach;
           end;
       end;
-    end else
-    begin
-      Self.FValueUsed.Add(I);
     end;
+    I := Value^.Next;
   end;
 end;
 
@@ -4063,8 +4079,11 @@ var
   Key: String;
   Cache: TSECache;
   Binary: TSEBinary;
+  MarkCount: Integer = 0;
 begin
   if Self.FLockFlag then
+    Exit;
+  if Self.FValueLast = 0 then
     Exit;
   {$ifdef SE_THREADS}
   EnterCriticalSection(CS);
@@ -4074,12 +4093,14 @@ begin
     Writeln('[GC] Number of objects before cleaning: ', Self.FObjects);
     Writeln('[GC] Number of objects in object pool: ', Self.FValueAvailStack.Count);
     {$endif}
-    for I := 0 to Self.FValueUsed.Count - 1 do
+    I := Self.FValueList.Ptr(1)^.Next;
+    while I <> 0 do
     begin
-      Value := Self.FValueList.Ptr(Self.FValueUsed[I]);
+      Value := Self.FValueList.Ptr(I);
       Value^.Garbage := not Value^.Lock;
+      I := Value^.Next;
+      Inc(MarkCount);
     end;
-    Self.FValueUsed.Count := 0;
     for I := 0 to VMList.Count - 1 do
     begin
       VM := VMList[I];
@@ -9975,7 +9996,7 @@ finalization
       if VMList[I].ThreadOwner <> nil then
       begin
         VMList[I].ThreadOwner.Terminate;
-        while not VMList[I].ThreadOwner.IsDone do Sleep(16);
+        VMList[I].ThreadOwner.WaitFor;
       end;
     end;
     VMList.Free;
