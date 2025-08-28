@@ -37,7 +37,7 @@ unit ScriptEngine;
 // enable this to replace FP's TDirectory with avk959's TGChainHashMap. It is a lot faster than TDirectory.
 // requires https://github.com/avk959/LGenerics
 // note: enable this will undef SE_MAP_SHORTSTRING, because this optimization is not necessary for TGChainHashMap
-{$define SE_MAP_AVK959}
+{.$define SE_MAP_AVK959}
 {$ifdef SE_MAP_AVK959}
   {$undef SE_MAP_SHORTSTRING}
   {$define TSEDictionary := TGChainHashMap}
@@ -69,8 +69,6 @@ uses
   {$ifdef SE_STRING_UTF8},LazUTF8{$endif}{$ifdef SE_DYNLIBS}, dynlibs{$endif};
 
 const
-  // Time in miliseconds before GC starts collecting memory
-  SE_MEM_TIME = 1000 * 5;
   SE_STACK_RESERVED = 2;
 
 type
@@ -297,9 +295,9 @@ type
     Value: TSEValue;
     Garbage: Boolean;
     Lock: Boolean;
+    Visit: Byte;
     Prev,
-    Next,
-    Visit: Cardinal;
+    Next: Cardinal;
   end;
   TSEGCValueListAncestor = specialize TList<TSEGCValue>;
   TSEGCValueList = class(TSEGCValueListAncestor)
@@ -323,6 +321,9 @@ type
     FValueLastOld: Cardinal;
     FRunCount: Cardinal;
     FTicks: QWord;
+    FInterval: Cardinal;
+    FPromotion: Byte;
+    FOldObjectCheckCycle: Byte;
     procedure Sweep(const AFirst: Cardinal);
   public
     constructor Create;
@@ -343,6 +344,9 @@ type
     property ObjectCount: Cardinal read FObjects;
     property OldObjectCount: Cardinal read FObjectsOld;
     property RunCount: Cardinal read FRunCount;
+    property Interval: Cardinal read FInterval write FInterval;
+    property Promotion: Byte read FPromotion write FPromotion;
+    property OldObjectCheckCycle: Byte read FOldObjectCheckCycle write FOldObjectCheckCycle;
   end;
 
   TSECallingConvention = (
@@ -1021,6 +1025,7 @@ type
     class function SEDTGetHour(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEDTGetMinute(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEGCObjectCount(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SEGCObjectOldCount(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEGCCollect(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEAssert(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEChar(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -2562,7 +2567,12 @@ end;
 
 class function TBuiltInFunction.SEGCObjectCount(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 begin
-  Result := GC.ValueList.Count - 1;
+  Result := GC.ObjectCount;
+end;
+
+class function TBuiltInFunction.SEGCObjectOldCount(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+begin
+  Result := GC.OldObjectCount;
 end;
 
 class function TBuiltInFunction.SEGCCollect(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -3926,6 +3936,9 @@ begin
   Self.FValueAvailStack := TSEGCValueAvailStack.Create;
   Self.FValueAvailStack.Capacity := 65536 * 8;
   Self.FTicks := GetTickCount64;
+  Self.Interval := 5000;
+  Self.Promotion := 10;
+  Self.OldObjectCheckCycle := 10;
 end;
 
 destructor TSEGarbageCollector.Destroy;
@@ -3973,7 +3986,7 @@ end;
 
 procedure TSEGarbageCollector.CheckForGCFast; inline;
 begin
-  if GetTickCount64 - Self.FTicks > SE_MEM_TIME then
+  if GetTickCount64 - Self.FTicks > Self.Interval then
   begin
     Self.GC;
   end;
@@ -3981,7 +3994,7 @@ end;
 
 procedure TSEGarbageCollector.CheckForGC; inline;
 begin
-  if GetTickCount64 - Self.FTicks > SE_MEM_TIME then
+  if GetTickCount64 - Self.FTicks > Self.Interval then
   begin
     Self.GC;
   end;
@@ -4125,6 +4138,7 @@ var
   Key: String;
   Cache: TSECache;
   Binary: TSEBinary;
+  VMListLocal: TSEVMList;
 begin
   if Self.FLockFlag then
     Exit;
@@ -4141,8 +4155,17 @@ begin
     Exit;
   end;
   {$endif}
+  VMListLocal := TSEVMList.Create;
   try
     try
+      for I := 0 to VMList.Count - 1 do
+      begin
+        if (VMList[I].ThreadOwner <> nil) and (not VMList[I].ThreadOwner.Suspended) then
+        begin
+          VMList[I].ThreadOwner.Suspend;
+          VMListLocal.Add(VMList[I]);
+        end;
+      end;
       Inc(Self.FRunCount);
       {$ifdef SE_LOG}
       Writeln('[GC] Number of objects before cleaning: ', Self.FObjects);
@@ -4156,7 +4179,7 @@ begin
         Value := Self.FValueList.Ptr(I);
         J := I;
         I := Value^.Next;
-        if Value^.Visit >= 10 then
+        if Value^.Visit >= Self.FPromotion then
         begin
           // Detach from young generation
           if J <> Self.FValueLastYoung then
@@ -4213,7 +4236,7 @@ begin
         end;
       end;
       Mark(@ScriptVarMap);
-      if Self.FRunCount mod 10 = 0 then
+      if Self.FRunCount mod Self.FOldObjectCheckCycle = 0 then
       begin
         Sweep(2);
       end else
@@ -4235,6 +4258,11 @@ begin
       end;
     end;
   finally
+    for I := 0 to VMListLocal.Count - 1 do
+    begin
+      VMListLocal[I].ThreadOwner.Resume;
+    end;
+    VMListLocal.Free;
     {$ifdef SE_THREADS}
     LeaveCriticalSection(CS);
     {$endif}
@@ -6169,6 +6197,7 @@ begin
     Self.RegisterFunc('array_resize', @TBuiltInFunction(nil).SEArrayResize, 2);
     Self.RegisterFunc('array_to_map', @TBuiltInFunction(nil).SEArrayToMap, 1);
     Self.RegisterFunc('array_fill', @TBuiltInFunction(nil).SEArrayFill, 2);
+    Self.RegisterFunc('array_delete', @TBuiltInFunction(nil).SEMapKeyDelete, 2);
     Self.RegisterFunc('sign', @TBuiltInFunction(nil).SESign, 1);
     Self.RegisterFunc('min', @TBuiltInFunction(nil).SEMin, -1);
     Self.RegisterFunc('max', @TBuiltInFunction(nil).SEMax, -1);
@@ -6227,6 +6256,7 @@ begin
     Self.RegisterFunc('sqrt', @TBuiltInFunction(nil).SESqrt, 1);
     Self.RegisterFunc('abs', @TBuiltInFunction(nil).SEAbs, 1);
     Self.RegisterFunc('frac', @TBuiltInFunction(nil).SEFrac, 1);
+    Self.RegisterFunc('mem_object_old_count', @TBuiltInFunction(nil).SEGCObjectOldCount, 0);
     Self.RegisterFunc('mem_object_count', @TBuiltInFunction(nil).SEGCObjectCount, 0);
     Self.RegisterFunc('mem_gc', @TBuiltInFunction(nil).SEGCCollect, 0);
     Self.RegisterFunc('fs_file_delete', @TBuiltInFunction(nil).SEFileDelete, 1);
