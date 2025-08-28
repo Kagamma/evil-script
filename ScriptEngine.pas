@@ -4056,6 +4056,7 @@ procedure TSEGarbageCollector.GC(const Forced: Boolean = False);
     Value := Self.FValueList.Ptr(PValue^.Ref);
     if not Value^.Garbage then
       Exit;
+    Value^.Garbage := False;
     if Value^.Value.VarPointer = PValue^.VarPointer then
     begin
       case Value^.Value.Kind of
@@ -4081,7 +4082,6 @@ procedure TSEGarbageCollector.GC(const Forced: Boolean = False);
             end;
           end;
       end;
-      Value^.Garbage := False;
     end;
   end;
 
