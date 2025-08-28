@@ -171,7 +171,8 @@ type
     sevkPointer,
     sevkBoolean,
     sevkFunction,
-    sevkPascalObject
+    sevkPascalObject,
+    sevkPackedString
   );
   PSECommonString = ^String;
   TSEBuffer = record
@@ -232,6 +233,10 @@ type
       sevkPascalObject:
         (
           VarPascalObject: PSEPascalObject;
+        );
+      sevkPackedString:
+        (
+          VarPackedString: array[0..7] of Char;
         );
   end;
 
@@ -656,7 +661,7 @@ const
     'atom', 'import', 'do', 'try', 'catch', 'throw', 'access'
   );
   ValueKindNames: array[TSEValueKind] of String = (
-    'null', 'number', 'string', 'map', 'buffer', 'pointer', 'boolean', 'function', 'pasobject'
+    'null', 'number', 'string', 'map', 'buffer', 'pointer', 'boolean', 'function', 'pasobject', 'packedstring'
   );
   OpcodeSizes: array[TSEOpcode] of Byte = (
     2, // opPushConst,
@@ -1243,6 +1248,8 @@ begin
       begin
         Result := 'pasobject@' + IntToStr(QWord(Value.VarPascalObject^.Value));
       end;
+    sevkPackedString:
+      Result := '.' + Value.VarPackedString;
     else
       Result := Value;
   end;
@@ -1327,6 +1334,10 @@ begin
         begin
           Result := TSEValueMap(V.VarMap).Items[Round(I.VarNumber)];
         end;
+      sevkPackedString:
+        begin
+          Result := TSEValueMap(V.VarMap).Map[I.VarPackedString];
+        end;
       else
         Exit(SENull);
     end;
@@ -1354,6 +1365,8 @@ begin
       TSEValueMap(V.VarMap).Set2(I.VarString^, A);
     sevkNumber, sevkBoolean:
       TSEValueMap(V.VarMap).Set2(Round(I.VarNumber), A);
+    sevkPackedString:
+      TSEValueMap(V.VarMap).Set2(I.VarPackedString, A);
   end;
 end;
 
@@ -7220,6 +7233,12 @@ var
     Result := Self.VM.ConstStrings.Add(S);
   end;
 
+  function CreatePackedString(const S: String): TSEValue; inline;
+  begin
+    Result.Kind := sevkPackedString;
+    Result.VarPackedString := S;
+  end;
+
   procedure Rewind(const StartAddr, Count: Integer); inline;
   var
     Addr, I: Integer;
@@ -7977,7 +7996,10 @@ var
             AllocFuncRef;
             EmitAssignVar(FuncRefIdent);
             EmitPushVar(FuncRefIdent, True);
-            EmitExpr([Pointer(opPushArrayPopString), Pointer(CreateConstString(Token.Value))]);
+            if Length(Token.Value) <= 8 then
+              EmitExpr([Pointer(opPushArrayPop), CreatePackedString(Token.Value)])
+            else
+              EmitExpr([Pointer(opPushArrayPopString), Pointer(CreateConstString(Token.Value))]);
             Tail;
           end;
       end;
@@ -8092,7 +8114,10 @@ var
                             NextToken;
                             Token2 := NextTokenExpected([tkIdent]);
                             EmitPushVar(Ident^, True);
-                            Emit([Pointer(opPushArrayPopString), Pointer(CreateConstString(Token2.Value))]);
+                            if Length(Token2.Value) <= 8 then
+                              Emit([Pointer(opPushArrayPop), CreatePackedString(Token2.Value)])
+                            else
+                              Emit([Pointer(opPushArrayPopString), Pointer(CreateConstString(Token2.Value))]);
                             Tail;
                             FuncTail;
                           end;
@@ -9158,7 +9183,10 @@ var
               Token := NextTokenExpected([tkIdent]);
               EmitAssignVar(FuncRefIdent);
               EmitPushVar(FuncRefIdent, True);
-              Emit([Pointer(opPushArrayPopString), Pointer(CreateConstString(Token.Value))]);
+              if Length(Token.Value) <= 8 then
+                Emit([Pointer(opPushArrayPop), CreatePackedString(Token.Value)])
+              else
+                Emit([Pointer(opPushArrayPopString), Pointer(CreateConstString(Token.Value))]);
             end;
         end;
       end;
@@ -9207,7 +9235,10 @@ var
             begin
               NextToken;
               Token2 := NextTokenExpected([tkIdent]);
-              Emit([Pointer(opPushConst), Token2.Value]);
+              if Length(Token2.Value) <= 8 then
+                Emit([Pointer(opPushConst), CreatePackedString(Token2.Value)])
+              else
+                EmitConstString(Token2.Value);
             end;
         end;
         Inc(ArgCount);
