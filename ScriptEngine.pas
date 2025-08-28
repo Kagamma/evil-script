@@ -534,6 +534,9 @@ type
     IsPaused: Boolean;
     IsDone: Boolean;
     IsYielded: Boolean;
+    {$ifdef UNIX}
+    IsRequestForSuspend: Boolean;
+    {$endif}
     Global: TSEValueArrayManaged;
     Stack: array of TSEValue;
     Frame: array of TSEFrame;
@@ -1006,12 +1009,6 @@ type
     class function SEStringExtractName(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEStringExtractPath(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEStringExtractExt(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-    class function SEEaseInQuad(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-    class function SEEaseOutQuad(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-    class function SEEaseInOutQuad(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-    class function SEEaseInCubic(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-    class function SEEaseOutCubic(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-    class function SEEaseInOutCubic(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEGetTickCount(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEDTNow(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEDTSetDate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -2435,59 +2432,6 @@ end;
 class function TBuiltInFunction.SEFrac(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 begin
   Exit(Frac(TSENumber(Args[0])));
-end;
-
-class function TBuiltInFunction.SEEaseInQuad(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-var
-  S: TSENumber;
-begin
-  S := Args[0];
-  Exit(S * S);
-end;
-
-class function TBuiltInFunction.SEEaseOutQuad(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-var
-  S: TSENumber;
-begin
-  S := Args[0];
-  Exit(S * (2 - S));
-end;
-
-class function TBuiltInFunction.SEEaseInOutQuad(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-var
-  S: TSENumber;
-begin
-  S := Args[0];
-  if S < 0.5 then
-    Exit(2 * S * S);
-  Exit(-1 + (4 - 2 * S) * S);
-end;
-
-class function TBuiltInFunction.SEEaseInCubic(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-var
-  S: TSENumber;
-begin
-  S := Args[0];
-  Exit(S * S * S);
-end;
-
-class function TBuiltInFunction.SEEaseOutCubic(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-var
-  S: TSENumber;
-begin
-  S := Args[0];
-  S := S - 1;
-  Exit(S * S * S + 1);
-end;
-
-class function TBuiltInFunction.SEEaseInOutCubic(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-var
-  S: TSENumber;
-begin
-  S := Args[0];
-  if S < 0.5 then
-    Exit(4 * S * S * S);
-  Exit((S - 1) * (2 * S - 2) * (2 * S - 2) + 1);
 end;
 
 class function TBuiltInFunction.SEGetTickCount(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -4162,7 +4106,12 @@ begin
       begin
         if (VMList[I].ThreadOwner <> nil) and (not VMList[I].ThreadOwner.Suspended) then
         begin
+          {$ifdef UNIX}
+          VMList[I].IsRequestForSuspend := True;
+          while not VMList[I].ThreadOwner.Suspended do ;
+          {$else}
           VMList[I].ThreadOwner.Suspend;
+          {$endif}
           VMListLocal.Add(VMList[I]);
         end;
       end;
@@ -5008,6 +4957,18 @@ var
 {$else}
   {$define DispatchGoto := ;}
 {$endif}
+{$ifdef Unix}
+  {$define CheckForSuspend :=
+    if Self.ThreadOwner <> nil then
+    begin
+      if Self.IsRequestForSuspend then
+        Self.ThreadOwner.Suspend;
+      Self.IsRequestForSuspend := False;
+    end
+  }
+{$else}
+  {$define CheckForSuspend := ;}
+{$endif}
 
 label
   CallScript, CallNative, CallImport
@@ -5173,6 +5134,7 @@ begin
 
   while True do
   try
+    CheckForSuspend;
     DispatchGoto;
     while True do
     begin
@@ -5478,12 +5440,14 @@ begin
         begin
           Push(BinaryLocal[CodePtrLocal + 1]);
           Inc(CodePtrLocal, 2);
+          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelPushConstString{$else}opPushConstString{$endif}:
         begin
           Push(Self.ConstStrings[Integer(BinaryLocal[CodePtrLocal + 1].VarPointer)]);
           Inc(CodePtrLocal, 2);
+          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelPushGlobalVar{$else}opPushGlobalVar{$endif}:
@@ -5524,6 +5488,7 @@ begin
               Push(0);
           end;
           Inc(CodePtrLocal, 2);
+          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelPushArrayPopString{$else}opPushArrayPopString{$endif}:
@@ -5531,12 +5496,14 @@ begin
           B := Pop;
           Push(SEMapGet(B^, Self.ConstStrings[Integer(BinaryLocal[CodePtrLocal + 1].VarPointer)]));
           Inc(CodePtrLocal, 2);
+          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelPopConst{$else}opPopConst{$endif}:
         begin
           Dec(Self.StackPtr); // Pop;
           Inc(CodePtrLocal);
+          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelJumpEqual{$else}opJumpEqual{$endif}:
@@ -5664,6 +5631,7 @@ begin
           end;
           Push(TV);
           Inc(CodePtrLocal, 4);
+          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelCallScript{$else}opCallScript{$endif}:
@@ -5682,6 +5650,7 @@ begin
           CodePtrLocal := 0;
           BinaryPtrLocal := FuncScriptInfo^.BinaryPos;
           BinaryLocal := Self.Binaries.Value^.Data[BinaryPtrLocal].Ptr(0);
+          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelPopFrame{$else}opPopFrame{$endif}:
@@ -5702,12 +5671,14 @@ begin
         begin
           AssignGlobal(BinaryLocal[CodePtrLocal + 1], Pop);
           Inc(CodePtrLocal, 2);
+          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelAssignLocalVar{$else}opAssignLocalVar{$endif}:
         begin
           AssignLocal(BinaryLocal[CodePtrLocal + 1], Integer(BinaryLocal[CodePtrLocal + 2].VarPointer), Pop);
           Inc(CodePtrLocal, 3);
+          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelAssignArrayFast{$else}opAssignArrayFast{$endif}:
@@ -5722,6 +5693,7 @@ begin
           else
             TSEValueMap(A^.VarMap).Map.AddOrSetValue(C^.VarString^, B^);
           Inc(CodePtrLocal, 4);
+          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelAssignMapFast{$else}opAssignMapFast{$endif}:
@@ -5730,6 +5702,7 @@ begin
           B := Pop;
           TSEValueMap(A^.VarMap).Map.AddOrSetValue(Self.ConstStrings[Integer(BinaryLocal[CodePtrLocal + 3].VarPointer)], B^);
           Inc(CodePtrLocal, 4);
+          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelAssignGlobalArray{$else}opAssignGlobalArray{$endif}:
@@ -5805,6 +5778,7 @@ begin
               end;
           end;
           Inc(CodePtrLocal, 3);
+          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelAssignLocalArray{$else}opAssignLocalArray{$endif}:
@@ -5885,6 +5859,7 @@ begin
               end;
           end;
           Inc(CodePtrLocal, 4);
+          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelYield{$else}opYield{$endif}:
@@ -5919,12 +5894,14 @@ begin
           Self.TrapPtr^.Binary := BinaryPtrLocal;
           Self.TrapPtr^.CatchCode := Integer(BinaryLocal[CodePtrLocal + 1].VarPointer);
           Inc(CodePtrLocal, 2);
+          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelPopTrap{$else}opPopTrap{$endif}:
         begin
           Dec(Self.TrapPtr);
           Inc(CodePtrLocal);
+          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelThrow{$else}opThrow{$endif}:
@@ -5942,12 +5919,14 @@ begin
             Push(TV);
             Dec(Self.TrapPtr);
           end;
+          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelCallImport{$else}opCallImport{$endif}:
         begin
         CallImport:
           CallImportFunc;
+          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}
@@ -6006,7 +5985,8 @@ begin
         BinaryLocal := Self.Binaries.Value^.Data[BinaryPtrLocal].Ptr(0);
         Push(E.Message);
         Dec(Self.TrapPtr);
-        DispatchGoto;
+        CheckForSuspend;
+          DispatchGoto;
         Break;
       {$endif}
       end;
@@ -6041,7 +6021,8 @@ begin
   Inc(IsThread);
   try
     try
-      Self.VM.Exec;
+      while not Self.VM.IsDone do
+        Self.VM.Exec;
     except
       on E: Exception do
         Writeln('[TSEVMThread] ', E.Message);
@@ -6226,12 +6207,6 @@ begin
     Self.RegisterFunc('slerp', @TBuiltInFunction(nil).SESLerp, 3);
     Self.RegisterFunc('write', @TBuiltInFunction(nil).SEWrite, -1);
     Self.RegisterFunc('writeln', @TBuiltInFunction(nil).SEWriteln, -1);
-    Self.RegisterFunc('ease_in_quad', @TBuiltInFunction(nil).SEEaseInQuad, 1);
-    Self.RegisterFunc('ease_out_quad', @TBuiltInFunction(nil).SEEaseOutQuad, 1);
-    Self.RegisterFunc('ease_in_out_quad', @TBuiltInFunction(nil).SEEaseInOutQuad, 1);
-    Self.RegisterFunc('ease_in_cubic', @TBuiltInFunction(nil).SEEaseInCubic, 1);
-    Self.RegisterFunc('ease_out_cubic', @TBuiltInFunction(nil).SEEaseOutCubic, 1);
-    Self.RegisterFunc('ease_in_out_cubic', @TBuiltInFunction(nil).SEEaseInOutQuad, 1);
     Self.RegisterFunc('ticks', @TBuiltInFunction(nil).SEGetTickCount, 0);
     Self.RegisterFunc('dt_now', @TBuiltInFunction(nil).SEDTNow, 0);
     Self.RegisterFunc('dt_year_get', @TBuiltInFunction(nil).SEDTGetYear, 1);
