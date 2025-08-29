@@ -2,15 +2,17 @@ a = 0
 b = 0
 
 fn inc_a() {
-  a = 0
+  local a1 = 0
   for i = 0 to 100000000
-    a += 1
+    a1 += 1
+  a = a1
 }
 
 fn inc_b() {
-  b = 0
+  local b1 = 0
   for i = 0 to 100000000
-    b += 1
+    b1 += 1
+  b = b1
 }
 
 writeln('Without multi-threading')
