@@ -545,6 +545,7 @@ type
   TSEVMThread = class(TThread)
   public
     IsDone: Boolean;
+    IsRequestForSuspendByGC: Boolean;
     VM: TSEVM;
     constructor Create(const AVM: TSEVM; const Fn: TSEValue; const Args: PSEValue; const ArgCount, AStackSize: Cardinal);
     destructor Destroy; override;
@@ -2676,6 +2677,7 @@ end;
 class function TBuiltInFunction.SEThreadStart(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 begin
   SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
+  while TSEVMThread(Args[0].VarPascalObject^.Value).IsRequestForSuspendByGC do Sleep(1);
   TSEVMThread(Args[0].VarPascalObject^.Value).Start;
 end;
 
@@ -4278,6 +4280,51 @@ var
   Cache: TSECache;
   Binary: TSEBinary;
   Root: Cardinal;
+
+  procedure SuspendThreads;
+  var
+    I: Integer;
+  begin
+    {$ifdef SE_THREADS}
+      Self.FVMThreadList.Clear;
+      Self.FPhase := segcpInitial;
+      for I := 0 to VMList.Count - 1 do
+      begin
+        if (VMList[I].ThreadOwner <> nil) and (not VMList[I].ThreadOwner.Suspended) then
+        begin
+          VMList[I].ThreadOwner.IsRequestForSuspendByGC := True;
+          {$ifdef UNIX}
+          VMList[I].IsRequestForSuspend := True;
+          while not VMList[I].ThreadOwner.Suspended do ;
+          {$else}
+          VMList[I].ThreadOwner.Suspend;
+          {$endif}
+          FVMThreadList.Add(VMList[I]);
+        end;
+      end;
+      {$ifdef UNIX}
+      for I := 0 to Self.FVMThreadList.Count - 1 do
+      begin
+        while not Self.FVMThreadList[I].ThreadOwner.Suspended do ;
+      end;
+      {$endif}
+    {$endif}
+  end;
+
+  procedure ResumeThreads;
+  var
+    I: Integer;
+  begin
+    {$ifdef SE_THREADS}
+    for I := 0 to FVMThreadList.Count - 1 do
+    begin
+      Self.FVMThreadList[I].ThreadOwner.Resume;
+      Self.FVMThreadList[I].ThreadOwner.IsRequestForSuspendByGC := False;
+    end;
+    Self.FVMThreadList.Clear;
+    {$endif}
+  end;
+
 begin
   if Self.FLockFlag then
     Exit;
@@ -4299,39 +4346,16 @@ begin
     try
       if Self.FPhase = segcpRest then
       begin
+        SuspendThreads;
         {$ifdef SE_LOG}
         Writeln('[GC] Init');
         {$endif}
-      {$ifdef SE_THREADS}
-        Self.FVMThreadList.Clear;
-        Self.FPhase := segcpInitial;
-        for I := 0 to VMList.Count - 1 do
-        begin
-          if (VMList[I].ThreadOwner <> nil) and (not VMList[I].ThreadOwner.Suspended) then
-          begin
-            {$ifdef UNIX}
-            VMList[I].IsRequestForSuspend := True;
-            while not VMList[I].ThreadOwner.Suspended do ;
-            {$else}
-            VMList[I].ThreadOwner.Suspend;
-            {$endif}
-            FVMThreadList.Add(VMList[I]);
-          end;
-        end;
-        {$ifdef UNIX}
-        for I := 0 to Self.FVMThreadList.Count - 1 do
-        begin
-          while not Self.FVMThreadList[I].ThreadOwner.Suspended do ;
-        end;
-        {$endif}
-      {$endif}
         Inc(Self.FRunCount);
         {$ifdef SE_LOG}
         Writeln('[GC] Number of objects before cleaning: ', Self.FObjects);
         Writeln('[GC] Number of old objects before cleaning: ', Self.FObjectsOld);
         Writeln('[GC] Number of objects in object pool: ', Self.FNodeAvailStack.Count);
         {$endif}
-
         if Self.FRunCount mod Self.FOldObjectCheckCycle = 0 then
         begin
           Root := 2;
@@ -4406,6 +4430,7 @@ begin
           end;
           Self.FReachableValueList.Add(ScriptVarMap);
           GCMarkJob.Resume;
+          ResumeThreads;
           Exit;
         end else
         begin
@@ -4445,6 +4470,7 @@ begin
 
       if Self.FPhase = segcpSweep then
       begin
+        ResumeThreads;
         {$ifdef SE_LOG}
         Writeln('[GC] Sweep');
         {$endif}
@@ -4477,13 +4503,7 @@ begin
       Writeln('[GC] Rest');
       {$endif}
       Self.FPhase := segcpRest;
-      {$ifdef SE_THREADS}
-      for I := 0 to FVMThreadList.Count - 1 do
-      begin
-        Self.FVMThreadList[I].ThreadOwner.Resume;
-      end;
-      Self.FVMThreadList.Clear;
-      {$endif}
+      ResumeThreads;
     end;
     {$ifdef SE_THREADS}
     LeaveCriticalSection(CS);
