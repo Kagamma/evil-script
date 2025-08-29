@@ -283,9 +283,14 @@ type
   private
     FIsValidArray: Boolean;
     FMap: TSEValueDict;
+    {$ifdef SE_THREADS}
+    FLock: TRTLCriticalSection;
+    {$endif}
   public
     constructor Create;
     destructor Destroy; override;
+    procedure Lock; inline;
+    procedure Unlock; inline;
     procedure ToMap;
     procedure Set2(const Key: String; const AValue: TSEValue); overload; inline;
     procedure Set2(const Index: Int64; const AValue: TSEValue); overload; inline;
@@ -1254,12 +1259,17 @@ begin
           end;
         end else
         begin
-          for Key in TSEValueMap(Value.VarMap).Map.Keys do
-          begin
-            if I > 0 then
-              Result := Result + ', ';
-            Result := Result + '"' + Key + '": ' + SEValueToText(SEMapGet(Value, Key), False);
-            Inc(I);
+          TSEValueMap(Value.VarMap).Lock;
+          try
+            for Key in TSEValueMap(Value.VarMap).Map.Keys do
+            begin
+              if I > 0 then
+                Result := Result + ', ';
+              Result := Result + '"' + Key + '": ' + SEValueToText(SEMapGet(Value, Key), False);
+              Inc(I);
+            end;
+          finally
+            TSEValueMap(Value.VarMap).Unlock;
           end;
         end;
         Result := Result + ']'
@@ -1530,9 +1540,14 @@ begin
         GC.AllocMap(@Result);
         if not SEMapIsValidArray(V) then
         begin
-          for Key in TSEValueMap(V.VarMap).Map.Keys do
-          begin
-            SEMapSet(Result, Key, TSEValueMap(V.VarMap).Get2(Key));
+          TSEValueMap(V.VarMap).Lock;
+          try
+            for Key in TSEValueMap(V.VarMap).Map.Keys do
+            begin
+              SEMapSet(Result, Key, TSEValueMap(V.VarMap).Get2(Key));
+            end;
+          finally
+            TSEValueMap(V.VarMap).Unlock;
           end;
         end else
         begin
@@ -2157,10 +2172,15 @@ begin
   GC.AllocMap(@Result);
   if not SEMapIsValidArray(Args[0]) then
   begin
-    for Key in TSEValueMap(Args[0].VarMap).Map.Keys do
-    begin
-      SEMapSet(Result, I, Key);
-      Inc(I);
+    TSEValueMap(Args[0].VarMap).Lock;
+    try
+      for Key in TSEValueMap(Args[0].VarMap).Map.Keys do
+      begin
+        SEMapSet(Result, I, Key);
+        Inc(I);
+      end;
+    finally
+      TSEValueMap(Args[0].VarMap).Unlock;
     end;
   end else
   begin
@@ -3093,36 +3113,41 @@ class function TBuiltInFunction.SEJSONStringify(const VM: TSEVM; const Args: PSE
     V: TSEValue;
     Key: String;
   begin
-    SB.Append('{');
-    for Key in TSEValueMap(Map.VarMap).Map.Keys do
-    begin
-      V := SEMapGet(Map, Key);
-      if V.Kind = sevkPascalObject then
-        continue;
-      if (I > 0) then
-        SB.Append(',');
-      SB.Append('"' + StringToJSONString(Key) + '":');
-      case V.Kind of
-        sevkString:
-          SB.Append('"' + StringToJSONString(V.VarString^) + '"');
-        sevkNumber:
-          SB.Append(PointFloatToStr(V.VarNumber));
-        sevkBoolean:
-          SB.Append(BoolToStr(Boolean(Round(V.VarNumber)), 'true', 'false'));
-        sevkMap:
-          begin
-            Decide(SB, V);
-          end;
-        sevkNull:
-          SB.Append('null');
-        else
-          begin
-            raise Exception.Create(Format('Key "%s" with type "%s" is not a valid JSON value!', [Key, ValueKindNames[V.Kind]]))
-          end;
+    TSEValueMap(Map.VarMap).Lock;
+    try
+      SB.Append('{');
+      for Key in TSEValueMap(Map.VarMap).Map.Keys do
+      begin
+        V := SEMapGet(Map, Key);
+        if V.Kind = sevkPascalObject then
+          continue;
+        if (I > 0) then
+          SB.Append(',');
+        SB.Append('"' + StringToJSONString(Key) + '":');
+        case V.Kind of
+          sevkString:
+            SB.Append('"' + StringToJSONString(V.VarString^) + '"');
+          sevkNumber:
+            SB.Append(PointFloatToStr(V.VarNumber));
+          sevkBoolean:
+            SB.Append(BoolToStr(Boolean(Round(V.VarNumber)), 'true', 'false'));
+          sevkMap:
+            begin
+              Decide(SB, V);
+            end;
+          sevkNull:
+            SB.Append('null');
+          else
+            begin
+              raise Exception.Create(Format('Key "%s" with type "%s" is not a valid JSON value!', [Key, ValueKindNames[V.Kind]]))
+            end;
+        end;
+        Inc(I);
       end;
-      Inc(I);
+      SB.Append('}');
+    finally
+      TSEValueMap(Map.VarMap).Unlock;
     end;
-    SB.Append('}');
   end;
 
 var
@@ -3757,12 +3782,32 @@ begin
   inherited;
   Self.FIsValidArray := True;
   Self.FMap := TSEValueDict.Create;
+  {$ifdef SE_THREADS}
+  InitCriticalSection(Self.FLock);
+  {$endif}
 end;
 
 destructor TSEValueMap.Destroy;
 begin
+  {$ifdef SE_THREADS}
+  DoneCriticalSection(Self.FLock);
+  {$endif}
   Self.FMap.Free;
   inherited;
+end;
+
+procedure TSEValueMap.Lock;
+begin
+  {$ifdef SE_THREADS}
+  EnterCriticalSection(Self.FLock);
+  {$endif}
+end;
+
+procedure TSEValueMap.Unlock;
+begin
+  {$ifdef SE_THREADS}
+  LeaveCriticalSection(Self.FLock);
+  {$endif}
 end;
 
 procedure TSEValueMap.ToMap;
@@ -4164,10 +4209,15 @@ begin
               end;
             end else
             begin
-              for Key in TSEValueMap(PValue^.VarMap).Map.Keys do
-              begin
-                RValue := SEMapGet(PValue^, Key);
-                Mark(@RValue);
+              TSEValueMap(PValue^.VarMap).Lock;
+              try
+                for Key in TSEValueMap(PValue^.VarMap).Map.Keys do
+                begin
+                  RValue := SEMapGet(PValue^, Key);
+                  Mark(@RValue);
+                end;
+              finally
+                TSEValueMap(PValue^.VarMap).Unlock;
               end;
             end;
           end;
@@ -4778,10 +4828,15 @@ var
               end;
             end else
             begin
-              for Key in TSEValueMap(AValue^.VarMap).Map.Keys do
-              begin
-                V := SEMapGet(AValue^, Key);
-                AddChildNode(Node, Key, @V);
+              TSEValueMap(AValue^.VarMap).Lock;
+              try
+                for Key in TSEValueMap(AValue^.VarMap).Map.Keys do
+                begin
+                  V := SEMapGet(AValue^, Key);
+                  AddChildNode(Node, Key, @V);
+                end;
+              finally
+                TSEValueMap(AValue^.VarMap).Unlock;
               end;
             end;
           end;
