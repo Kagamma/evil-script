@@ -3826,7 +3826,7 @@ procedure TSEValueMap.ToMap;
 var
   I: Integer;
 begin
-  while not Self.TryLock do;
+  Self.Lock;
   try
     if Self.FIsValidArray then
     begin
@@ -3845,7 +3845,7 @@ var
   Index, I: Integer;
   IsNumber: Boolean;
 begin
-  while not Self.TryLock do;
+  Self.Lock;
   try
     IsNumber := TryStrToInt(Key, Index);
     if IsNumber and Self.FIsValidArray and (Index >= 0) then
@@ -3872,7 +3872,7 @@ procedure TSEValueMap.Set2(const Index: Int64; const AValue: TSEValue);
 var
   I: Integer;
 begin
-  while not Self.TryLock do;
+  Self.Lock;
   try
     if Self.FIsValidArray and (Index >= 0) then
     begin
@@ -3899,7 +3899,7 @@ var
   Index: Integer;
   IsNumber: Boolean;
 begin
-  while not Self.TryLock do;
+  Self.Lock;
   try
     IsNumber := TryStrToInt(Key, Index);
     if IsNumber and Self.FIsValidArray and (Index >= 0) then
@@ -3919,7 +3919,7 @@ end;
 
 procedure TSEValueMap.Del2(const Index: Int64);
 begin
-  while not Self.TryLock do;
+  Self.Lock;
   try
     if Self.FIsValidArray and (Index >= 0) then
     begin
