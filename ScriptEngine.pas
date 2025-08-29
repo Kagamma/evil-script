@@ -142,6 +142,9 @@ type
     opYield,
     opHlt,
 
+    {$ifdef UNIX}
+    opBlockCleanup,
+    {$endif}
     opPushTrap,
     opPopTrap,
     opThrow
@@ -731,6 +734,9 @@ const
     1, // opYield,
     1, // opHlt,
 
+    {$ifdef UNIX}
+    1, // opBlockCleanup
+    {$endif}
     2, // opPushTrap,
     1, // opPopTrap,
     1  // opThrow
@@ -4128,6 +4134,12 @@ begin
           VMListLocal.Add(VMList[I]);
         end;
       end;
+      {$ifdef UNIX}
+      for I := 0 to VMListLocal.Count - 1 do
+      begin
+        while not VMListLocal[I].ThreadOwner.Suspended do ;
+      end;
+      {$endif}
       Inc(Self.FRunCount);
       {$ifdef SE_LOG}
       Writeln('[GC] Number of objects before cleaning: ', Self.FObjects);
@@ -5052,6 +5064,9 @@ label
   labelCallImport,
   labelYield,
   labelHlt,
+  {$ifdef UNIX}
+  labelBlockCleanup,
+  {$endif}
   labelPushTrap,
   labelPopTrap,
   labelThrow
@@ -5127,6 +5142,9 @@ var
     @labelYield,
     @labelHlt,
 
+    {$ifdef UNIX}
+    @labelBlockCleanup,
+    {$endif}
     @labelPushTrap,
     @labelPopTrap,
     @labelThrow
@@ -5147,7 +5165,6 @@ begin
 
   while True do
   try
-    CheckForSuspend;
     DispatchGoto;
     while True do
     begin
@@ -5453,14 +5470,12 @@ begin
         begin
           Push(BinaryLocal[CodePtrLocal + 1]);
           Inc(CodePtrLocal, 2);
-          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelPushConstString{$else}opPushConstString{$endif}:
         begin
           Push(Self.ConstStrings[Integer(BinaryLocal[CodePtrLocal + 1].VarPointer)]);
           Inc(CodePtrLocal, 2);
-          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelPushGlobalVar{$else}opPushGlobalVar{$endif}:
@@ -5501,7 +5516,6 @@ begin
               Push(0);
           end;
           Inc(CodePtrLocal, 2);
-          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelPushArrayPopString{$else}opPushArrayPopString{$endif}:
@@ -5509,14 +5523,12 @@ begin
           B := Pop;
           Push(SEMapGet(B^, Self.ConstStrings[Integer(BinaryLocal[CodePtrLocal + 1].VarPointer)]));
           Inc(CodePtrLocal, 2);
-          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelPopConst{$else}opPopConst{$endif}:
         begin
           Dec(Self.StackPtr); // Pop;
           Inc(CodePtrLocal);
-          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelJumpEqual{$else}opJumpEqual{$endif}:
@@ -5644,7 +5656,6 @@ begin
           end;
           Push(TV);
           Inc(CodePtrLocal, 4);
-          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelCallScript{$else}opCallScript{$endif}:
@@ -5663,7 +5674,6 @@ begin
           CodePtrLocal := 0;
           BinaryPtrLocal := FuncScriptInfo^.BinaryPos;
           BinaryLocal := Self.Binaries.Value^.Data[BinaryPtrLocal].Ptr(0);
-          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelPopFrame{$else}opPopFrame{$endif}:
@@ -5684,14 +5694,12 @@ begin
         begin
           AssignGlobal(BinaryLocal[CodePtrLocal + 1], Pop);
           Inc(CodePtrLocal, 2);
-          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelAssignLocalVar{$else}opAssignLocalVar{$endif}:
         begin
           AssignLocal(BinaryLocal[CodePtrLocal + 1], Integer(BinaryLocal[CodePtrLocal + 2].VarPointer), Pop);
           Inc(CodePtrLocal, 3);
-          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelAssignArrayFast{$else}opAssignArrayFast{$endif}:
@@ -5706,7 +5714,6 @@ begin
           else
             TSEValueMap(A^.VarMap).Map.AddOrSetValue(C^.VarString^, B^);
           Inc(CodePtrLocal, 4);
-          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelAssignMapFast{$else}opAssignMapFast{$endif}:
@@ -5715,7 +5722,6 @@ begin
           B := Pop;
           TSEValueMap(A^.VarMap).Map.AddOrSetValue(Self.ConstStrings[Integer(BinaryLocal[CodePtrLocal + 3].VarPointer)], B^);
           Inc(CodePtrLocal, 4);
-          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelAssignGlobalArray{$else}opAssignGlobalArray{$endif}:
@@ -5791,7 +5797,6 @@ begin
               end;
           end;
           Inc(CodePtrLocal, 3);
-          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelAssignLocalArray{$else}opAssignLocalArray{$endif}:
@@ -5872,9 +5877,16 @@ begin
               end;
           end;
           Inc(CodePtrLocal, 4);
+          DispatchGoto;
+        end;
+      {$ifdef UNIX}
+      {$ifdef SE_COMPUTED_GOTO}labelBlockCleanup{$else}opBlockCleanup{$endif}:
+        begin
+          Inc(CodePtrLocal);
           CheckForSuspend;
           DispatchGoto;
         end;
+      {$endif}
       {$ifdef SE_COMPUTED_GOTO}labelYield{$else}opYield{$endif}:
         begin
           Self.IsYielded := True;
@@ -5907,14 +5919,12 @@ begin
           Self.TrapPtr^.Binary := BinaryPtrLocal;
           Self.TrapPtr^.CatchCode := Integer(BinaryLocal[CodePtrLocal + 1].VarPointer);
           Inc(CodePtrLocal, 2);
-          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelPopTrap{$else}opPopTrap{$endif}:
         begin
           Dec(Self.TrapPtr);
           Inc(CodePtrLocal);
-          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelThrow{$else}opThrow{$endif}:
@@ -5932,14 +5942,12 @@ begin
             Push(TV);
             Dec(Self.TrapPtr);
           end;
-          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifdef SE_COMPUTED_GOTO}labelCallImport{$else}opCallImport{$endif}:
         begin
         CallImport:
           CallImportFunc;
-          CheckForSuspend;
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}
@@ -5998,8 +6006,7 @@ begin
         BinaryLocal := Self.Binaries.Value^.Data[BinaryPtrLocal].Ptr(0);
         Push(E.Message);
         Dec(Self.TrapPtr);
-        CheckForSuspend;
-          DispatchGoto;
+        DispatchGoto;
         Break;
       {$endif}
       end;
@@ -9625,6 +9632,9 @@ var
       else
         Error('Invalid statement ' + TokenNames[Token.Kind], Token);
     end;
+    {$ifdef UNIX}
+    Emit([Pointer(opBlockCleanup)]);
+    {$endif}
   end;
 
 begin
