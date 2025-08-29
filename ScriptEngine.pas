@@ -291,6 +291,7 @@ type
     destructor Destroy; override;
     procedure Lock; inline;
     procedure Unlock; inline;
+    function TryLock: Boolean; inline;
     procedure ToMap;
     procedure Set2(const Key: String; const AValue: TSEValue); overload; inline;
     procedure Set2(const Index: Int64; const AValue: TSEValue); overload; inline;
@@ -3810,16 +3811,30 @@ begin
   {$endif}
 end;
 
+function TSEValueMap.TryLock: Boolean;
+begin
+  {$ifdef SE_THREADS}
+  Result := TryEnterCriticalSection(Self.FLock) <> 0;
+  {$else}
+  Result := True;
+  {$endif}
+end;
+
 procedure TSEValueMap.ToMap;
 var
   I: Integer;
 begin
-  if Self.FIsValidArray then
-  begin
-    for I := 0 to Self.Count - 1 do
-      Self.FMap.AddOrSetValue(IntToStr(I), Self[I]);
-    Self.FIsValidArray := False;
-    Self.Clear;
+  while not Self.TryLock do;
+  try
+    if Self.FIsValidArray then
+    begin
+      for I := 0 to Self.Count - 1 do
+        Self.FMap.AddOrSetValue(IntToStr(I), Self[I]);
+      Self.FIsValidArray := False;
+      Self.Clear;
+    end;
+  finally
+    Self.Unlock;
   end;
 end;
 
@@ -3828,21 +3843,26 @@ var
   Index, I: Integer;
   IsNumber: Boolean;
 begin
-  IsNumber := TryStrToInt(Key, Index);
-  if IsNumber and Self.FIsValidArray and (Index >= 0) then
-  begin
-    if Index > Self.Count - 1 then
+  while not Self.TryLock do;
+  try
+    IsNumber := TryStrToInt(Key, Index);
+    if IsNumber and Self.FIsValidArray and (Index >= 0) then
     begin
-      Self.Count := Index + 1;
+      if Index > Self.Count - 1 then
+      begin
+        Self.Count := Index + 1;
+      end;
+      Self.FItems[Index] := AValue;
+    end else
+    begin
+      Self.ToMap;
     end;
-    Self.FItems[Index] := AValue;
-  end else
-  begin
-    Self.ToMap;
-  end;
-  if not Self.IsValidArray then
-  begin
-    Self.FMap.AddOrSetValue(Key, AValue);
+    if not Self.IsValidArray then
+    begin
+      Self.FMap.AddOrSetValue(Key, AValue);
+    end;
+  finally
+    Self.Unlock;
   end;
 end;
 
@@ -3850,20 +3870,25 @@ procedure TSEValueMap.Set2(const Index: Int64; const AValue: TSEValue);
 var
   I: Integer;
 begin
-  if Self.FIsValidArray and (Index >= 0) then
-  begin
-    if Index > Self.Count - 1 then
+  while not Self.TryLock do;
+  try
+    if Self.FIsValidArray and (Index >= 0) then
     begin
-      Self.Count := Index + 1;
+      if Index > Self.Count - 1 then
+      begin
+        Self.Count := Index + 1;
+      end;
+      Self.FItems[Index] := AValue;
+    end else
+    begin
+      Self.ToMap;
     end;
-    Self.FItems[Index] := AValue;
-  end else
-  begin
-    Self.ToMap;
-  end;
-  if not Self.IsValidArray then
-  begin
-    Self.FMap.AddOrSetValue(IntToStr(Index), AValue);
+    if not Self.IsValidArray then
+    begin
+      Self.FMap.AddOrSetValue(IntToStr(Index), AValue);
+    end;
+  finally
+    Self.Unlock;
   end;
 end;
 
@@ -3872,30 +3897,40 @@ var
   Index: Integer;
   IsNumber: Boolean;
 begin
-  IsNumber := TryStrToInt(Key, Index);
-  if IsNumber and Self.FIsValidArray and (Index >= 0) then
-  begin
-    if Index <= Self.Count - 1 then
+  while not Self.TryLock do;
+  try
+    IsNumber := TryStrToInt(Key, Index);
+    if IsNumber and Self.FIsValidArray and (Index >= 0) then
     begin
-      Self.Delete(Index);
+      if Index <= Self.Count - 1 then
+      begin
+        Self.Delete(Index);
+      end;
+    end else
+    begin
+      Self.FMap.Remove(Key);
     end;
-  end else
-  begin
-    Self.FMap.Remove(Key);
+  finally
+    Self.Unlock;
   end;
 end;
 
 procedure TSEValueMap.Del2(const Index: Int64);
 begin
-  if Self.FIsValidArray and (Index >= 0) then
-  begin
-    if Index <= Self.Count - 1 then
+  while not Self.TryLock do;
+  try
+    if Self.FIsValidArray and (Index >= 0) then
     begin
-      Self.Delete(Index);
+      if Index <= Self.Count - 1 then
+      begin
+        Self.Delete(Index);
+      end;
+    end else
+    begin
+      Self.FMap.Remove(IntToStr(Index));
     end;
-  end else
-  begin
-    Self.FMap.Remove(IntToStr(Index));
+  finally
+    Self.Unlock;
   end;
 end;
 
