@@ -193,6 +193,8 @@ type
   TSEScopeStack = specialize TStack<Integer>;
   TSEIntegerList = specialize TList<Integer>;
   TSECardinalList = specialize TList<Cardinal>;
+  TSEVM = class;
+  TSEVMList = specialize TList<TSEVM>;
 
   TSEFuncKind = (sefkNative, sefkScript, sefkImport);
 
@@ -298,8 +300,8 @@ type
   TSEValueArray = array of TSEValue;
   PPSEValue = ^PSEValue;
 
-  PSEGCValue = ^TSEGCValue;
-  TSEGCValue = record
+  PSEGCNode = ^TSEGCNode;
+  TSEGCNode = record
     Value: TSEValue;
     Garbage: Boolean;
     Lock: Boolean;
@@ -308,15 +310,33 @@ type
     Prev,
     Next: Cardinal;
   end;
-  TSEGCValueListAncestor = specialize TList<TSEGCValue>;
-  TSEGCValueList = class(TSEGCValueListAncestor)
+  TSEGCNodeListAncestor = specialize TList<TSEGCNode>;
+  TSEGCNodeList = class(TSEGCNodeListAncestor)
   public
-    function Ptr(const P: Cardinal): PSEGCValue;
+    function Ptr(const P: Cardinal): PSEGCNode;
   end;
-  TSEGCValueAvailStack = specialize TStack<Integer>;
+  TSEGCNodeAvailStack = specialize TStack<Integer>;
+
+  TSEGarbageCollectorPhase = (
+    segcpRest,
+    segcpInitial,
+    segcpMark,
+    segcpSweep
+  );
+
+  {$ifdef SE_THREADS}
+  TSEGarbageCollectorMarkJob = class(TThread)
+  public
+    constructor Create;
+    destructor Destroy; override;
+    procedure Execute; override;
+  end;
+  {$endif}
 
   TSEGarbageCollector = class
   private
+    FVMThreadList: TSEVMList;
+    FPhase: TSEGarbageCollectorPhase;
     FLockFlag: Boolean;
     {$ifdef SE_THREADS}
     FLock: TRTLCriticalSection;
@@ -325,16 +345,19 @@ type
     FObjectThreshold,
     FObjectsLastTimeVisited,
     FObjectsOld: Cardinal;
-    FValueList: TSEGCValueList;
-    FValueAvailStack: TSEGCValueAvailStack;
-    FValueLastYoung,
-    FValueLastOld: Cardinal;
+    FReachableValueList: TSEValueList;
+    FNodeList: TSEGCNodeList;
+    FNodeAvailStack: TSEGCNodeAvailStack;
+    FNodeLastYoung,
+    FNodeLastOld: Cardinal;
     FRunCount: Cardinal;
     FTicks: QWord;
     FInterval: Cardinal;
     FPromotion: Byte;
     FOldObjectCheckCycle: Byte;
+    FEnableParallelMarkings: Boolean;
     procedure Sweep(const AFirst: Cardinal);
+    procedure Mark(const PValue: PSEValue);
   public
     constructor Create;
     destructor Destroy; override;
@@ -350,7 +373,7 @@ type
     procedure Managed(const PValue: PSEValue);
     procedure Lock;
     procedure Unlock;
-    property ValueList: TSEGCValueList read FValueList;
+    property ValueList: TSEGCNodeList read FNodeList;
     property ObjectCount: Cardinal read FObjects;
     property OldObjectCount: Cardinal read FObjectsOld;
     property RunCount: Cardinal read FRunCount;
@@ -358,6 +381,9 @@ type
     property Promotion: Byte read FPromotion write FPromotion;
     property OldObjectCheckCycle: Byte read FOldObjectCheckCycle write FOldObjectCheckCycle;
     property ObjectThreshold: Cardinal read FObjectThreshold write FObjectThreshold;
+    property ReachableValueList: TSEValueList read FReachableValueList;
+    property Phase: TSEGarbageCollectorPhase read FPhase write FPhase;
+    property EnableParallelMarkings: Boolean read FEnableParallelMarkings write FEnableParallelMarkings;
   end;
 
   TSECallingConvention = (
@@ -383,8 +409,6 @@ type
   );
   TSEAtomKindArray = array of TSEAtomKind;
 
-  TSEVM = class;
-  TSEVMList = specialize TList<TSEVM>;
   TSEFuncNativeKind = (sefnkNormal, sefnkSelf);
   TSEFunc = function(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue of object;
   TSEFuncWithSelf = function(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: TSEValue): TSEValue of object;
@@ -571,6 +595,8 @@ type
     procedure Exec;
     procedure BinaryClear;
     function Fork(const AStackSize: Cardinal): TSEVM;
+    procedure SetGlobalVariable(const AName: String; const AValue: TSEValue);
+    function GetGlobalVariable(const AName: String): PSEValue;
     procedure ModifyGlobalVariable(const AName: String; const AValue: TSEValue);
   end;
 
@@ -914,6 +940,9 @@ operator <> (V1, V2: TSEValue) R: Boolean;
 var
   ScriptVarMap: TSEVarMap;
   GC: TSEGarbageCollector;
+  {$ifdef SE_THREADS}
+  GCMarkJob: TSEGarbageCollectorMarkJob;
+  {$endif}
   ScriptCacheMap: TSECacheMap;
   SENull: TSEValue;
   JumpTable: array[TSEOpcode] of Pointer;
@@ -1458,7 +1487,8 @@ begin
 end;
 
 procedure SESet(const AName: String; const AValue: TSEValue);
-begin  {$ifdef SE_THREADS}
+begin
+  {$ifdef SE_THREADS}
   EnterCriticalSection(CS);
   {$endif}
   try
@@ -3114,7 +3144,7 @@ begin
   Result := TObject(Args[0].VarPascalObject^.Value).ClassName;
 end;
 
-function TSEGCValueList.Ptr(const P: Cardinal): PSEGCValue; inline;
+function TSEGCNodeList.Ptr(const P: Cardinal): PSEGCNode; inline;
 begin
   Result := @FItems[P];
 end;
@@ -3895,46 +3925,85 @@ begin
   end;
 end;
 
+{$ifdef SE_THREADS}
+constructor TSEGarbageCollectorMarkJob.Create;
+begin
+  inherited Create(True);
+  Self.FreeOnTerminate := True;
+end;
+
+destructor TSEGarbageCollectorMarkJob.Destroy;
+begin
+  inherited;
+end;
+
+procedure TSEGarbageCollectorMarkJob.Execute;
+var
+  V: TSEValue;
+begin
+  while True do
+  begin
+    if Self.Terminated then
+      Exit;
+    if GC.Phase = segcpMark then
+    begin
+      {$ifdef SE_LOG}
+      Writeln('[GC] Mark');
+      {$endif}
+      for V in GC.ReachableValueList do
+        GC.Mark(@V);
+      GC.Phase := segcpSweep;
+      Self.Suspend;
+    end;
+  end;
+end;
+{$endif}
+
 constructor TSEGarbageCollector.Create;
 var
-  Ref0: TSEGCValue;
+  Ref0: TSEGCNode;
 begin
   inherited;
   {$ifdef SE_THREADS}
   InitCriticalSection(Self.FLock);
   {$endif}
-  Self.FValueList := TSEGCValueList.Create;
-  Self.FValueList.Capacity := 65536 * 8;
-  Ref0 := Default(TSEGCValue);
-  Self.FValueList.Add(Ref0);
-  Self.FValueList.Add(Ref0); // Young generation's root
-  Self.FValueList.Add(Ref0); // Old generation's root
-  Self.FValueLastYoung := 1;
-  Self.FValueLastOld := 2;
-  Self.FValueAvailStack := TSEGCValueAvailStack.Create;
-  Self.FValueAvailStack.Capacity := 65536 * 8;
+  Self.FNodeList := TSEGCNodeList.Create;
+  Self.FNodeList.Capacity := 65536 * 8;
+  Ref0 := Default(TSEGCNode);
+  Self.FNodeList.Add(Ref0);
+  Self.FNodeList.Add(Ref0); // Young generation's root
+  Self.FNodeList.Add(Ref0); // Old generation's root
+  Self.FNodeLastYoung := 1;
+  Self.FNodeLastOld := 2;
+  Self.FNodeAvailStack := TSEGCNodeAvailStack.Create;
+  Self.FNodeAvailStack.Capacity := 65536 * 8;
   Self.FTicks := GetTickCount64;
   Self.FInterval := 5000;
   Self.FPromotion := 10;
   Self.FOldObjectCheckCycle := 10;
   Self.FObjectThreshold := 700;
+  Self.FReachableValueList := TSEValueList.Create;
+  Self.FVMThreadList := TSEVMList.Create;
+  Self.EnableParallelMarkings := False;
 end;
 
 destructor TSEGarbageCollector.Destroy;
 var
   I: Integer;
-  Value: TSEGCValue;
+  Value: TSEGCNode;
 begin
-  for I := 1 to Self.FValueList.Count - 1 do
+  for I := 1 to Self.FNodeList.Count - 1 do
   begin
-    Value := Self.FValueList[I];
+    Value := Self.FNodeList[I];
     Value.Garbage := True;
-    Self.FValueList[I] := Value;
+    Self.FNodeList[I] := Value;
   end;
   Self.Sweep(1);
   Self.Sweep(2);
-  Self.FValueAvailStack.Free;
-  Self.FValueList.Free;
+  Self.FNodeAvailStack.Free;
+  Self.FNodeList.Free;
+  Self.FReachableValueList.Free;
+  Self.FVMThreadList.Free;
   {$ifdef SE_THREADS}
   DoneCriticalSection(Self.FLock);
   {$endif}
@@ -3943,23 +4012,23 @@ end;
 
 procedure TSEGarbageCollector.AddToList(const PValue: PSEValue); inline;
 var
-  Value: TSEGCValue;
+  Value: TSEGCNode;
 begin
-  Value := Default(TSEGCValue);
-  Value.Prev := Self.FValueLastYoung;
-  if Self.FValueAvailStack.Count = 0 then
+  Value := Default(TSEGCNode);
+  Value.Prev := Self.FNodeLastYoung;
+  if Self.FNodeAvailStack.Count = 0 then
   begin
-    PValue^.Ref := Self.FValueList.Count;
+    PValue^.Ref := Self.FNodeList.Count;
     Value.Value := PValue^;
-    Self.FValueList.Add(Value);
+    Self.FNodeList.Add(Value);
   end else
   begin
-    PValue^.Ref := Self.FValueAvailStack.Pop;
+    PValue^.Ref := Self.FNodeAvailStack.Pop;
     Value.Value := PValue^;
-    Self.FValueList[PValue^.Ref] := Value;
+    Self.FNodeList[PValue^.Ref] := Value;
   end;
-  Self.FValueList.Ptr(Self.FValueLastYoung)^.Next := PValue^.Ref;
-  Self.FValueLastYoung := PValue^.Ref;
+  Self.FNodeList.Ptr(Self.FNodeLastYoung)^.Next := PValue^.Ref;
+  Self.FNodeLastYoung := PValue^.Ref;
   Inc(Self.FObjects);
 end;
 
@@ -3981,42 +4050,42 @@ end;
 
 procedure TSEGarbageCollector.Sweep(const AFirst: Cardinal); inline;
 var
-  Value: PSEGCValue;
+  Value: PSEGCNode;
   I, MS: Integer;
   LastPtr: PCardinal;
 
   procedure Detach;
   var
-    PrevValue: PSEGCValue;
+    PrevValue: PSEGCNode;
   begin
     if I <> LastPtr^ then
     begin
-      PrevValue := Self.FValueList.Ptr(Value^.Prev);
+      PrevValue := Self.FNodeList.Ptr(Value^.Prev);
       PrevValue^.Next := Value^.Next;
-      Self.FValueList.Ptr(Value^.Next)^.Prev := Value^.Prev;
+      Self.FNodeList.Ptr(Value^.Next)^.Prev := Value^.Prev;
     end else
     begin
       LastPtr^ := Value^.Prev;
-      Self.FValueList.Ptr(LastPtr^)^.Next := 0;
+      Self.FNodeList.Ptr(LastPtr^)^.Next := 0;
     end;
     Value^.Value := Default(TSEValue);
-    Self.FValueAvailStack.Push(I);
+    Self.FNodeAvailStack.Push(I);
     Dec(Self.FObjects);
     if AFirst = 2 then
       Dec(Self.FObjectsOld);
   end;
 
 begin
-  I := Self.FValueList.Ptr(AFirst)^.Next;
+  I := Self.FNodeList.Ptr(AFirst)^.Next;
   case AFirst of
-    1: LastPtr := @Self.FValueLastYoung;
-    2: LastPtr := @Self.FValueLastOld;
+    1: LastPtr := @Self.FNodeLastYoung;
+    2: LastPtr := @Self.FNodeLastOld;
     else
       raise Exception.Create('AFirst must be 1 or 2!');
   end;
   while I <> 0 do
   begin
-    Value := Self.FValueList.Ptr(I);
+    Value := Self.FNodeList.Ptr(I);
     if Value^.Garbage then
     begin
       case Value^.Value.Kind of
@@ -4065,52 +4134,52 @@ begin
   Self.FObjectsLastTimeVisited := Self.FObjects;
 end;
 
-procedure TSEGarbageCollector.GC(const Forced: Boolean = False);
-  procedure Mark(const PValue: PSEValue); inline;
-  var
-    Value: PSEGCValue;
-    RValue: TSEValue;
-    Key: String;
-    I: Integer;
+procedure TSEGarbageCollector.Mark(const PValue: PSEValue); inline;
+var
+  Value: PSEGCNode;
+  RValue: TSEValue;
+  Key: String;
+  I: Integer;
+begin
+  if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) and (PValue^.Kind <> sevkPascalObject) then
+    Exit;
+  Value := Self.FNodeList.Ptr(PValue^.Ref);
+  if Value^.Marked >= Self.FRunCount then
+    Exit;
+  Value^.Marked := Self.FRunCount;
+  Value^.Garbage := False;
+  if Value^.Value.VarPointer = PValue^.VarPointer then
   begin
-    if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) and (PValue^.Kind <> sevkPascalObject) then
-      Exit;
-    Value := Self.FValueList.Ptr(PValue^.Ref);
-    if Value^.Marked >= Self.FRunCount then
-      Exit;
-    Value^.Marked := Self.FRunCount;
-    Value^.Garbage := False;
-    if Value^.Value.VarPointer = PValue^.VarPointer then
-    begin
-      case Value^.Value.Kind of
-        sevkMap:
+    case Value^.Value.Kind of
+      sevkMap:
+        begin
+          if PValue^.VarMap <> nil then
           begin
-            if PValue^.VarMap <> nil then
+            if SEMapIsValidArray(PValue^) then
             begin
-              if SEMapIsValidArray(PValue^) then
+              for I := 0 to TSEValueMap(PValue^.VarMap).Count - 1 do
               begin
-                for I := 0 to TSEValueMap(PValue^.VarMap).Count - 1 do
-                begin
-                  RValue := SEMapGet(PValue^, I);
-                  Mark(@RValue);
-                end;
-              end else
+                RValue := SEMapGet(PValue^, I);
+                Mark(@RValue);
+              end;
+            end else
+            begin
+              for Key in TSEValueMap(PValue^.VarMap).Map.Keys do
               begin
-                for Key in TSEValueMap(PValue^.VarMap).Map.Keys do
-                begin
-                  RValue := SEMapGet(PValue^, Key);
-                  Mark(@RValue);
-                end;
+                RValue := SEMapGet(PValue^, Key);
+                Mark(@RValue);
               end;
             end;
           end;
-      end;
+        end;
     end;
   end;
+end;
 
+procedure TSEGarbageCollector.GC(const Forced: Boolean = False);
 var
-  Value: PSEGCValue;
-  PrevValue: PSEGCValue;
+  Value: PSEGCNode;
+  PrevValue: PSEGCNode;
   P, P2: PSEValue;
   V: TSEValue;
   VM: TSEVM;
@@ -4118,12 +4187,11 @@ var
   Key: String;
   Cache: TSECache;
   Binary: TSEBinary;
-  VMListLocal: TSEVMList;
   Root: Cardinal;
 begin
   if Self.FLockFlag then
     Exit;
-  if Self.FValueLastYoung = 0 then
+  if Self.FNodeLastYoung = 0 then
     Exit;
   if (not Forced) and (Self.FObjectsLastTimeVisited + Self.FObjectThreshold > Self.FObjects) then
     Exit;
@@ -4136,117 +4204,174 @@ begin
     Exit;
   end;
   {$endif}
-  VMListLocal := TSEVMList.Create;
+  FVMThreadList := TSEVMList.Create;
   try
     try
-      for I := 0 to VMList.Count - 1 do
+      if Self.FPhase = segcpRest then
       begin
-        if (VMList[I].ThreadOwner <> nil) and (not VMList[I].ThreadOwner.Suspended) then
+        {$ifdef SE_LOG}
+        Writeln('[GC] Init');
+        {$endif}
+      {$ifdef SE_THREADS}
+        Self.FVMThreadList.Clear;
+        Self.FPhase := segcpInitial;
+        for I := 0 to VMList.Count - 1 do
         begin
-          {$ifdef UNIX}
-          VMList[I].IsRequestForSuspend := True;
-          while not VMList[I].ThreadOwner.Suspended do ;
-          {$else}
-          VMList[I].ThreadOwner.Suspend;
-          {$endif}
-          VMListLocal.Add(VMList[I]);
-        end;
-      end;
-      {$ifdef UNIX}
-      for I := 0 to VMListLocal.Count - 1 do
-      begin
-        while not VMListLocal[I].ThreadOwner.Suspended do ;
-      end;
-      {$endif}
-      Inc(Self.FRunCount);
-      {$ifdef SE_LOG}
-      Writeln('[GC] Number of objects before cleaning: ', Self.FObjects);
-      Writeln('[GC] Number of old objects before cleaning: ', Self.FObjectsOld);
-      Writeln('[GC] Number of objects in object pool: ', Self.FValueAvailStack.Count);
-      {$endif}
-
-      if Self.FRunCount mod Self.FOldObjectCheckCycle = 0 then
-      begin
-        Root := 2;
-        I := Self.FValueList.Ptr(Root)^.Next;
-        while I <> 0 do
-        begin
-          Value := Self.FValueList.Ptr(I);
-          Value^.Garbage := not Value^.Lock;
-          I := Value^.Next;
-        end;
-      end else
-      begin
-        Root := 1;
-        I := Self.FValueList.Ptr(Root)^.Next;
-        while I <> 0 do
-        begin
-          Value := Self.FValueList.Ptr(I);
-          J := I;
-          I := Value^.Next;
-          if Value^.Visit >= Self.FPromotion then
+          if (VMList[I].ThreadOwner <> nil) and (not VMList[I].ThreadOwner.Suspended) then
           begin
-            // Detach from young generation
-            if J <> Self.FValueLastYoung then
-            begin
-              PrevValue := Self.FValueList.Ptr(Value^.Prev);
-              PrevValue^.Next := Value^.Next;
-              Self.FValueList.Ptr(Value^.Next)^.Prev := Value^.Prev;
-            end else
-            begin
-              Self.FValueLastYoung := Value^.Prev;
-              Self.FValueList.Ptr(Self.FValueLastYoung)^.Next := 0;
-            end;
-            // Attach to old generation
-            Value^.Prev := Self.FValueLastOld;
-            Value^.Next := 0;
-            Self.FValueList.Ptr(Self.FValueLastOld)^.Next := J;
-            Self.FValueLastOld := J;
-            Inc(Self.FObjectsOld);
-          end else
-          begin
-            Value^.Garbage := not Value^.Lock;
-            Inc(Value^.Visit);
+            {$ifdef UNIX}
+            VMList[I].IsRequestForSuspend := True;
+            while not VMList[I].ThreadOwner.Suspended do ;
+            {$else}
+            VMList[I].ThreadOwner.Suspend;
+            {$endif}
+            FVMThreadList.Add(VMList[I]);
           end;
         end;
+        {$ifdef UNIX}
+        for I := 0 to Self.FVMThreadList.Count - 1 do
+        begin
+          while not Self.FVMThreadList[I].ThreadOwner.Suspended do ;
+        end;
+        {$endif}
+      {$endif}
+        Inc(Self.FRunCount);
+        {$ifdef SE_LOG}
+        Writeln('[GC] Number of objects before cleaning: ', Self.FObjects);
+        Writeln('[GC] Number of old objects before cleaning: ', Self.FObjectsOld);
+        Writeln('[GC] Number of objects in object pool: ', Self.FNodeAvailStack.Count);
+        {$endif}
+
+        if Self.FRunCount mod Self.FOldObjectCheckCycle = 0 then
+        begin
+          Root := 2;
+          I := Self.FNodeList.Ptr(Root)^.Next;
+          while I <> 0 do
+          begin
+            Value := Self.FNodeList.Ptr(I);
+            Value^.Garbage := not Value^.Lock;
+            I := Value^.Next;
+          end;
+        end else
+        begin
+          Root := 1;
+          I := Self.FNodeList.Ptr(Root)^.Next;
+          while I <> 0 do
+          begin
+            Value := Self.FNodeList.Ptr(I);
+            J := I;
+            I := Value^.Next;
+            if Value^.Visit >= Self.FPromotion then
+            begin
+              // Detach from young generation
+              if J <> Self.FNodeLastYoung then
+              begin
+                PrevValue := Self.FNodeList.Ptr(Value^.Prev);
+                PrevValue^.Next := Value^.Next;
+                Self.FNodeList.Ptr(Value^.Next)^.Prev := Value^.Prev;
+              end else
+              begin
+                Self.FNodeLastYoung := Value^.Prev;
+                Self.FNodeList.Ptr(Self.FNodeLastYoung)^.Next := 0;
+              end;
+              // Attach to old generation
+              Value^.Prev := Self.FNodeLastOld;
+              Value^.Next := 0;
+              Self.FNodeList.Ptr(Self.FNodeLastOld)^.Next := J;
+              Self.FNodeLastOld := J;
+              Inc(Self.FObjectsOld);
+            end else
+            begin
+              Value^.Garbage := not Value^.Lock;
+              Inc(Value^.Visit);
+            end;
+          end;
+        end;
+
+        Self.FPhase := segcpMark;
+        if Self.EnableParallelMarkings then
+        begin
+          Self.FReachableValueList.Clear;
+          for I := 0 to VMList.Count - 1 do
+          begin
+            VM := VMList[I];
+            P := @VM.Stack[0];
+            while P < VM.StackPtr do
+            begin
+              Self.FReachableValueList.Add(P^);
+              Inc(P);
+            end;
+            P := @VM.Global.Value^.Data[0];
+            P2 := @VM.Global.Value^.Data[VM.Global.Value^.Size - 1];
+            while P <= P2 do
+            begin
+              Self.FReachableValueList.Add(P^);
+              Inc(P);
+            end;
+            for Key in VM.Parent.ConstMap.Keys do
+            begin
+              V := VM.Parent.ConstMap[Key];
+              Self.FReachableValueList.Add(V);
+            end;
+          end;
+          Self.FReachableValueList.Add(ScriptVarMap);
+          GCMarkJob.Resume;
+          Exit;
+        end else
+        begin
+          for I := 0 to VMList.Count - 1 do
+          begin
+            VM := VMList[I];
+            P := @VM.Stack[0];
+            while P < VM.StackPtr do
+            begin
+              Self.Mark(P);
+              Inc(P);
+            end;
+            P := @VM.Global.Value^.Data[0];
+            P2 := @VM.Global.Value^.Data[VM.Global.Value^.Size - 1];
+            while P <= P2 do
+            begin
+              Self.Mark(P);
+              Inc(P);
+            end;
+            for Key in VM.Parent.ConstMap.Keys do
+            begin
+              V := VM.Parent.ConstMap[Key];
+              Self.Mark(@V)
+            end;
+          end;
+          Mark(@ScriptVarMap);
+          Self.FPhase := segcpSweep;
+        end;
       end;
 
-      for I := 0 to VMList.Count - 1 do
-      begin
-        VM := VMList[I];
-        P := @VM.Stack[0];
-        while P < VM.StackPtr do
-        begin
-          Mark(P);
-          Inc(P);
-        end;
-        P := @VM.Global.Value^.Data[0];
-        P2 := @VM.Global.Value^.Data[VM.Global.Value^.Size - 1];
-        while P <= P2 do
-        begin
-          Mark(P);
-          Inc(P);
-        end;
-        for Key in VM.Parent.ConstMap.Keys do
-        begin
-          V := VM.Parent.ConstMap[Key];
-          Mark(@V);
-        end;
-      end;
-      Mark(@ScriptVarMap);
-      if Self.FRunCount mod Self.FOldObjectCheckCycle = 0 then
-      begin
-        Sweep(2);
-      end else
-      begin
-        Sweep(1);
-      end;
-      {$ifdef SE_LOG}
-      Writeln('[GC] Number of objects after cleaning: ', Self.FObjects);
-      Writeln('[GC] Number of old objects after cleaning: ', Self.FObjectsOld);
-      Writeln('[GC] Number of objects in object pool: ', Self.FValueAvailStack.Count);
-      Writeln('[GC] Time: ', GetTickCount64 - T, 'ms');
+      // Wait for the thread to finish it's job
+      {$ifdef SE_THREADS}
+      if Self.EnableParallelMarkings then
+        if Self.FPhase = segcpMark then
+          Exit;
       {$endif}
+
+      if Self.FPhase = segcpSweep then
+      begin
+        {$ifdef SE_LOG}
+        Writeln('[GC] Sweep');
+        {$endif}
+        if Self.FRunCount mod Self.FOldObjectCheckCycle = 0 then
+        begin
+          Sweep(2);
+        end else
+        begin
+          Sweep(1);
+        end;
+        {$ifdef SE_LOG}
+        Writeln('[GC] Number of objects after cleaning: ', Self.FObjects);
+        Writeln('[GC] Number of old objects after cleaning: ', Self.FObjectsOld);
+        Writeln('[GC] Number of objects in object pool: ', Self.FNodeAvailStack.Count);
+        Writeln('[GC] Time: ', GetTickCount64 - T, 'ms');
+        {$endif}
+      end;
     except
       on E: Exception do
       begin
@@ -4256,11 +4381,20 @@ begin
       end;
     end;
   finally
-    for I := 0 to VMListLocal.Count - 1 do
+    if Self.FPhase = segcpSweep then
     begin
-      VMListLocal[I].ThreadOwner.Resume;
+      {$ifdef SE_LOG}
+      Writeln('[GC] Rest');
+      {$endif}
+      Self.FPhase := segcpRest;
+      {$ifdef SE_THREADS}
+      for I := 0 to FVMThreadList.Count - 1 do
+      begin
+        Self.FVMThreadList[I].ThreadOwner.Resume;
+      end;
+      Self.FVMThreadList.Clear;
+      {$endif}
     end;
-    VMListLocal.Free;
     {$ifdef SE_THREADS}
     LeaveCriticalSection(CS);
     {$endif}
@@ -4346,7 +4480,7 @@ end;
 
 procedure TSEGarbageCollector.UnManaged(const PValue: PSEValue);
 var
-  Value: TSEGCValue;
+  Value: TSEGCNode;
 begin
   {$ifdef SE_THREADS}
   EnterCriticalSection(CS);
@@ -4354,9 +4488,9 @@ begin
   try
     if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) and (PValue^.Kind <> sevkPascalObject) then
       Exit;
-    Value := Self.FValueList[PValue^.Ref];
+    Value := Self.FNodeList[PValue^.Ref];
     Value.Lock := True;
-    Self.FValueList[PValue^.Ref] := Value;
+    Self.FNodeList[PValue^.Ref] := Value;
   finally
     {$ifdef SE_THREADS}
     LeaveCriticalSection(CS);
@@ -4366,7 +4500,7 @@ end;
 
 procedure TSEGarbageCollector.Managed(const PValue: PSEValue);
 var
-  Value: TSEGCValue;
+  Value: TSEGCNode;
 begin
   {$ifdef SE_THREADS}
   EnterCriticalSection(CS);
@@ -4374,9 +4508,9 @@ begin
   try
     if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) and (PValue^.Kind <> sevkPascalObject) then
       Exit;
-    Value := Self.FValueList[PValue^.Ref];
+    Value := Self.FNodeList[PValue^.Ref];
     Value.Lock := False;
-    Self.FValueList[PValue^.Ref] := Value;
+    Self.FNodeList[PValue^.Ref] := Value;
   finally
     {$ifdef SE_THREADS}
     LeaveCriticalSection(CS);
@@ -4438,6 +4572,11 @@ begin
 end;
 
 procedure TSEVM.ModifyGlobalVariable(const AName: String; const AValue: TSEValue);
+begin
+  Self.SetGlobalVariable(AName, AValue);
+end;
+
+procedure TSEVM.SetGlobalVariable(const AName: String; const AValue: TSEValue);
 var
   I: Integer;
 begin
@@ -4446,6 +4585,20 @@ begin
     if Self.Parent.GlobalVarSymbols[I] = AName then
     begin
       Self.Global.Value^.Data[I] := AValue;
+      break;
+    end;
+  end;
+end;
+
+function TSEVM.GetGlobalVariable(const AName: String): PSEValue;
+var
+  I: Integer;
+begin
+  for I := 0 to Self.Parent.GlobalVarSymbols.Count - 1 do
+  begin
+    if Self.Parent.GlobalVarSymbols[I] = AName then
+    begin
+      Result := @Self.Global.Value^.Data[I];
       break;
     end;
   end;
@@ -10129,6 +10282,7 @@ initialization
   SENull.VarNumber := Floor(0);
   DynlibMap := TDynlibMap.Create;
   GC := TSEGarbageCollector.Create;
+  GCMarkJob := TSEGarbageCollectorMarkJob.Create;
   ScriptCacheMap := TSECacheMap.Create;
   GC.AllocMap(@ScriptVarMap);
   IsThread := 0;
@@ -10147,6 +10301,8 @@ finalization
     VMList.Free;
   end;
   VMList := nil;
+  GCMarkJob.Terminate;
+  GCMarkJob.Resume;
   GC.Free;
   ScriptCacheMap.Free;
   DynlibMap.Free;
