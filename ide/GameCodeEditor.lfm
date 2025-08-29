@@ -6,7 +6,7 @@ object CodeEditorFrm: TCodeEditorFrm
   Caption = 'Script Editor'
   ClientHeight = 661
   ClientWidth = 815
-  Position = poDefaultPosOnly
+  Position = poScreenCenter
   ShowHint = True
   OnClose = FormClose
   OnCloseQuery = FormCloseQuery
