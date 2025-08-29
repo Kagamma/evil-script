@@ -51,6 +51,7 @@ var
   IsD: Boolean = False;
   IsO: Boolean = True;
   IsA: Boolean = False;
+  IsP: Boolean = True;
   I: Integer;
   AsmStr: String;
 
@@ -62,6 +63,7 @@ begin
     Writeln(' -d  : Disassembly');
     Writeln(' -do : Disable optimizations');
     Writeln(' -da : Disable assertions');
+    Writeln(' -dp : Disable parallel garbage collector');
     Halt;
   end;
   if ParamCount > 1 then
@@ -74,9 +76,12 @@ begin
           IsO := False;
         '-da':
           IsA := True;
+        '-dp':
+          IsP := False;
       end;
   end;
   Randomize;
+  GC.EnableParallelMarkings := IsP;
   SE := TScriptEngine.Create;
   SE.OptimizePeephole := IsO;
   SE.OptimizeConstantFolding := IsO;

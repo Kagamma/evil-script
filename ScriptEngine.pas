@@ -4237,10 +4237,15 @@ begin
           begin
             if SEMapIsValidArray(PValue^) then
             begin
-              for I := 0 to TSEValueMap(PValue^.VarMap).Count - 1 do
-              begin
-                RValue := SEMapGet(PValue^, I);
-                Mark(@RValue);
+              TSEValueMap(PValue^.VarMap).Lock;
+              try
+                for I := 0 to TSEValueMap(PValue^.VarMap).Count - 1 do
+                begin
+                  RValue := SEMapGet(PValue^, I);
+                  Mark(@RValue);
+                end;
+              finally
+                TSEValueMap(PValue^.VarMap).Unlock;
               end;
             end else
             begin
