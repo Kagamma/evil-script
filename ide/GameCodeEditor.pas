@@ -105,7 +105,7 @@ begin
 '  <Token CharsStart=''"'' End=''"'' Attribute="String" Escape="\" Multiline="true" ></Token>' +
 '  <Token CharsStart="''" End="''" Attribute="String" Escape="\" Multiline="true" ></Token>' +
 '  <Identifiers CharsStart="_a..z" Content="0..9a..z">' +
-'    <Keyword>local const using if else for while do yield break continue return in to downto fn import switch case default try catch throw stdcall cdecl</Keyword>' +
+'    <Keyword>step local const using if else for while do yield break continue return in to downto fn import switch case default try catch throw stdcall cdecl</Keyword>' +
 '    <Special>null true false result self</Special>' +
 '  </Identifiers>' +
 
@@ -167,6 +167,7 @@ begin
       'in',
       'to',
       'fn',
+      'step',
       'import',
       'i8', 'i16', 'i32', 'i64', 'u8', 'u16', 'u32', 'u64', 'f64', 'buffer', 'wbuffer'
     ]);
@@ -301,12 +302,24 @@ begin
 end;
 
 procedure TCodeEditorFrm.ButtonRunClick(Sender: TObject);
-begin
+begin  
   Self.Script.Source := Editor.Lines.Text;
-  Self.Script.OptimizeConstantFolding := True;
-  Self.Script.OptimizePeephole := True;
-  Self.Script.OptimizeAsserts := True;
-  Self.Script.Exec;
+  StatusBar.Panels[1].Text := '';
+  try
+    Self.Script.OptimizeConstantFolding := True;
+    Self.Script.OptimizePeephole := True;
+    Self.Script.OptimizeAsserts := True;
+    Self.Script.Exec;
+  except
+    on E: Exception do
+    begin
+      ErrorPos := Point(Self.Script.ErrorCol, Min(Self.Script.ErrorLn, Editor.Lines.Count));
+      Editor.CaretXY := ErrorPos;
+      Editor.SetFocus;
+      Editor.Invalidate;
+      StatusBar.Panels[1].Text := E.Message;
+    end;
+  end;
 end;
 
 procedure TCodeEditorFrm.ButtonSaveAsClick(Sender: TObject);
