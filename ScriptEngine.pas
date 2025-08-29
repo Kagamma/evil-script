@@ -304,6 +304,7 @@ type
     Garbage: Boolean;
     Lock: Boolean;
     Visit: Byte;
+    Marked,
     Prev,
     Next: Cardinal;
   end;
@@ -321,6 +322,7 @@ type
     FLock: TRTLCriticalSection;
     {$endif}
     FObjects,
+    FObjectThreshold,
     FObjectsLastTimeVisited,
     FObjectsOld: Cardinal;
     FValueList: TSEGCValueList;
@@ -355,6 +357,7 @@ type
     property Interval: Cardinal read FInterval write FInterval;
     property Promotion: Byte read FPromotion write FPromotion;
     property OldObjectCheckCycle: Byte read FOldObjectCheckCycle write FOldObjectCheckCycle;
+    property ObjectThreshold: Cardinal read FObjectThreshold write FObjectThreshold;
   end;
 
   TSECallingConvention = (
@@ -984,6 +987,7 @@ type
     class function SEMapClone(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEMapKeyDelete(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEMapKeysGet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SEMapClear(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEArrayResize(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEArrayToMap(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEArrayFill(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -2134,6 +2138,17 @@ begin
     begin
       SEMapSet(Result, I, I);
     end;
+  end;
+end;
+
+class function TBuiltInFunction.SEMapClear(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+begin
+  if SEMapIsValidArray(Args[0]) then
+  begin
+    TSEValueMap(Args[0].VarMap).Clear;
+  end else
+  begin
+    TSEValueMap(Args[0].VarMap).Map.Clear;
   end;
 end;
 
@@ -3899,9 +3914,10 @@ begin
   Self.FValueAvailStack := TSEGCValueAvailStack.Create;
   Self.FValueAvailStack.Capacity := 65536 * 8;
   Self.FTicks := GetTickCount64;
-  Self.Interval := 5000;
-  Self.Promotion := 10;
-  Self.OldObjectCheckCycle := 10;
+  Self.FInterval := 5000;
+  Self.FPromotion := 10;
+  Self.FOldObjectCheckCycle := 10;
+  Self.FObjectThreshold := 700;
 end;
 
 destructor TSEGarbageCollector.Destroy;
@@ -3983,7 +3999,7 @@ var
       LastPtr^ := Value^.Prev;
       Self.FValueList.Ptr(LastPtr^)^.Next := 0;
     end;
-    Value^.Value.Kind := sevkNull;
+    Value^.Value := Default(TSEValue);
     Self.FValueAvailStack.Push(I);
     Dec(Self.FObjects);
     if AFirst = 2 then
@@ -4060,8 +4076,9 @@ procedure TSEGarbageCollector.GC(const Forced: Boolean = False);
     if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) and (PValue^.Kind <> sevkPascalObject) then
       Exit;
     Value := Self.FValueList.Ptr(PValue^.Ref);
-    if not Value^.Garbage then
+    if Value^.Marked >= Self.FRunCount then
       Exit;
+    Value^.Marked := Self.FRunCount;
     Value^.Garbage := False;
     if Value^.Value.VarPointer = PValue^.VarPointer then
     begin
@@ -4102,12 +4119,13 @@ var
   Cache: TSECache;
   Binary: TSEBinary;
   VMListLocal: TSEVMList;
+  Root: Cardinal;
 begin
   if Self.FLockFlag then
     Exit;
   if Self.FValueLastYoung = 0 then
     Exit;
-  if (not Forced) and (Self.FObjectsLastTimeVisited + 700 > Self.FObjects) then
+  if (not Forced) and (Self.FObjectsLastTimeVisited + Self.FObjectThreshold > Self.FObjects) then
     Exit;
   if IsThread > 0 then
     Exit;
@@ -4147,51 +4165,57 @@ begin
       Writeln('[GC] Number of objects in object pool: ', Self.FValueAvailStack.Count);
       {$endif}
 
-      I := Self.FValueList.Ptr(1)^.Next;
-      while I <> 0 do
+      if Self.FRunCount mod Self.FOldObjectCheckCycle = 0 then
       begin
-        Value := Self.FValueList.Ptr(I);
-        J := I;
-        I := Value^.Next;
-        if Value^.Visit >= Self.FPromotion then
+        Root := 2;
+        I := Self.FValueList.Ptr(Root)^.Next;
+        while I <> 0 do
         begin
-          // Detach from young generation
-          if J <> Self.FValueLastYoung then
+          Value := Self.FValueList.Ptr(I);
+          Value^.Garbage := not Value^.Lock;
+          I := Value^.Next;
+        end;
+      end else
+      begin
+        Root := 1;
+        I := Self.FValueList.Ptr(Root)^.Next;
+        while I <> 0 do
+        begin
+          Value := Self.FValueList.Ptr(I);
+          J := I;
+          I := Value^.Next;
+          if Value^.Visit >= Self.FPromotion then
           begin
-            PrevValue := Self.FValueList.Ptr(Value^.Prev);
-            PrevValue^.Next := Value^.Next;
-            Self.FValueList.Ptr(Value^.Next)^.Prev := Value^.Prev;
+            // Detach from young generation
+            if J <> Self.FValueLastYoung then
+            begin
+              PrevValue := Self.FValueList.Ptr(Value^.Prev);
+              PrevValue^.Next := Value^.Next;
+              Self.FValueList.Ptr(Value^.Next)^.Prev := Value^.Prev;
+            end else
+            begin
+              Self.FValueLastYoung := Value^.Prev;
+              Self.FValueList.Ptr(Self.FValueLastYoung)^.Next := 0;
+            end;
+            // Attach to old generation
+            Value^.Prev := Self.FValueLastOld;
+            Value^.Next := 0;
+            Self.FValueList.Ptr(Self.FValueLastOld)^.Next := J;
+            Self.FValueLastOld := J;
+            Inc(Self.FObjectsOld);
           end else
           begin
-            Self.FValueLastYoung := Value^.Prev;
-            Self.FValueList.Ptr(Self.FValueLastYoung)^.Next := 0;
+            Value^.Garbage := not Value^.Lock;
+            Inc(Value^.Visit);
           end;
-          // Attach to old generation
-          Value^.Prev := Self.FValueLastOld;
-          Value^.Next := 0;
-          Self.FValueList.Ptr(Self.FValueLastOld)^.Next := J;
-          Self.FValueLastOld := J;
-          Inc(Self.FObjectsOld);
-        end else
-        begin
-          Value^.Garbage := not Value^.Lock;
-          Inc(Value^.Visit);
         end;
-      end;
-
-      I := Self.FValueList.Ptr(2)^.Next;
-      while I <> 0 do
-      begin
-        Value := Self.FValueList.Ptr(I);
-        Value^.Garbage := not Value^.Lock;
-        I := Value^.Next;
       end;
 
       for I := 0 to VMList.Count - 1 do
       begin
         VM := VMList[I];
         P := @VM.Stack[0];
-        while P <= VM.StackPtr do
+        while P < VM.StackPtr do
         begin
           Mark(P);
           Inc(P);
@@ -6202,10 +6226,12 @@ begin
     Self.RegisterFunc('map_clone', @TBuiltInFunction(nil).SEMapClone, 1);
     Self.RegisterFunc('map_key_delete', @TBuiltInFunction(nil).SEMapKeyDelete, 2);
     Self.RegisterFunc('map_keys_get', @TBuiltInFunction(nil).SEMapKeysGet, 1);
+    Self.RegisterFunc('map_clear', @TBuiltInFunction(nil).SEMapClear, 1);
     Self.RegisterFunc('array_resize', @TBuiltInFunction(nil).SEArrayResize, 2);
     Self.RegisterFunc('array_to_map', @TBuiltInFunction(nil).SEArrayToMap, 1);
     Self.RegisterFunc('array_fill', @TBuiltInFunction(nil).SEArrayFill, 2);
     Self.RegisterFunc('array_delete', @TBuiltInFunction(nil).SEMapKeyDelete, 2);
+    Self.RegisterFunc('array_clear', @TBuiltInFunction(nil).SEMapClear, 1);
     Self.RegisterFunc('sign', @TBuiltInFunction(nil).SESign, 1);
     Self.RegisterFunc('min', @TBuiltInFunction(nil).SEMin, -1);
     Self.RegisterFunc('max', @TBuiltInFunction(nil).SEMax, -1);

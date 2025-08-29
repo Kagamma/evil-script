@@ -311,6 +311,9 @@ Deletes map elements.
 `map_keys_get(a: map): map`
 Returns map contains all keys from map `a`.
 
+`map_clear(a: map)`
+Clear every items in `a`.
+
 `array_resize(a: map, size: number): map`
 Resizes a valid array.
 
@@ -322,6 +325,9 @@ Fills array `arr` with `v`.
 
 `array_delete(a: map, key: number/string): map`
 Alias to `map_keys_get`.
+
+`array_clear(a: map)`
+Alias to `map_clear`.
 
 `length(a: map/string)`
 Returns length of string, map or buffer.
