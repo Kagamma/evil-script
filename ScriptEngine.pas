@@ -4223,8 +4223,6 @@ var
   Key: String;
   I: Integer;
 begin
-  if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) and (PValue^.Kind <> sevkPascalObject) then
-    Exit;
   Value := Self.FNodeList.Ptr(PValue^.Ref);
   if Value^.Marked >= Self.FRunCount then
     Exit;
@@ -4244,6 +4242,8 @@ begin
                 for I := 0 to TSEValueMap(PValue^.VarMap).Count - 1 do
                 begin
                   RValue := SEMapGet(PValue^, I);
+                  if (RValue.Kind <> sevkMap) and (RValue.Kind <> sevkString) and (RValue.Kind <> sevkBuffer) and (RValue.Kind <> sevkPascalObject) then
+                    Continue;
                   Mark(@RValue);
                 end;
               finally
@@ -4256,6 +4256,8 @@ begin
                 for Key in TSEValueMap(PValue^.VarMap).Map.Keys do
                 begin
                   RValue := SEMapGet(PValue^, Key);
+                  if (RValue.Kind <> sevkMap) and (RValue.Kind <> sevkString) and (RValue.Kind <> sevkBuffer) and (RValue.Kind <> sevkPascalObject) then
+                    Continue;
                   Mark(@RValue);
                 end;
               finally
