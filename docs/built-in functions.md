@@ -320,6 +320,9 @@ Converts array `arr` to map. Note that `arr` itself will be converted.
 `array_fill(arr: map, v: any): map`
 Fills array `arr` with `v`.
 
+`array_delete(a: map, key: number/string): map`
+Alias to `map_keys_get`.
+
 `length(a: map/string)`
 Returns length of string, map or buffer.
 

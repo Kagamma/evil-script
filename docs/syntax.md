@@ -81,6 +81,10 @@ based on our need.
 For those who familiar with Lua, maps are basically the same as Lua's
 tables.
 
+Evil script treats arrays as a sepcial case of map. It optimizes maps
+with valid array status, by storing values in an actual array underneath
+for quick access.
+
 Buffers are used to interface with DLL libraries written in native
 languages like C or Pascal. It is basically a space within the system
 memory that is used to store raw data for just about anything. Underneath
@@ -160,8 +164,6 @@ c = []
 // Create an empty map and store its reference in 'c'
 // By default a newly created empty map is considered as a valid array. It will lose it's array status
 // once we start adding entries that doesn't make sense to the map.
-// Evil script optimizes maps with valid array status, by storing values in an actual array underneath
-// for quick access.
 // A nice trick to create array with size is to set the last index, for example: c[99] = null
 // This will increase array size to 100
 

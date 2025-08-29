@@ -6042,7 +6042,14 @@ begin
   try
     try
       while not Self.VM.IsDone do
+      begin
         Self.VM.Exec;
+        {$ifdef Unix}
+        if Self.VM.IsRequestForSuspend then
+          Self.Suspend;
+        Self.VM.IsRequestForSuspend := False;
+        {$endif}
+      end;
     except
       on E: Exception do
         Writeln('[TSEVMThread] ', E.Message);
