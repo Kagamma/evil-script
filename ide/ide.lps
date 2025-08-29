@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <ProjectSession>
+    <PathDelim Value="\"/>
+    <Version Value="12"/>
+    <BuildModes Active="Default"/>
+    <Units>
+      <Unit>
+        <Filename Value="ide.lpr"/>
+        <IsPartOfProject Value="True"/>
+        <EditorIndex Value="1"/>
+        <CursorPos X="8" Y="14"/>
+        <UsageCount Value="20"/>
+        <Loaded Value="True"/>
+      </Unit>
+      <Unit>
+        <Filename Value="GameCodeEditor.pas"/>
+        <IsPartOfProject Value="True"/>
+        <ComponentName Value="CodeEditorFrm"/>
+        <HasResources Value="True"/>
+        <ResourceBaseClass Value="Form"/>
+        <IsVisibleTab Value="True"/>
+        <TopLine Value="263"/>
+        <CursorPos X="26" Y="270"/>
+        <UsageCount Value="20"/>
+        <Loaded Value="True"/>
+        <LoadedDesigner Value="True"/>
+      </Unit>
+    </Units>
+    <JumpHistory HistoryIndex="27">
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="11" Column="26"/>
+      </Position>
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="15" Column="77"/>
+      </Position>
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="10" Column="37"/>
+      </Position>
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="12" Column="32"/>
+      </Position>
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="18" Column="69"/>
+      </Position>
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="16" Column="67"/>
+      </Position>
+      <Position>
+        <Filename Value="ide.lpr"/>
+        <Caret Line="15" Column="32"/>
+      </Position>
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="69" Column="3" TopLine="81"/>
+      </Position>
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="83" Column="31" TopLine="307"/>
+      </Position>
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="110" Column="35" TopLine="94"/>
+      </Position>
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="198" Column="46" TopLine="107"/>
+      </Position>
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="126" Column="37" TopLine="346"/>
+      </Position>
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="352" Column="3" TopLine="346"/>
+      </Position>
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="356" Column="18" TopLine="347"/>
+      </Position>
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="357" Column="18" TopLine="348"/>
+      </Position>
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="364" Column="18" TopLine="355"/>
+      </Position>
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="299" Column="3" TopLine="289"/>
+      </Position>
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="6" Column="80"/>
+      </Position>
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="264" Column="14" TopLine="240"/>
+      </Position>
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="336" Column="34" TopLine="317"/>
+      </Position>
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="305" Column="43" TopLine="300"/>
+      </Position>
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="382" Column="27" TopLine="370"/>
+      </Position>
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="307" Column="3" TopLine="305"/>
+      </Position>
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="383" Column="46" TopLine="370"/>
+      </Position>
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="323" Column="51" TopLine="305"/>
+      </Position>
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="171" Column="63" TopLine="149"/>
+      </Position>
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="20" Column="64"/>
+      </Position>
+      <Position>
+        <Filename Value="GameCodeEditor.pas"/>
+        <Caret Line="179" Column="46" TopLine="142"/>
+      </Position>
+    </JumpHistory>
+    <RunParams>
+      <FormatVersion Value="2"/>
+      <Modes ActiveMode=""/>
+    </RunParams>
+  </ProjectSession>
+</CONFIG>
