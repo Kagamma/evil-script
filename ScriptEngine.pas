@@ -362,6 +362,7 @@ type
     FPromotion: Byte;
     FOldObjectCheckCycle: Byte;
     FEnableParallelMarkings: Boolean;
+    procedure Initial;
     procedure Sweep(const AFirst: Cardinal);
     procedure Mark(const PValue: PSEValue);
   public
@@ -3826,7 +3827,7 @@ procedure TSEValueMap.ToMap;
 var
   I: Integer;
 begin
-  while not Self.TryLock do;
+  Self.Lock;
   try
     if Self.FIsValidArray then
     begin
@@ -3845,7 +3846,7 @@ var
   Index, I: Integer;
   IsNumber: Boolean;
 begin
-  while not Self.TryLock do;
+  Self.Lock;
   try
     IsNumber := TryStrToInt(Key, Index);
     if IsNumber and Self.FIsValidArray and (Index >= 0) then
@@ -3872,7 +3873,7 @@ procedure TSEValueMap.Set2(const Index: Int64; const AValue: TSEValue);
 var
   I: Integer;
 begin
-  while not Self.TryLock do;
+  Self.Lock;
   try
     if Self.FIsValidArray and (Index >= 0) then
     begin
@@ -3899,7 +3900,7 @@ var
   Index: Integer;
   IsNumber: Boolean;
 begin
-  while not Self.TryLock do;
+  Self.Lock;
   try
     IsNumber := TryStrToInt(Key, Index);
     if IsNumber and Self.FIsValidArray and (Index >= 0) then
@@ -3919,7 +3920,7 @@ end;
 
 procedure TSEValueMap.Del2(const Index: Int64);
 begin
-  while not Self.TryLock do;
+  Self.Lock;
   try
     if Self.FIsValidArray and (Index >= 0) then
     begin
@@ -4130,6 +4131,56 @@ begin
   end;
 end;
 
+procedure TSEGarbageCollector.Initial;
+var
+  I, J: Integer;
+  Value, PrevValue: PSEGCNode;
+begin
+  if Self.FRunCount mod Self.FOldObjectCheckCycle = 0 then
+  begin
+    I := Self.FNodeLastOld;
+    while I <> 0 do
+    begin
+      Value := Self.FNodeList.Ptr(I);
+      Value^.Garbage := not Value^.Lock;
+      I := Value^.Prev;
+    end;
+  end else
+  begin
+    I := Self.FNodeLastYoung;
+    while I <> 0 do
+    begin
+      Value := Self.FNodeList.Ptr(I);
+      J := I;
+      I := Value^.Prev;
+      if Value^.Visit >= Self.FPromotion then
+      begin
+        // Detach from young generation
+        if J <> Self.FNodeLastYoung then
+        begin
+          PrevValue := Self.FNodeList.Ptr(Value^.Prev);
+          PrevValue^.Next := Value^.Next;
+          Self.FNodeList.Ptr(Value^.Next)^.Prev := Value^.Prev;
+        end else
+        begin
+          Self.FNodeLastYoung := Value^.Prev;
+          Self.FNodeList.Ptr(Self.FNodeLastYoung)^.Next := 0;
+        end;
+        // Attach to old generation
+        Value^.Prev := Self.FNodeLastOld;
+        Value^.Next := 0;
+        Self.FNodeList.Ptr(Self.FNodeLastOld)^.Next := J;
+        Self.FNodeLastOld := J;
+        Inc(Self.FObjectsOld);
+      end else
+      begin
+        Value^.Garbage := not Value^.Lock;
+        Inc(Value^.Visit);
+      end;
+    end;
+  end;
+end;
+
 procedure TSEGarbageCollector.Sweep(const AFirst: Cardinal); inline;
 var
   Value: PSEGCNode;
@@ -4279,11 +4330,10 @@ var
   P, P2: PSEValue;
   V: TSEValue;
   VM: TSEVM;
-  I, J: Integer;
+  I: Integer;
   Key: String;
   Cache: TSECache;
   Binary: TSEBinary;
-  Root: Cardinal;
 
   procedure SuspendThreads;
   var
@@ -4329,6 +4379,66 @@ var
     {$endif}
   end;
 
+  procedure Marking;
+  var
+    I: Integer;
+  begin
+    if Self.EnableParallelMarkings then
+    begin
+      Self.FReachableValueList.Clear;
+      for I := 0 to VMList.Count - 1 do
+      begin
+        VM := VMList[I];
+        P := @VM.Stack[0];
+        while P < VM.StackPtr do
+        begin
+          Self.FReachableValueList.Add(P^);
+          Inc(P);
+        end;
+        P := @VM.Global.Value^.Data[0];
+        P2 := @VM.Global.Value^.Data[VM.Global.Value^.Size - 1];
+        while P <= P2 do
+        begin
+          Self.FReachableValueList.Add(P^);
+          Inc(P);
+        end;
+        for Key in VM.Parent.ConstMap.Keys do
+        begin
+          V := VM.Parent.ConstMap[Key];
+          Self.FReachableValueList.Add(V);
+        end;
+      end;
+      Self.FReachableValueList.Add(ScriptVarMap);
+      GCMarkJob.Resume;
+    end else
+    begin
+      for I := 0 to VMList.Count - 1 do
+      begin
+        VM := VMList[I];
+        P := @VM.Stack[0];
+        while P < VM.StackPtr do
+        begin
+          Self.Mark(P);
+          Inc(P);
+        end;
+        P := @VM.Global.Value^.Data[0];
+        P2 := @VM.Global.Value^.Data[VM.Global.Value^.Size - 1];
+        while P <= P2 do
+        begin
+          Self.Mark(P);
+          Inc(P);
+        end;
+        for Key in VM.Parent.ConstMap.Keys do
+        begin
+          V := VM.Parent.ConstMap[Key];
+          Self.Mark(@V)
+        end;
+      end;
+      Mark(@ScriptVarMap);
+      Self.FPhase := segcpSweep;
+    end;
+  end;
+
 begin
   if Self.FLockFlag then
     Exit;
@@ -4361,111 +4471,15 @@ begin
         Writeln('[GC] Number of old objects before cleaning: ', Self.FObjectsOld);
         Writeln('[GC] Number of objects in object pool: ', Self.FNodeAvailStack.Count);
         {$endif}
-        if Self.FRunCount mod Self.FOldObjectCheckCycle = 0 then
-        begin
-          Root := 2;
-          I := Self.FNodeLastOld;
-          while I <> 0 do
-          begin
-            Value := Self.FNodeList.Ptr(I);
-            Value^.Garbage := not Value^.Lock;
-            I := Value^.Prev;
-          end;
-        end else
-        begin
-          Root := 1;
-          I := Self.FNodeLastYoung;
-          while I <> 0 do
-          begin
-            Value := Self.FNodeList.Ptr(I);
-            J := I;
-            I := Value^.Prev;
-            if Value^.Visit >= Self.FPromotion then
-            begin
-              // Detach from young generation
-              if J <> Self.FNodeLastYoung then
-              begin
-                PrevValue := Self.FNodeList.Ptr(Value^.Prev);
-                PrevValue^.Next := Value^.Next;
-                Self.FNodeList.Ptr(Value^.Next)^.Prev := Value^.Prev;
-              end else
-              begin
-                Self.FNodeLastYoung := Value^.Prev;
-                Self.FNodeList.Ptr(Self.FNodeLastYoung)^.Next := 0;
-              end;
-              // Attach to old generation
-              Value^.Prev := Self.FNodeLastOld;
-              Value^.Next := 0;
-              Self.FNodeList.Ptr(Self.FNodeLastOld)^.Next := J;
-              Self.FNodeLastOld := J;
-              Inc(Self.FObjectsOld);
-            end else
-            begin
-              Value^.Garbage := not Value^.Lock;
-              Inc(Value^.Visit);
-            end;
-          end;
-        end;
+        Self.Initial;
 
         Self.FPhase := segcpMark;
         {$ifdef SE_LOG}
-        Writeln('[GC] ', Self.FPhase );
+        Writeln('[GC] ', Self.FPhase);
         {$endif}
+        Marking;
         if Self.EnableParallelMarkings then
-        begin
-          Self.FReachableValueList.Clear;
-          for I := 0 to VMList.Count - 1 do
-          begin
-            VM := VMList[I];
-            P := @VM.Stack[0];
-            while P < VM.StackPtr do
-            begin
-              Self.FReachableValueList.Add(P^);
-              Inc(P);
-            end;
-            P := @VM.Global.Value^.Data[0];
-            P2 := @VM.Global.Value^.Data[VM.Global.Value^.Size - 1];
-            while P <= P2 do
-            begin
-              Self.FReachableValueList.Add(P^);
-              Inc(P);
-            end;
-            for Key in VM.Parent.ConstMap.Keys do
-            begin
-              V := VM.Parent.ConstMap[Key];
-              Self.FReachableValueList.Add(V);
-            end;
-          end;
-          Self.FReachableValueList.Add(ScriptVarMap);
-          GCMarkJob.Resume;
           Exit;
-        end else
-        begin
-          for I := 0 to VMList.Count - 1 do
-          begin
-            VM := VMList[I];
-            P := @VM.Stack[0];
-            while P < VM.StackPtr do
-            begin
-              Self.Mark(P);
-              Inc(P);
-            end;
-            P := @VM.Global.Value^.Data[0];
-            P2 := @VM.Global.Value^.Data[VM.Global.Value^.Size - 1];
-            while P <= P2 do
-            begin
-              Self.Mark(P);
-              Inc(P);
-            end;
-            for Key in VM.Parent.ConstMap.Keys do
-            begin
-              V := VM.Parent.ConstMap[Key];
-              Self.Mark(@V)
-            end;
-          end;
-          Mark(@ScriptVarMap);
-          Self.FPhase := segcpSweep;
-        end;
       end;
 
       // Wait for the thread to finish it's job
