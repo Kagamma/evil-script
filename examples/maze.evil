@@ -74,20 +74,20 @@ fn generate_maze(w, h) {
 }
 
 fn render(maze) {
-  w = length(maze);
-  h = length(maze[0]);
+  w = length(maze)
+  h = length(maze[0])
   for j = 0 to h - 1 {
     for i = 0 to w - 1 {
       if (maze[i][j] == 1) {
-        write('#');
+        write('#')
       } else {
-        write(' ');
+        write(' ')
       }
     }
-    write("\n");
+    write("\n")
   }
 }
 
-maze = generate_maze(41, 13);
+maze = generate_maze(41, 13)
 
-render(maze);
+render(maze)

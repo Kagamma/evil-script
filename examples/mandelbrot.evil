@@ -8,12 +8,12 @@ for Im = -1.2 to 1.2 step 0.05 {
       Zr2 = Zr * Zr
       Zi2 = Zi * Zi
       if (Zr2 + Zi2) > 4 {
-        break;
+        break
       }
       Zi = (2 * Zr * Zi) + Im
       Zr = (Zr2 - Zi2) + Re
     }
-    write(chars[n]);
+    write(chars[n])
   }
-  write('\n');
+  write('\n')
 }
