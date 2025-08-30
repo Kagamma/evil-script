@@ -593,4 +593,5 @@ The result assembly:
 --- STRING DATA ---
 0: a_long_string
 ```
+- Named functions are always faster than anonymous functions / function references.
 
