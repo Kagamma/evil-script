@@ -322,7 +322,7 @@ switch a {
 }
 ```
 
-- Unlike C, Evil script's switch case allows the use of expressions, so the above example can be written like this:
+Unlike C, Evil script's switch case allows the use of expressions, so the above example can be written like this:
 
 ```
 a = 5
@@ -338,7 +338,7 @@ switch true {
 }
 ```
 
-- Strings are allowed:
+Strings are allowed:
 
 ```
 s = 'alpha'
@@ -378,7 +378,7 @@ foo()
 c = add(5, 3)
 ```
 
-- Alternative way to declare a function is by returning a function reference:
+Alternative way to declare a function is by returning a function reference:
 
 ```
 add = fn(a, b) {
@@ -409,21 +409,21 @@ writeln(calc.add = add_ref) // Print "true"
 
 ### Anonymous function
 
-```
-fn test(func) {
-  func('Satania')
-}
+    ```
+    fn test(func) {
+      func('Satania')
+    }
 
-fn calc(f) {
-  result = f(5, 3)
-}
+    fn calc(f) {
+      result = f(5, 3)
+    }
 
-test(fn(v) writeln('Hello, ${v}!'))
-test(fn(v) writeln('Goodbye, ${v}!'))
-writeln(calc(fn(a, b) = a + b))
-```
+    test(fn(v) writeln('Hello, ${v}!'))
+    test(fn(v) writeln('Goodbye, ${v}!'))
+    writeln(calc(fn(a, b) = a + b))
+    ```
 
-- The following function declarations are the same:
+The following function declarations are the same:
 ```
 fn(n) = n + 1
 
@@ -431,7 +431,7 @@ fn(n) result = n + 1
 
 fn(n) { result = n + 1 }
 ```
-- Anonymous functions can access local variables from parent functions
+Anonymous functions can access local variables from parent functions
 ```
 fn test2(f) {
   writeln(f())
@@ -451,43 +451,43 @@ test()
 - The main reason for this mechanism instead of true OOP is performance: This way it doesn't require a separate "method reference" type, which typically uses twice the memory (which result in additional memory allocations due to the way script engine keeps data), compared to a normal "function reference".
 - Nested functions and/or outside functions can access caller's `self`.
 
-```
-fn obj_create() {
-  fn hello() {
-    result = 'Hello, ' + self.name + '!'
-  }
+    ```
+    fn obj_create() {
+      fn hello() {
+        result = 'Hello, ' + self.name + '!'
+      }
 
-  result = [
-    name: '',
-    hello: hello
-  ]
-}
+      result = [
+        name: '',
+        hello: hello
+      ]
+    }
 
-obj = obj_create()
-obj.name = 'Satania'
-writeln(obj.hello()) // obj will be passed to hello() as "self"
-```
+    obj = obj_create()
+    obj.name = 'Satania'
+    writeln(obj.hello()) // obj will be passed to hello() as "self"
+    ```
 
 - Because of the way we pass `self`, one function can be used in multiple object instances, for example:
 
-```
-fn test() {
-  result = self.value
-}
+    ```
+    fn test() {
+      result = self.value
+    }
 
-obj1 = [
-  value: 1,
-  test: test,
-]
+    obj1 = [
+      value: 1,
+      test: test,
+    ]
 
-obj2 = [
-  value: 2,
-  test: test,
-]
+    obj2 = [
+      value: 2,
+      test: test,
+    ]
 
-writeln(obj1.test())
-writeln(obj2.test())
-```
+    writeln(obj1.test())
+    writeln(obj2.test())
+    ```
 
 ### Yield
 
@@ -567,31 +567,29 @@ If assertions are not enabled at compile time, this routine does nothing, and no
 You can enable assertions globally in Settings, or locally in script editor.
 
 ## Performance tips
-- Install `https://github.com/avk959/LGenerics` and enable `SE_MAP_AVK959` flag for a significant map-related performance boost (approximately 200% more for scripts heavily reliant on maps).
-- Set `GC.EnableParallelMarkings` to `True` to reduce stuttering on tight loops. This is especially useful for games. Note that so far I only test this feature with `SE_MAP_AVK959` on.
 - Use dot notation for strings with a length of 8 or fewer characters. The engine optimizes this operation by packing the string into a single `Double` type instead of allocating it on the heap.
 
-Consider the following example:
-```
-  a = []
-  a.x = 1
-  a.a_long_string = 2
-```
-The result assembly:
-```
---- @main ---
-0: opCallNative 48, 0, 0
-4: opAssignGlobalVar 2
-6: opPushConst .x <--- x is packed into a Double and push to stack
-8: opPushConst 1
-10: opAssignGlobalArray 2, 1
-13: opPushConstString 0 <--- Ref to a_long_string, which is then allocated on the heap
-15: opPushConst 2
-17: opAssignGlobalArray 2, 1
-20: opHlt
+  - Consider the following example:
+      ```
+        a = []
+        a.x = 1
+        a.a_long_string = 2
+      ```
+  - The result assembly:
+      ```
+      --- @main ---
+      0: opCallNative 48, 0, 0
+      4: opAssignGlobalVar 2
+      6: opPushConst .x <--- x is packed into a Double and push to stack
+      8: opPushConst 1
+      10: opAssignGlobalArray 2, 1
+      13: opPushConstString 0 <--- Ref to a_long_string, which is then allocated on the heap
+      15: opPushConst 2
+      17: opAssignGlobalArray 2, 1
+      20: opHlt
 
---- STRING DATA ---
-0: a_long_string
-```
+      --- STRING DATA ---
+      0: a_long_string
+      ```
 - Named functions are always faster than anonymous functions / function references.
 

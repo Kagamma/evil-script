@@ -10,6 +10,7 @@ Below is an overview document that briefly explains how to integrate Evil script
   + [Change a global variable](#change-a-global-variable)
 - [TSEValue](#tsevalue)
   + [Overview](#overview)
+- [Performance tips](#performance-tips)
 
 ## TScriptEngine
 
@@ -138,63 +139,67 @@ Useful if we want to modify a global variable after intialized them via `TScript
 A 16-byte data structure. `TSEValue.Kind` stores the type of variable, which can be one of the following values: sevkNumber, sevkBoolean, sevkString, sevkMap, sevkBuffer, sevkFunction, sevkPascalObject, sevkNull.
 
 - Declares a new TSEValue:
-```
-  var V: TSEValue;
-```
+    ```
+      var V: TSEValue;
+    ```
 - Assigns null value:
-```
-  V := SENull;
-```
+    ```
+      V := SENull;
+    ```
 - Assigns number:
-```
-  V := 5;
-  // Equivalent to:
-  // V.Kind := sevkNumber;
-  // V.VarNumber := 5;
-```
+    ```
+      V := 5;
+      // Equivalent to:
+      // V.Kind := sevkNumber;
+      // V.VarNumber := 5;
+    ```
 - Assigns boolean value:
-```
-  V := True;
-  // Equivalent to:
-  // V.Kind := sevkBoolean;
-  // V.VarBoolean := True;
-```
+    ```
+      V := True;
+      // Equivalent to:
+      // V.Kind := sevkBoolean;
+      // V.VarBoolean := True;
+    ```
 - Assigns string:
-```
-  V := 'This is a string';
-  // Equivalent to GC.AllocString(@V, 'This is a string');
-  // You can access the string directly via V.VarString^
-```
+    ```
+      V := 'This is a string';
+      // Equivalent to GC.AllocString(@V, 'This is a string');
+      // You can access the string directly via V.VarString^
+    ```
 - Creates a new map:
-```
-  GC.AllocMap(@V);
-  // You can read / write the map via V.GetValue() / V.SetValue() helpers.
-  // You can access map instance directly via V.VarMap
-```
+    ```
+      GC.AllocMap(@V);
+      // You can read / write the map via V.GetValue() / V.SetValue() helpers.
+      // You can access map instance directly via V.VarMap
+    ```
 - Creates a new buffer:
-```
-  // 1024 bytes
-  GC.AllocBuffer(@V, 1024);
-  // Access to buffer via V.VarBuffer^.Ptr pointer. DO NOT touch V.VarBuffer^.Base pointer.
-```
+    ```
+      // 1024 bytes
+      GC.AllocBuffer(@V, 1024);
+      // Access to buffer via V.VarBuffer^.Ptr pointer. DO NOT touch V.VarBuffer^.Base pointer.
+    ```
 - Assigns a Pascal object:
-```
-  // If IsManaged is true, then the script engine's garbage collector will automatically free AnObjectInstance when the variable is unreachable.
-  GC.AllocPascalObject(@V, AnObjectInstance, IsManaged);
+    ```
+      // If IsManaged is true, then the script engine's garbage collector will automatically free AnObjectInstance when the variable is unreachable.
+      GC.AllocPascalObject(@V, AnObjectInstance, IsManaged);
 
-  // Access the object
-  Obj := V.VarPascalObject^.Value;
-```
+      // Access the object
+      Obj := V.VarPascalObject^.Value;
+    ```
 - Assigns a function:
-```
-  V.Kind := sevkFunction;
+    ```
+      V.Kind := sevkFunction;
 
-  // VarFuncKind stores the type of function:
-  // - sefkNative = Pascal function registered via TScriptEngine.RegisterFunc() / TScriptEngine.RegisterFuncWithSelf().
-  // - sefkScript = Evil script function.
-  V.VarFuncKind := sefkScript;
+      // VarFuncKind stores the type of function:
+      // - sefkNative = Pascal function registered via TScriptEngine.RegisterFunc() / TScriptEngine.RegisterFuncWithSelf().
+      // - sefkScript = Evil script function.
+      V.VarFuncKind := sefkScript;
 
-  // VarFuncIndx is function index.
-  // We can look for function index via TScriptEngine.FindFuncScript() or TScriptEngine.FindFuncNative()
-  V.VarFuncIndx := 2;
-```
+      // VarFuncIndx is function index.
+      // We can look for function index via TScriptEngine.FindFuncScript() or TScriptEngine.FindFuncNative()
+      V.VarFuncIndx := 2;
+    ```
+
+## Performance tips
+- Install `https://github.com/avk959/LGenerics` and enable `SE_MAP_AVK959` flag for a significant map-related performance boost (approximately 200% more for scripts heavily reliant on maps).
+- Set `GC.EnableParallelMarkings` to `True` to reduce stuttering on tight loops. This is especially useful for games. Note that so far I only test this feature with `SE_MAP_AVK959` on.
