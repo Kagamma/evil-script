@@ -27,6 +27,7 @@
   + [Comment](#comment)
   + [Import external functions from dynamic libraries](#import-external-functions-from-dynamic-libraries)
   + [Assert](#assert)
+- [Performance tips](#performance-tips)
 
 ## Introduction
 Evil script is a simple and lightweight scripting language. It's syntax is influenced by C, Pascal and Lua.
@@ -564,3 +565,32 @@ assert(expr, 'Error message')
 With assertions on, `assert` tests if expr is false, and if so, aborts the script with an EAssertionFailed exception. If expr is true, script execution continues normally.
 If assertions are not enabled at compile time, this routine does nothing, and no code is generated for the `assert` call.
 You can enable assertions globally in Settings, or locally in script editor.
+
+## Performance tips
+- Install `https://github.com/avk959/LGenerics` and enable `SE_MAP_AVK959` flag for a significant map-related performance boost (approximately 200% more for scripts heavily reliant on maps).
+- Set `GC.EnableParallelMarkings` to `True` to reduce stuttering on tight loops. This is especially useful for games. Note that so far I only test this feature with `SE_MAP_AVK959` on.
+- Use dot notation for strings with a length of 8 or fewer characters. The engine optimizes this operation by packing the string into a single `Double` type instead of allocating it on the heap.
+
+Consider the following example:
+```
+  a = []
+  a.x = 1
+  a.a_long_string = 2
+```
+The result assembly:
+```
+--- @main ---
+0: opCallNative 48, 0, 0
+4: opAssignGlobalVar 2
+6: opPushConst .x <--- x is packed into a Double and push to stack
+8: opPushConst 1
+10: opAssignGlobalArray 2, 1
+13: opPushConstString 0 <--- Ref to a_long_string, which is then allocated on the heap
+15: opPushConst 2
+17: opAssignGlobalArray 2, 1
+20: opHlt
+
+--- STRING DATA ---
+0: a_long_string
+```
+

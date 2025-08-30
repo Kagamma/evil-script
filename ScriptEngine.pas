@@ -3826,7 +3826,7 @@ procedure TSEValueMap.ToMap;
 var
   I: Integer;
 begin
-  Self.Lock;
+  while not Self.TryLock do;
   try
     if Self.FIsValidArray then
     begin
@@ -3845,7 +3845,7 @@ var
   Index, I: Integer;
   IsNumber: Boolean;
 begin
-  Self.Lock;
+  while not Self.TryLock do;
   try
     IsNumber := TryStrToInt(Key, Index);
     if IsNumber and Self.FIsValidArray and (Index >= 0) then
@@ -3872,7 +3872,7 @@ procedure TSEValueMap.Set2(const Index: Int64; const AValue: TSEValue);
 var
   I: Integer;
 begin
-  Self.Lock;
+  while not Self.TryLock do;
   try
     if Self.FIsValidArray and (Index >= 0) then
     begin
@@ -3899,7 +3899,7 @@ var
   Index: Integer;
   IsNumber: Boolean;
 begin
-  Self.Lock;
+  while not Self.TryLock do;
   try
     IsNumber := TryStrToInt(Key, Index);
     if IsNumber and Self.FIsValidArray and (Index >= 0) then
@@ -3919,7 +3919,7 @@ end;
 
 procedure TSEValueMap.Del2(const Index: Int64);
 begin
-  Self.Lock;
+  while not Self.TryLock do;
   try
     if Self.FIsValidArray and (Index >= 0) then
     begin
@@ -4030,7 +4030,7 @@ begin
     if GC.Phase = segcpMark then
     begin
       {$ifdef SE_LOG}
-      Writeln('[GC] Mark');
+      Writeln('[GC] ', Self.Phase);
       {$endif}
       for V in GC.ReachableValueList do
         GC.Mark(@V);
@@ -4158,13 +4158,13 @@ var
   end;
 
 begin
-  I := Self.FNodeList.Ptr(AFirst)^.Next;
   case AFirst of
     1: LastPtr := @Self.FNodeLastYoung;
     2: LastPtr := @Self.FNodeLastOld;
     else
       raise Exception.Create('AFirst must be 1 or 2!');
   end;
+  I := LastPtr^;
   while I <> 0 do
   begin
     Value := Self.FNodeList.Ptr(I);
@@ -4211,7 +4211,7 @@ begin
           end;
       end;
     end;
-    I := Value^.Next;
+    I := Value^.Prev;
   end;
   Self.FObjectsLastTimeVisited := Self.FObjects;
 end;
@@ -4350,9 +4350,10 @@ begin
     try
       if Self.FPhase = segcpRest then
       begin
+        Self.FPhase := segcpInitial;
         SuspendThreads;
         {$ifdef SE_LOG}
-        Writeln('[GC] Init');
+        Writeln('[GC] ', Self.FPhase);
         {$endif}
         Inc(Self.FRunCount);
         {$ifdef SE_LOG}
@@ -4363,22 +4364,22 @@ begin
         if Self.FRunCount mod Self.FOldObjectCheckCycle = 0 then
         begin
           Root := 2;
-          I := Self.FNodeList.Ptr(Root)^.Next;
+          I := Self.FNodeLastOld;
           while I <> 0 do
           begin
             Value := Self.FNodeList.Ptr(I);
             Value^.Garbage := not Value^.Lock;
-            I := Value^.Next;
+            I := Value^.Prev;
           end;
         end else
         begin
           Root := 1;
-          I := Self.FNodeList.Ptr(Root)^.Next;
+          I := Self.FNodeLastYoung;
           while I <> 0 do
           begin
             Value := Self.FNodeList.Ptr(I);
             J := I;
-            I := Value^.Next;
+            I := Value^.Prev;
             if Value^.Visit >= Self.FPromotion then
             begin
               // Detach from young generation
@@ -4407,6 +4408,9 @@ begin
         end;
 
         Self.FPhase := segcpMark;
+        {$ifdef SE_LOG}
+        Writeln('[GC] ', Self.FPhase );
+        {$endif}
         if Self.EnableParallelMarkings then
         begin
           Self.FReachableValueList.Clear;
@@ -4434,7 +4438,6 @@ begin
           end;
           Self.FReachableValueList.Add(ScriptVarMap);
           GCMarkJob.Resume;
-          ResumeThreads;
           Exit;
         end else
         begin
@@ -4474,9 +4477,8 @@ begin
 
       if Self.FPhase = segcpSweep then
       begin
-        ResumeThreads;
         {$ifdef SE_LOG}
-        Writeln('[GC] Sweep');
+        Writeln('[GC] ', Self.FPhase);
         {$endif}
         if Self.FRunCount mod Self.FOldObjectCheckCycle = 0 then
         begin
@@ -4503,12 +4505,12 @@ begin
   finally
     if Self.FPhase = segcpSweep then
     begin
-      {$ifdef SE_LOG}
-      Writeln('[GC] Rest');
-      {$endif}
       Self.FPhase := segcpRest;
-      ResumeThreads;
+      {$ifdef SE_LOG}
+      Writeln('[GC] ', Self.FPhase);
+      {$endif}
     end;
+    ResumeThreads;
     {$ifdef SE_THREADS}
     LeaveCriticalSection(CS);
     {$endif}
