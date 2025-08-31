@@ -361,7 +361,7 @@ type
     FInterval: Cardinal;
     FPromotion: Byte;
     FOldObjectCheckCycle: Byte;
-    FEnableParallelMarkings: Boolean;
+    FEnableParallel: Boolean;
     procedure Initial;
     procedure Sweep(const AFirst: Cardinal);
     procedure Mark(const PValue: PSEValue);
@@ -390,7 +390,7 @@ type
     property ObjectThreshold: Cardinal read FObjectThreshold write FObjectThreshold;
     property ReachableValueList: TSEValueList read FReachableValueList;
     property Phase: TSEGarbageCollectorPhase read FPhase write FPhase;
-    property EnableParallelMarkings: Boolean read FEnableParallelMarkings write FEnableParallelMarkings;
+    property EnableParallel: Boolean read FEnableParallel write FEnableParallel;
   end;
 
   TSECallingConvention = (
@@ -1015,6 +1015,7 @@ type
     class function SERound(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEFloor(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SECeil(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SETrunc(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEGet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SESet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEString(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -2075,6 +2076,11 @@ begin
 end;
 
 class function TBuiltInFunction.SECeil(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+begin
+  Exit(Ceil(Args[0].VarNumber));
+end;
+
+class function TBuiltInFunction.SETrunc(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 begin
   Exit(Ceil(Args[0].VarNumber));
 end;
@@ -4067,7 +4073,7 @@ begin
   Self.FObjectThreshold := 700;
   Self.FReachableValueList := TSEValueList.Create;
   Self.FVMThreadList := TSEVMList.Create;
-  Self.EnableParallelMarkings := False;
+  Self.EnableParallel := False;
 end;
 
 destructor TSEGarbageCollector.Destroy;
@@ -4383,7 +4389,7 @@ var
   var
     I: Integer;
   begin
-    if Self.EnableParallelMarkings then
+    if Self.EnableParallel then
     begin
       Self.FReachableValueList.Clear;
       for I := 0 to VMList.Count - 1 do
@@ -4478,13 +4484,13 @@ begin
         Writeln('[GC] ', Self.FPhase);
         {$endif}
         Marking;
-        if Self.EnableParallelMarkings then
+        if Self.EnableParallel then
           Exit;
       end;
 
       // Wait for the thread to finish it's job
       {$ifdef SE_THREADS}
-      if Self.EnableParallelMarkings then
+      if Self.EnableParallel then
         if Self.FPhase = segcpMark then
           Exit;
       {$endif}
@@ -6565,6 +6571,7 @@ begin
     Self.RegisterFunc('round', @TBuiltInFunction(nil).SERound, 1);
     Self.RegisterFunc('floor', @TBuiltInFunction(nil).SEFloor, 1);
     Self.RegisterFunc('ceil', @TBuiltInFunction(nil).SECeil, 1);
+    Self.RegisterFunc('trunc', @TBuiltInFunction(nil).SETrunc, 1);
     Self.RegisterFunc('sin', @TBuiltInFunction(nil).SESin, 1);
     Self.RegisterFunc('cos', @TBuiltInFunction(nil).SECos, 1);
     Self.RegisterFunc('tan', @TBuiltInFunction(nil).SETan, 1);
