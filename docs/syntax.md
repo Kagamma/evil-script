@@ -45,9 +45,9 @@ Due to the lack of AST, only constant folding and peephole optimizations are imp
 
 The virtual machine is stack-based, with super instructions to speed up certain operations.
 
-The virtual machine is capabled of perform multi-threading without the existence of a global lock (GIL), which mean threads can be scheduled concurrently. There's no hand holding and users are responsible for the safety of the code.
+The virtual machine is capable of performing multi-threading without a global interpreter lock (GIL), allowing threads to be scheduled in parallel. There is no hand-holding, and users are responsible for ensuring code correctness.
 
-Thread shares the same global storage with the main instance while having it's own stack.
+Threads and coroutines share the same global storage as the main instance while each maintains its own stack.
 
 Both the global storage and the stack are one-dimensional array. This ensures fast access to both global and local variables.
 

@@ -131,7 +131,7 @@ On Pascal side, we call `TScriptEngine.Exec` in a loop until `IsDone` flag is se
 ### Change a global variable
 Useful if we want to modify a global variable after intialized them via `TScriptEngine.Exec()`
 ```
-  SE.VM.ModifyGlobalVariable('a', NewValue);
+  SE.VM.SetGlobalVariable('a', NewValue);
 ```
 
 ## TSEValue
