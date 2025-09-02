@@ -30,33 +30,34 @@
 - [Performance tips](#performance-tips)
 
 ## Introduction
-Evil script is a simple and lightweight scripting language. It's syntax is influenced by C, Pascal and Lua.
+Evil Script is a simple and lightweight scripting language. Its syntax is influenced by C, Pascal, and Lua.
 
-A simple hello world looks like this:
+A simple "Hello, World!" program looks like this:
+
 ```
 writeln('Hello, World!')
 ```
 
 ### Architecture
 
-The compiler itself is a one-pass compiler. It follows Niklaus Wirth’s design, completely skips AST generation and generates binary directly.
+The compiler is a one-pass compiler. It follows Niklaus Wirth’s design, completely skips AST generation, and generates binary directly.
 
-Due to the lack of AST, only constant folding and peephole optimizations are implemented.
+Due to the lack of an AST, only constant folding and peephole optimizations are implemented.
 
 The virtual machine is stack-based, with super instructions to speed up certain operations.
 
 The virtual machine is capable of performing multi-threading without a global interpreter lock (GIL), allowing threads to be scheduled in parallel. There is no hand-holding, and users are responsible for ensuring code correctness.
 
-Threads and coroutines share the same global storage as the main instance while each maintains its own stack.
+Threads and coroutines share the same global storage as the main instance, while each maintains its own stack.
 
-Both the global storage and the stack are one-dimensional array. This ensures fast access to both global and local variables.
+Both the global storage and the stack are one-dimensional arrays. This ensures fast access to both global and local variables.
 
-Each evil script instance has it's own functions and global storage. A script function declared in one instance cannot be called from another instance.
+Each Evil Script instance has its own functions and global storage. A script function declared in one instance cannot be called from another instance.
 
 ## Overview
 
 ### Imperative and structured
-Evil script supports structured programming in the style of C. It  supports function and block scoping. Evil script does not require semicolons to separate statements.
+Evil Script supports structured programming in the style of C. It supports function and block scoping. Evil Script does not require semicolons to separate statements.
 
 Control flow can be achieved using while, for, do / while, if / else, and switch / case statements. Functions are weakly typed and can accept and return any type.
 
@@ -70,26 +71,17 @@ to any type at runtime.
 string, number, boolean, map, buffer, function, pasobject, null
 ```
 
-Numbers and Booleans are stored as 64-bit floating point number.
+Numbers and Booleans are stored as 64-bit floating-point numbers.
 
 Strings are by default in UTF-8 format.
 
-Maps are the only data structure available in evil script that helps us
-create different types like arrays and dictionaries. Maps can be indexed
-with both numbers and strings. Maps have no fixed size and can grow
-based on our need.
+Maps are the only data structure available in Evil Script that helps us create different types like arrays and dictionaries. Maps can be indexed with both numbers and strings. Maps have no fixed size and can grow based on our needs.
 
-For those who familiar with Lua, maps are basically the same as Lua's
-tables.
+For those familiar with Lua, maps are basically the same as Lua's tables.
 
-Evil script treats arrays as a sepcial case of map. It optimizes maps
-with valid array status, by storing values in an actual array underneath
-for quick access.
+Evil Script treats arrays as a special case of maps. It optimizes maps with valid array status by storing values in an actual array underneath for quick access.
 
-Buffers are used to interface with DLL libraries written in native
-languages like C or Pascal. It is basically a space within the system
-memory that is used to store raw data for just about anything. Underneath
-a buffer is just a pointer and you can perform pointer arimethic on it.
+Buffers are used to interface with DLL libraries written in native languages like C or Pascal. A buffer is essentially a space within the system memory used to store raw data for just about anything. Underneath, a buffer is just a pointer, and you can perform pointer arithmetic on it.
 
 ### Scopes
 Variables are block-scoped. They are accessible only within the scope in which they are declared and any nested scopes.
@@ -99,11 +91,11 @@ Variables declared in a function are local to that function by default. If a glo
 Evil script does not support closures. Try to access parent function's local variables from a nested function may cause unexpected behaviors.
 
 ### Memory management
-Strings, Maps, Buffers and managed PasObjects are subject to automatic memory management. You do not have to worry about allocation and deallocation of these data types.
+Strings, Maps, Buffers, and managed PasObjects are subject to automatic memory management. You do not have to worry about allocation and deallocation of these data types.
 
 The virtual machine utilizes a simple generational garbage collector that periodically reclaims memory by dividing objects into young and old generations, optimizing performance for short-lived objects and efficiently managing long-lived ones. It runs every 5 seconds, triggering collection when the number of allocated objects exceeds the previous cycle by 700.
 
-Users can invoke GC manually by calling `mem_gc()` function.
+Users can invoke the garbage collector manually by calling the mem_gc() function.
 
 ## Syntax
 
@@ -447,9 +439,9 @@ test()
 
 ### Self
 
-- Evil script does not support true OOP. Instead, "object instance" containing the callee will pass itself to callee as `self`.
-- The main reason for this mechanism instead of true OOP is performance: This way it doesn't require a separate "method reference" type, which typically uses twice the memory (which result in additional memory allocations due to the way script engine keeps data), compared to a normal "function reference".
-- Nested functions and/or outside functions can access caller's `self`.
+- Evil Script does not support true OOP. Instead, an "object instance" containing the callee will pass itself to the callee as `self`.
+- The main reason for this mechanism instead of true OOP is performance: This way, it doesn't require a separate "method reference" type, which typically uses twice the memory (resulting in additional memory allocations due to the way the script engine keeps data), compared to a normal "function reference".
+- Nested functions and/or outside functions can access the caller's `self`.
 
     ```
     fn obj_create() {
@@ -491,11 +483,11 @@ test()
 
 ### Yield
 
-- If calls outside coroutines: Quit the script and returns to main process. When the process executes the script again, it will continue at where yield's called.
+- If called outside coroutines: Quit the script and returns to main process. When the process executes the script again, it will continue at where yield was called.
 
-- If calls inside coroutines: Quit the current coroutine. When the script resumes the coroutine, it will continue at where yield's called.
+- If called inside coroutines: Quit the current coroutine. When the script resumes the coroutine, it will continue at where yield was called.
 
-- If calls inside a thread: Yields the processor to other threads.
+- If called inside a thread: Yields the processor to other threads.
 
 - `yield (expression)` is equivalent to:
 ```
@@ -593,5 +585,5 @@ You can enable assertions globally in Settings, or locally in script editor.
       --- STRING DATA ---
       0: a_long_string
       ```
-- Named functions are always faster than anonymous functions / function references.
+- Named functions are always faster than anonymous functions or function references.
 
