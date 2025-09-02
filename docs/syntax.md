@@ -495,6 +495,8 @@ test()
 
 - If calls inside coroutines: Quit the current coroutine. When the script resumes the coroutine, it will continue at where yield's called.
 
+- If calls inside a thread: Yields the processor to other threads.
+
 - `yield (expression)` is equivalent to:
 ```
   result = expression

@@ -4469,7 +4469,7 @@ begin
         Self.FPhase := segcpInitial;
         SuspendThreads;
         {$ifdef SE_LOG}
-        Writeln('[GC] ', Self.FPhase);
+        Writeln('[GC] ', GC.Phase);
         {$endif}
         Inc(Self.FRunCount);
         {$ifdef SE_LOG}
@@ -6363,6 +6363,8 @@ begin
       begin
         Self.VM.Exec;
         {$ifdef Unix}
+        if Self.VM.IsYielded then
+          Self.Yield;
         if Self.VM.IsRequestForSuspend then
           Self.Suspend;
         Self.VM.IsRequestForSuspend := False;
