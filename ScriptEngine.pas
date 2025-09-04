@@ -793,6 +793,7 @@ type
     IsConst: Boolean;
     ConstValue: TSEValue;
     Local: Integer;
+    Block: Integer;
     Ln: Integer;
     Col: Integer;
     Name: String;
@@ -851,6 +852,7 @@ type
     IsDone: Boolean;
     FuncCurrent: Integer;
     FuncTraversal: Integer;
+    BlockTraversal: Integer;
     CurrentFileList: TStrings;
     BinaryPos: Integer; // This is mainly for storing line of code for runtime
     Binary: TSEBinary; // Current working binary
@@ -7413,7 +7415,7 @@ var
     begin
       Result := Self.VarList.Ptr(I);
       if Result^.Name = Name then
-        if (not IsSameLocal) or (IsSameLocal and (Result^.Local = Self.FuncTraversal)) then
+        if (not IsSameLocal) or (IsSameLocal and (Result^.Local = Self.FuncTraversal) and (Result^.Block >= Self.BlockTraversal)) then
           Exit(Result);
     end;
     Exit(nil);
@@ -7549,6 +7551,7 @@ var
     Result.Col := Token.Col;
     Result.Name := Token.Value;
     Result.Local := Self.FuncTraversal;
+    Result.Block := Self.BlockTraversal;
     Result.IsUsed := IsUsed;
     Result.IsConst := IsConst;
     Result.ConstValue := SENull;
@@ -9789,6 +9792,7 @@ var
     List: TList;
     I, J: Integer;
   begin
+    Inc(Self.BlockTraversal);
     Token := PeekAtNextToken;
     case Token.Kind of
       tkConst:
@@ -9965,6 +9969,7 @@ var
     {$ifdef UNIX}
     Emit([Pointer(opBlockCleanup)]);
     {$endif}
+    Dec(Self.BlockTraversal);
   end;
 
 begin

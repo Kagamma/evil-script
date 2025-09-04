@@ -84,9 +84,7 @@ Evil Script treats arrays as a special case of maps. It optimizes maps with vali
 Buffers are used to interface with DLL libraries written in native languages like C or Pascal. A buffer is essentially a space within the system memory used to store raw data for just about anything. Underneath, a buffer is just a pointer, and you can perform pointer arithmetic on it.
 
 ### Scopes
-Variables are block-scoped. They are accessible only within the scope in which they are declared and any nested scopes.
-
-Variables declared in a function are local to that function by default. If a global variable has the same name, the `local` prefix is needed. Such variables are stored on the stack.
+Variables are block-scoped. They are accessible only within the scope in which they are declared and any nested scopes. If a newly declared variable from current block has the same name as the one declared in parent block, the `local` prefix is needed.
 
 Evil script does not support closures. Try to access parent function's local variables from a nested function may cause unexpected behaviors.
 
