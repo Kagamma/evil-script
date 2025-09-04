@@ -11,7 +11,7 @@ fn inc_1() {
 }
 
 fn inc_2() {
-  event_wait(e) // Wait for inc_1() finish
+  event_wait(e, -1) // Wait for inc_1() finish
   a = 100
   for i = 0 to 4 {
     writeln(a)

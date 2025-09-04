@@ -277,7 +277,6 @@ type
     function ToString: String;
   end;
 
-  TSEValueList = specialize TList<TSEValue>;
   TSEValueDict = specialize TSEDictionary<{$ifdef SE_MAP_SHORTSTRING}ShortString{$else}String{$endif}, TSEValue>;
   TSEValueMap = class(specialize TList<TSEValue>)
   private
@@ -305,6 +304,17 @@ type
   end;
   TSEValueArray = array of TSEValue;
   PPSEValue = ^PSEValue;
+
+  TSEValueListAncestor = specialize TList<TSEValue>;
+  TSEValueList = class(TSEValueListAncestor)
+  public
+    function Ptr(const P: Cardinal): PSEValue;
+  end;
+
+  TSEBinary = class(TSEValueList)
+  public
+    BinaryName: String;
+  end;
 
   PSEGCNode = ^TSEGCNode;
   TSEGCNode = record
@@ -464,13 +474,6 @@ type
     function Ptr(const P: Cardinal): PSEFuncImportInfo;
   end;
 
-  TSEBinaryAncestor = specialize TList<TSEValue>;
-  TSEBinary = class(TSEBinaryAncestor)
-  public
-    BinaryName: String;
-    function Ptr(const P: Cardinal): PSEValue;
-  end;
-
   TSESymbolKind = (
     sesConst
   );
@@ -497,7 +500,7 @@ type
   TSELineOfCodeList = specialize TList<TSELineOfCode>;
 
   TSEConstMap = specialize TSEDictionary<String, TSEValue>;
-  TSEStack = TSEBinaryAncestor;
+  TSEStack = TSEValueListAncestor;
   TSEVarMap = TSEValue;
   TSEFrame = record
     Code: Integer;
@@ -2744,28 +2747,28 @@ end;
 
 class function TBuiltInFunction.SEEventCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 var
-  Event: TEvent;
+  Event: TEventObject;
 begin
-  Event := TEvent.Create;
+  Event := TEvent.Create(nil, True, False, '');
   GC.AllocPascalObject(@Result, Event, True);
 end;
 
 class function TBuiltInFunction.SEEventSet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 begin
   SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
-  TEvent(Args[0].VarPascalObject^.Value).SetEvent;
+  TEventObject(Args[0].VarPascalObject^.Value).SetEvent;
 end;
 
 class function TBuiltInFunction.SEEventWait(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 begin
   SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
-  Result := TSENumber(Integer(TEvent(Args[0].VarPascalObject^.Value).WaitFor));
+  Result := TSENumber(Integer(TEventObject(Args[0].VarPascalObject^.Value).WaitFor(Round(Args[1].VarNumber))));
 end;
 
 class function TBuiltInFunction.SEEventReset(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 begin
   SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
-  TEvent(Args[0].VarPascalObject^.Value).ResetEvent;
+  TEventObject(Args[0].VarPascalObject^.Value).ResetEvent;
 end;
 {$endif}
 
@@ -3211,7 +3214,7 @@ begin
   Result := @FItems[P];
 end;
 
-function TSEBinary.Ptr(const P: Cardinal): PSEValue; inline;
+function TSEValueList.Ptr(const P: Cardinal): PSEValue; inline;
 begin
   Result := @FItems[P];
 end;
@@ -4030,7 +4033,7 @@ end;
 
 procedure TSEGarbageCollectorMarkJob.Execute;
 var
-  V: TSEValue;
+  I: Integer;
 begin
   while True do
   begin
@@ -4041,8 +4044,8 @@ begin
       {$ifdef SE_LOG}
       Writeln('[GC] ', Self.Phase);
       {$endif}
-      for V in GC.ReachableValueList do
-        GC.Mark(@V);
+      for I := 0 to GC.ReachableValueList.Count - 1 do
+        GC.Mark(GC.ReachableValueList.Ptr(I));
       GC.Phase := segcpSweep;
       Self.Suspend;
     end;
@@ -6634,7 +6637,7 @@ begin
     Self.RegisterFunc('critical_try', @TBuiltInFunction(nil).SECriticalTry, 1);
     Self.RegisterFunc('event_create', @TBuiltInFunction(nil).SEEventCreate, 0);
     Self.RegisterFunc('event_set', @TBuiltInFunction(nil).SEEventSet, 1);
-    Self.RegisterFunc('event_wait', @TBuiltInFunction(nil).SEEventWait, 1);
+    Self.RegisterFunc('event_wait', @TBuiltInFunction(nil).SEEventWait, 2);
     Self.RegisterFunc('event_reset', @TBuiltInFunction(nil).SEEventReset, 1);
     {$endif}
     CommonNativeFuncList.AddRange(Self.FuncNativeList);

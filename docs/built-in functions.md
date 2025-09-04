@@ -285,6 +285,8 @@ number): map`
 
 `frac(n: number): number`
 
+`trunc(n: number): number`
+
 `range(x, y: number): map`
 - Returns [x..y] array with step = 1.
 
@@ -365,49 +367,49 @@ Returns length of string, map or buffer.
 - Typecasts a char to equivalent number value.
 
 ## Multithreading
-`thread_create(function, any...): pasobject`
+`thread_create(func: function, any...): pasobject`
 - Creates a new thread with the the provided function and returns thread's pasobject instance. The first argument must be a function, any additional arguments will be passed to that function when the thread starts. The thread's pasobject instance is passed to the function as `self`.
 
-`thread_start(pasobject)`
+`thread_start(thread: pasobject)`
 - Begin / resume thread execution.
 
-`thread_is_terminated(pasobject): boolean`
+`thread_is_terminated(thread: pasobject): boolean`
 - Check if thread's `terminated` flag is set. Returns `true` if the flag is set.
 
-`thread_suspend(pasobject)`
+`thread_suspend(thread: pasobject)`
 - Suspends the execution of a running thread.
 
-`thread_resume(pasobject)`
+`thread_resume(thread: pasobject)`
 - Alias to `thread_start`.
 
-`thread_terminate(pasobject)`
+`thread_terminate(thread: pasobject)`
 - Set the `terminated` flag of the thread to `true`.
 
-`thread_wait(pasobject)`
+`thread_wait(thread: pasobject)`
 - Waits for the thread to terminate.
 
 `critical_create(): pasobject`
 - Creates a new critical section (lock) instance.
 
-`critical_enter(pasobject)`
+`critical_enter(lock: pasobject)`
 - Acquires the lock. Suspend the thread until the lock is acquired.
 
-`critical_leave(pasobject)`
+`critical_leave(lock: pasobject)`
 - Release the lock.
 
-`critical_try(pasobject): boolean`
+`critical_try(lock: pasobject): boolean`
 - Try to acquire the lock. Returns `true` if the lock is acquired.
 
 `event_create(): pasobject`
 - Creates a new event instance.
 
-`event_set(pasobject): pasobject`
+`event_set(event: pasobject): pasobject`
 - Signal the event. Any thread that was waiting for the event to be set (using `event_wait()`) will resume it's operation.
 
-`event_wait(pasobject)`
+`event_wait(event: pasobject, timeout: number)`
 - Should be used in threads that should be notified when the event is set. The thread will be suspended until the event is signaled using `event_set()`.
 
-`event_reset(pasobject)`
+`event_reset(event: pasobject)`
 - Reset the event. Any threads calling `event_wait()` will be suspended.
 
 ## Strings
