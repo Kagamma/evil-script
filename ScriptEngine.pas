@@ -4389,6 +4389,7 @@ var
   var
     I: Integer;
   begin
+  {$ifdef SE_THREADS}
     if Self.EnableParallel then
     begin
       Self.FReachableValueList.Clear;
@@ -4417,6 +4418,7 @@ var
       Self.FReachableValueList.Add(ScriptVarMap);
       GCMarkJob.Resume;
     end else
+  {$endif}
     begin
       for I := 0 to VMList.Count - 1 do
       begin
@@ -4835,9 +4837,7 @@ begin
   Self.Binaries.Free;
   if VMList <> nil then
     VMList.Remove(Self);
-  {$ifdef SE_THREADS}
-  if (Self.ThreadOwner = nil) and (Self.CoroutineOwner = nil) then
-  {$endif}
+  if {$ifdef SE_THREADS}(Self.ThreadOwner = nil) and{$endif} (Self.CoroutineOwner = nil) then
   begin
     Self.ConstStrings.Free;
     Self.SymbolList.Free;
@@ -6781,10 +6781,12 @@ begin
   Self.ConstMap.AddOrSetValue('sevkNull', TSENumber(Integer(sevkNull)));
   Self.ConstMap.AddOrSetValue('sevkFunction', TSENumber(Integer(sevkFunction)));
   Self.ConstMap.AddOrSetValue('sevkPointer', TSENumber(Integer(sevkPointer)));
+  {$ifdef SE_THREADS}
   Self.ConstMap.AddOrSetValue('wrSignaled', TSENumber(Integer(wrSignaled)));
   Self.ConstMap.AddOrSetValue('wrTimeout', TSENumber(Integer(wrTimeout)));
   Self.ConstMap.AddOrSetValue('wrAbandoned', TSENumber(Integer(wrAbandoned)));
   Self.ConstMap.AddOrSetValue('wrError', TSENumber(Integer(wrError)));
+  {$endif}
 end;
 
 procedure TEvilC.SetSource(V: String);
@@ -10532,7 +10534,9 @@ initialization
   SENull.VarNumber := Floor(0);
   DynlibMap := TDynlibMap.Create;
   GC := TSEGarbageCollector.Create;
+  {$ifdef SE_THREADS}
   GCMarkJob := TSEGarbageCollectorMarkJob.Create;
+  {$endif}
   ScriptCacheMap := TSECacheMap.Create;
   GC.AllocMap(@ScriptVarMap);
   IsThread := 0;
@@ -10556,6 +10560,7 @@ initialization
 finalization
   if VMList <> nil then
   begin
+    {$ifdef SE_THREADS}
     for I := VMList.Count - 1 downto 0 do
     begin
       if VMList[I].ThreadOwner <> nil then
@@ -10564,11 +10569,14 @@ finalization
         VMList[I].ThreadOwner.WaitFor;
       end;
     end;
+    {$endif}
     VMList.Free;
   end;
   VMList := nil;
+  {$ifdef SE_THREADS}
   GCMarkJob.Terminate;
   GCMarkJob.Resume;
+  {$endif}
   GC.Free;
   ScriptCacheMap.Free;
   DynlibMap.Free;
