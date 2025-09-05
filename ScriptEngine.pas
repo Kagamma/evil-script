@@ -1082,7 +1082,6 @@ type
     class function SEGCObjectCount(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEGCObjectOldCount(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEGCCollect(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-    class function SEAssert(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEChar(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEOrd(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SECoroutineCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -1141,6 +1140,7 @@ var
   {$endif}
   FS: TFormatSettings;
   CommonNativeFuncList: TSEFuncNativeList;
+  FunctionAssert: array of TSEValue;
 
 {$ifdef SE_THREADS}
 threadvar
@@ -2621,12 +2621,6 @@ class function TBuiltInFunction.SEGCCollect(const VM: TSEVM; const Args: PSEValu
 begin
   GC.GC(True);
   Result := SENull;
-end;
-
-class function TBuiltInFunction.SEAssert(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-begin
-  if Args[0] = False then
-    raise EAssertionFailed.Create(Args[1]);
 end;
 
 class function TBuiltInFunction.SEChar(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -6674,7 +6668,6 @@ begin
     Self.RegisterFunc('json_stringify', @TBuiltInFunction(nil).SEJSONStringify, 1);
     {$endif}
     Self.RegisterFunc('pasobject_classname', @TBuiltInFunction(nil).SEPasObjectClassName, 1);
-    Self.RegisterFunc('assert', @TBuiltInFunction(nil).SEAssert, 2);
     Self.RegisterFunc('chr', @TBuiltInFunction(nil).SEChar, 1);
     Self.RegisterFunc('ord', @TBuiltInFunction(nil).SEOrd, 1);
 
@@ -10101,6 +10094,11 @@ begin
   ErrorCol := -1;
   Self.FuncTraversal := 0;
   Self.FuncCurrent := -1;
+
+  // Implement assert function
+  Self.RegisterScriptFunc('assert', 2);
+  Self.Binary := Self.VM.Binaries.Value^.Data[1];
+  Self.Binary.AddRange(FunctionAssert);
 end;
 
 function TEvilC.Exec: TSEValue;
@@ -10499,6 +10497,17 @@ initialization
   ScriptCacheMap := TSECacheMap.Create;
   GC.AllocMap(@ScriptVarMap);
   IsThread := 0;
+  FunctionAssert := [
+    Pointer(opPushLocalVar), Pointer(0), Pointer(0),
+    Pointer(opPushConst), false,
+    Pointer(opOperatorEqual),
+    Pointer(opJumpEqual1), true, Pointer(11),
+    Pointer(opJumpUnconditional), Pointer(17),
+    Pointer(opPushLocalVar), Pointer(1), Pointer(0),
+    Pointer(opThrow),
+    Pointer(opJumpUnconditional), Pointer(17),
+    Pointer(opPopFrame)
+  ];
 
 finalization
   if VMList <> nil then

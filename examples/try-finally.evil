@@ -2,6 +2,8 @@
 // block and wrap it to a function
 
 fn try_finally(ftry, ffinally) {
+  assert(kindof(ftry) == sevkFunction, 'ftry must be a function')
+  assert(kindof(ffinally) == sevkFunction, 'ffinally must be a function')
   try {
     ftry()
     ffinally()

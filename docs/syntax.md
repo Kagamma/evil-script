@@ -554,9 +554,8 @@ By default, `import` supports `Microsoft x64 calling convention` on Windows, and
 assert(expr, 'Error message')
 ```
 
-With assertions on, `assert` tests if expr is false, and if so, aborts the script with an EAssertionFailed exception. If expr is true, script execution continues normally.
+With assertions on, `assert` tests if expr is false, and if so, raise an exception. If expr is true, script execution continues normally.
 If assertions are not enabled at compile time, this routine does nothing, and no code is generated for the `assert` call.
-You can enable assertions globally in Settings, or locally in script editor.
 
 ## Performance tips
 - Use dot notation for strings with a length of 8 or fewer characters. The engine optimizes this operation by packing the string into a single `Double` type instead of allocating it on the heap.
