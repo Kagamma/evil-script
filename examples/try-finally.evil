@@ -1,0 +1,27 @@
+// Since the language does not support "finally", we simulate it using try-catch
+// block and wrap it to a function
+
+fn try_finally(ftry, ffinally) {
+  try {
+    ftry()
+    ffinally()
+  } catch(e) {
+    ffinally()
+    throw e
+  }
+}
+
+try {
+  try_finally(
+    fn() {
+      writeln('START')
+      throw 'EXCEPTION'
+      writeln('END')
+    },
+    fn() {
+      writeln('FINALLY will always be executed')
+    }
+  )
+} catch(e) {
+  writeln(e)
+}

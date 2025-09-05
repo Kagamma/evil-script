@@ -81,7 +81,7 @@ begin
       end;
   end;
   Randomize;
-  GC.EnableParallelMarkings := IsP;
+  GC.EnableParallel := IsP;
   SE := TScriptEngine.Create;
   SE.OptimizePeephole := IsO;
   SE.OptimizeConstantFolding := IsO;
