@@ -1141,6 +1141,7 @@ var
   FS: TFormatSettings;
   CommonNativeFuncList: TSEFuncNativeList;
   FunctionAssert: array of TSEValue;
+  FunctionThrow: array of TSEValue;
 
 {$ifdef SE_THREADS}
 threadvar
@@ -4886,6 +4887,34 @@ var
   BinaryLocal: PSEValue;
   FuncImport, P, PP, PC: Pointer;
   LineOfCode: TSELineOfCode;
+  IsScriptException: Boolean = False;
+
+  procedure GetLineOfCode;
+  var
+    I: Integer;
+  begin
+    if FramePtr = @Self.Frame[0] then
+    begin
+      I := Self.Parent.LineOfCodeList.Count - 1;
+      while I >= 0 do
+      begin
+        LineOfCode := Self.Parent.LineOfCodeList[I];
+        if (CodePtrLocal >= LineOfCode.BinaryCount) and (LineOfCode.BinaryPtr = 0) then
+          break;
+        Dec(I);
+      end;
+    end else
+    begin
+      I := 0;
+      while I < Self.Parent.LineOfCodeList.Count - 1 do
+      begin
+        LineOfCode := Self.Parent.LineOfCodeList[I];
+        if (CodePtrLocal < LineOfCode.BinaryCount) and (BinaryPtrLocal = LineOfCode.BinaryPtr) then
+          break;
+        Inc(I);
+      end;
+    end;
+  end;
 
   procedure PrintEvilScriptStackTrace(Message: String);
 
@@ -5313,7 +5342,7 @@ var
 {$endif}
 
 label
-  CallScript, CallNative, CallImport,
+  labelStart, CallScript, CallNative, CallImport,
   labelPushConst,
   labelPushConstString,
   labelPushGlobalVar,
@@ -5478,6 +5507,7 @@ begin
   BinaryLocal := Self.Binaries.Value^.Data[Self.BinaryPtr].Ptr(0);
   GC.CheckForGC;
 
+labelStart:
   while True do
   try
     DispatchGoto;
@@ -6306,6 +6336,7 @@ begin
       {$ifndef SE_COMPUTED_GOTO}opThrow:{$endif}
         begin
         labelThrow:
+          IsScriptException := True;
           if Self.TrapPtr < @Self.Trap[0] then
             raise Exception.Create(SEValueToText(Pop^))
           else
@@ -6347,27 +6378,7 @@ begin
       if Self.TrapPtr < @Self.Trap[0] then
       {$endif}
       begin
-        if FramePtr = @Self.Frame[0] then
-        begin
-          I := Self.Parent.LineOfCodeList.Count - 1;
-          while I >= 0 do
-          begin
-            LineOfCode := Self.Parent.LineOfCodeList[I];
-            if (CodePtrLocal >= LineOfCode.BinaryCount) and (LineOfCode.BinaryPtr = 0) then
-              break;
-            Dec(I);
-          end;
-        end else
-        begin
-          I := 0;
-          while I < Self.Parent.LineOfCodeList.Count - 1 do
-          begin
-            LineOfCode := Self.Parent.LineOfCodeList[I];
-            if (CodePtrLocal < LineOfCode.BinaryCount) and (BinaryPtrLocal = LineOfCode.BinaryPtr) then
-              break;
-            Inc(I);
-          end;
-        end;
+        GetLineOfCode;
         if LineOfCode.Module = '' then
           S := S + Format('Runtime error %s: "%s" at line %d', [E.ClassName, E.Message, LineOfCode.Line])
         else
@@ -6375,6 +6386,30 @@ begin
         PrintEvilScriptStackTrace(S);
         raise Exception.Create(S);
       {$ifdef SE_COMPUTED_GOTO}
+      end else
+      if not IsScriptException then
+      begin
+        GetLineOfCode;
+        if LineOfCode.Module = '' then
+          S := S + Format('Runtime error %s: "%s" at line %d', [E.ClassName, E.Message, LineOfCode.Line])
+        else
+          S := S + Format('Runtime error %s: "%s" at line %d (%s)', [E.ClassName, E.Message, LineOfCode.Line, LineOfCode.Module]);
+        IsScriptException := False;
+        Push(S);
+        ArgCount := 1;
+        FuncScriptInfo := Self.Parent.FuncScriptList.Ptr(1);
+        Inc(Self.FramePtr);
+        if Self.FramePtr > @Self.Frame[Self.FrameSize - 1] then
+          raise Exception.Create('Too much recursion');
+        Self.FramePtr^.Stack := Self.StackPtr - ArgCount;
+        Self.FramePtr^.Code := CodePtrLocal;
+        Self.FramePtr^.Binary := BinaryPtrLocal;
+        Self.FramePtr^.Func := FuncScriptInfo;
+        Self.StackPtr := Self.StackPtr + FuncScriptInfo^.VarCount;
+        CodePtrLocal := 0;
+        BinaryPtrLocal := FuncScriptInfo^.BinaryPos;
+        BinaryLocal := Self.Binaries.Value^.Data[BinaryPtrLocal].Ptr(0);
+        DispatchGoto;
       end else
       begin
         Self.FramePtr := Self.TrapPtr^.FramePtr;
@@ -10099,6 +10134,10 @@ begin
   Self.RegisterScriptFunc('assert', 2);
   Self.Binary := Self.VM.Binaries.Value^.Data[1];
   Self.Binary.AddRange(FunctionAssert);
+  // Implement ___throw function
+  Self.RegisterScriptFunc('___throw', 1);
+  Self.Binary := Self.VM.Binaries.Value^.Data[2];
+  Self.Binary.AddRange(FunctionThrow);
 end;
 
 function TEvilC.Exec: TSEValue;
@@ -10506,6 +10545,11 @@ initialization
     Pointer(opPushLocalVar), Pointer(1), Pointer(0),
     Pointer(opThrow),
     Pointer(opJumpUnconditional), Pointer(17),
+    Pointer(opPopFrame)
+  ];
+  FunctionThrow := [
+    Pointer(opPushLocalVar), Pointer(0), Pointer(0),
+    Pointer(opThrow),
     Pointer(opPopFrame)
   ];
 

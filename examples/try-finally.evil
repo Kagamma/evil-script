@@ -13,12 +13,14 @@ fn try_finally(ftry, ffinally) {
   }
 }
 
+writeln('START PROGRAM')
+a = 2
 try {
   try_finally(
     fn() {
-      writeln('START')
-      throw 'EXCEPTION'
-      writeln('END')
+      writeln('START TRY')
+      b = a / 0 // Trigger division by zero
+      writeln('END TRY')
     },
     fn() {
       writeln('FINALLY will always be executed')
@@ -27,3 +29,4 @@ try {
 } catch(e) {
   writeln(e)
 }
+writeln('FINISH PROGRAM')
