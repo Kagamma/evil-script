@@ -8799,6 +8799,8 @@ var
     Rewind(RewindStartAdd, RewindCount);
     EmitPushVar(Ident, True);
     Emit([Pointer(opCallRef), Pointer(0), Pointer(ArgCount), Pointer(DeepCount)]);
+    if PeekAtNextToken.Kind = tkBracketOpen then
+      ParseFuncRefCall;
   end;
 
   procedure ParseFuncRefCall(const ThisRefIdent: PSEIdent = nil);
@@ -8838,6 +8840,8 @@ var
     end;
     EmitPushVar(FuncIdent);
     Emit([Pointer(opCallRef), Pointer(0), Pointer(ArgCount), Pointer(0)]);
+    if PeekAtNextToken.Kind = tkBracketOpen then
+      ParseFuncRefCall;
   end;
 
   procedure ParseFuncRefCallByName(const Name: String);
@@ -8867,6 +8871,8 @@ var
     // We now push func def to stack
     EmitPushVar(FindVar(Name)^);
     Emit([Pointer(opCallRef), Pointer(0), Pointer(ArgCount), Pointer(0)]);
+    if PeekAtNextToken.Kind = tkBracketOpen then
+      ParseFuncRefCall;
   end;
 
   procedure ParseFuncCall(const Name: String);
@@ -8938,6 +8944,8 @@ var
     end
     else
       Emit([Pointer(opCallImport), Pointer(Ind), Pointer(0), Pointer(0)]);
+    if PeekAtNextToken.Kind = tkBracketOpen then
+      ParseFuncRefCall;
   end;
 
   function ParseFuncDecl(const IsAnon: Boolean = False): TSEToken;
