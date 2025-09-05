@@ -18,7 +18,7 @@ unit ScriptEngine;
   {$endif}
 {$endif}
 // enable this if you want to use libffi to handle dynamic function calls
-{.$define SE_LIBFFI}
+{$define SE_LIBFFI}
 {$if defined(CPU32) or defined(CPU64) or defined(SE_LIBFFI)}
   {$ifndef WASI}
     {$define SE_DYNLIBS}
@@ -37,7 +37,7 @@ unit ScriptEngine;
 // enable this to replace FP's TDirectory with avk959's TGChainHashMap. It is a lot faster than TDirectory.
 // requires https://github.com/avk959/LGenerics
 // note: enable this will undef SE_MAP_SHORTSTRING, because this optimization is not necessary for TGChainHashMap
-{.$define SE_MAP_AVK959}
+{$define SE_MAP_AVK959}
 {$ifdef SE_MAP_AVK959}
   {$undef SE_MAP_SHORTSTRING}
   {$define TSEDictionary := TGChainHashMap}
@@ -277,7 +277,11 @@ type
     function ToString: String;
   end;
 
-  TSEValueDict = specialize TSEDictionary<{$ifdef SE_MAP_SHORTSTRING}ShortString{$else}String{$endif}, TSEValue>;
+  TSEValueDict = class(specialize TSEDictionary<{$ifdef SE_MAP_SHORTSTRING}ShortString{$else}String{$endif}, TSEValue>)
+  public
+    function Get(const S: {$ifdef SE_MAP_SHORTSTRING}ShortString{$else}String{$endif}): TSEValue;
+  end;
+
   TSEValueMap = class(specialize TList<TSEValue>)
   private
     FIsValidArray: Boolean;
@@ -1374,34 +1378,30 @@ end;
 
 function SEMapGet(constref V: TSEValue; constref S: String): TSEValue; inline; overload;
 begin
-  try
-    Result := TSEValueMap(V.VarMap).Map[S];
-  except
-    Result := SENull;
-  end;
+  Result := TSEValueMap(V.VarMap).Map.Get(S);
 end;
 
 function SEMapGet(constref V, I: TSEValue): TSEValue; inline; overload;
 begin
-  try
-    case I.Kind of
-      sevkString:
-        begin
-          Result := TSEValueMap(V.VarMap).Map[I.VarString^];
-        end;
-      sevkNumber, sevkBoolean:
-        begin
+  case I.Kind of
+    sevkString:
+      begin
+        Result := TSEValueMap(V.VarMap).Map.Get(I.VarString^);
+      end;
+    sevkNumber, sevkBoolean:
+      begin
+        try
           Result := TSEValueMap(V.VarMap).Items[Round(I.VarNumber)];
+        except
+          Result := SENull;
         end;
-      sevkPackedString:
-        begin
-          Result := TSEValueMap(V.VarMap).Map[I.VarPackedString];
-        end;
-      else
-        Exit(SENull);
-    end;
-  except
-    Result := SENull;
+      end;
+    sevkPackedString:
+      begin
+        Result := TSEValueMap(V.VarMap).Map.Get(I.VarPackedString);
+      end;
+    else
+      Exit(SENull);
   end;
 end;
 
@@ -3177,6 +3177,23 @@ class function TBuiltInFunction.SEPasObjectClassName(const VM: TSEVM; const Args
 begin
   SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
   Result := TObject(Args[0].VarPascalObject^.Value).ClassName;
+end;
+
+function TSEValueDict.Get(const S: {$ifdef SE_MAP_SHORTSTRING}ShortString{$else}String{$endif}): TSEValue;
+begin
+  try
+    Result := Self[S];
+  except
+    if Self.{$ifdef SE_MAP_AVK959}Contains{$else}ContainsKey{$endif}('__super__') then
+    begin
+      Result := Self['__super__'];
+      if Result.Kind = sevkMap then
+        Result := TSEValueMap(Result.VarMap).Map.Get(S)
+      else
+        Result := SENull;
+    end else
+      Result := SENull;
+  end;
 end;
 
 function TSEGCNodeList.Ptr(const P: Cardinal): PSEGCNode; inline;
@@ -8836,6 +8853,8 @@ var
     end;
     EmitPushVar(FuncIdent);
     Emit([Pointer(opCallRef), Pointer(0), Pointer(ArgCount), Pointer(0)]);
+    if PeekAtNextToken.Kind = tkBracketOpen then
+      ParseFuncRefCall();
   end;
 
   procedure ParseFuncRefCallByName(const Name: String);
@@ -8936,6 +8955,8 @@ var
     end
     else
       Emit([Pointer(opCallImport), Pointer(Ind), Pointer(0), Pointer(0)]);
+    if PeekAtNextToken.Kind = tkBracketOpen then
+      ParseFuncRefCall();
   end;
 
   function ParseFuncDecl(const IsAnon: Boolean = False): TSEToken;

@@ -1,0 +1,73 @@
+
+// Some helper functions
+
+// Returns object's property storage. Every properties must be assigned to this storage.
+fn obj_props(this) {
+  if this.__super__ != null {
+    this.__super__ = map_clone(this.__super__)
+    result = obj_props(this.__super__)
+  } else {
+    result = this
+    this.__props__ = this
+  }
+}
+
+// Pretty much self-explain
+fn obj_inherited(super, obj) {
+  result = obj
+  result.__super__ = map_clone(super)
+}
+
+// Example of a prototype-based OOP
+
+Animal = [
+  create: fn(name, sound) {
+    self = map_clone(self)
+    props = obj_props(self)
+    props.name = name
+    props.sound = sound
+    return (self)
+  },
+  speak: fn() {
+    writeln('${self.name} says ${self.sound}')
+    writeln('')
+  }
+]
+
+Dog = obj_inherited(Animal, [])
+
+Cat = obj_inherited(Animal, [
+  speak: fn() { // Override Animal's speak() method
+    writeln('${self.name} yawns')
+    self.__super__.speak()
+  }
+])
+
+Tiger = obj_inherited(Cat, [
+  create: fn(name, sound) {
+    self = self.__super__.create(name, sound)
+    return (self)
+  },
+  speak: fn() { // Override Cat's speak() method
+    writeln('${self.name} roar')
+    self.__super__.speak()
+  }
+])
+
+dog1 = Dog.create('Satania', 'Woof')
+dog2 = Dog.create('Vignette', 'Grrr')
+cat = Cat.create('Gabriel', 'Meow')
+tiger = Tiger.create('Raphiel', 'Growl')
+
+writeln('My 1st dog\'s name is ${dog1.name}')
+dog1.speak()
+
+writeln('My 2nd dog\'s name is ${dog2.name}')
+dog2.speak()
+
+writeln('My cat\'s name is ${cat.name}')
+cat.speak()
+
+writeln('My tiger\'s name is ${tiger.name}')
+tiger.speak()
+
