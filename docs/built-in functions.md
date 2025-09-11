@@ -144,20 +144,23 @@
 `coroutine_create(function, any...): pasobject`
 - Creates a new coroutine with the provided function and returns coroutine's pasobject instance. The first argument must be a function, any additional arguments will be passed to that function when the coroutine starts. The coroutine's pasobject instance is passed to the function as `self`.
 
-`coroutine_start(pasobject): any`
+`coroutine_start(coroutine: pasobject): any`
 - Begin or resume coroutine execution. Returns value set by either `yield` or `result`.
 
-`coroutine_resume(pasobject): any`
+`coroutine_resume(coroutine: pasobject): any`
 - Alias to `coroutine_start`.
 
-`coroutine_is_terminated(pasobject): boolean`
+`coroutine_is_terminated(coroutine: pasobject): boolean`
 - Check if coroutine's `terminated` flag is set. Returns `true` if the flag is set.
 
-`coroutine_terminate(pasobject)`
+`coroutine_terminate(coroutine: pasobject)`
 - Set the `terminated` flag of the coroutine to `true`.
 
-`coroutine_is_running(pasobject): boolean`
+`coroutine_is_running(coroutine: pasobject): boolean`
 - Returns `true` if the coroutine is running. Useful to detect if a function is executing inside a coroutine.
+
+`coroutine_reset(coroutine: pasobject, any...)`
+- Reset coroutine with new arguments. This allows to reuse a coroutine without having to create a new one.
 
 ## Datetime
 `ticks(): number`

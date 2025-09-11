@@ -559,6 +559,8 @@ type
   {$endif}
 
   TSEVMCoroutine = class
+    FStackPtr: PSEValue;
+    FBinaryPtr: Integer;
     IsDone: Boolean;
     IsExecuting: Boolean;
     IsTerminated: Boolean;
@@ -566,6 +568,7 @@ type
     constructor Create(const AVM: TSEVM; const Fn: TSEValue; const Args: PSEValue; const ArgCount, AStackSize: Cardinal);
     destructor Destroy; override;
     function Execute: TSEValue;
+    procedure Reset(const Args: PSEValue; const ArgCount: Cardinal);
   end;
   TSEVMCoroutineList = specialize TList<TSEVMCoroutine>;
 
@@ -1085,6 +1088,7 @@ type
     class function SEChar(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEOrd(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SECoroutineCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SECoroutineReset(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SECoroutineResume(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SECoroutineIsTerminated(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SECoroutineTerminate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -2088,7 +2092,7 @@ end;
 
 class function TBuiltInFunction.SETrunc(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 begin
-  Exit(Ceil(Args[0].VarNumber));
+  Exit(Trunc(Args[0].VarNumber));
 end;
 
 class function TBuiltInFunction.SEGet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -2643,6 +2647,12 @@ begin
   GC.AllocPascalObject(@Result, Coroutine, True);
   // Push "self" onto stack
   Coroutine.VM.Stack[(SE_STACK_RESERVED - 1) + ArgCount] := Result;
+end;
+
+class function TBuiltInFunction.SECoroutineReset(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+begin
+  SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
+  TSEVMCoroutine(Args[0].VarPascalObject^.Value).Reset(@Args[1], ArgCount - 1);
 end;
 
 class function TBuiltInFunction.SECoroutineResume(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -6497,6 +6507,8 @@ begin
   end;
   Self.VM.StackPtr := Self.VM.StackPtr + Self.VM.Parent.FuncScriptList[Fn.VarFuncIndx].VarCount;
   Self.VM.BinaryPtr := Self.VM.Parent.FuncScriptList[Fn.VarFuncIndx].BinaryPos;
+  Self.FStackPtr := Self.VM.StackPtr;
+  Self.FBinaryPtr := Self.VM.BinaryPtr;
 end;
 
 function TSEVMCoroutine.Execute: TSEValue;
@@ -6518,6 +6530,24 @@ begin
         Writeln('[TSEVMCoroutine] ', E.Message);
     end;
   end;
+end;
+
+procedure TSEVMCoroutine.Reset(const Args: PSEValue; const ArgCount: Cardinal);
+var
+  I: Integer;
+begin
+  Self.VM.StackPtr := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
+  for I := 0 to ArgCount - 1 do
+  begin
+    Self.VM.StackPtr[0] := Args[I];
+    Inc(Self.VM.StackPtr);
+  end;
+  Self.VM.BinaryPtr := Self.FBinaryPtr;
+  Self.VM.StackPtr := Self.FStackPtr;
+  Self.IsTerminated := False;
+  Self.IsDone := False;
+  Inc(Self.VM.FramePtr);
+  Self.VM.IsDone := False;
 end;
 
 destructor TSEVMCoroutine.Destroy;
@@ -6707,6 +6737,7 @@ begin
     Self.RegisterFunc('ord', @TBuiltInFunction(nil).SEOrd, 1);
 
     Self.RegisterFunc('coroutine_create', @TBuiltInFunction(nil).SECoroutineCreate, -1);
+    Self.RegisterFunc('coroutine_reset', @TBuiltInFunction(nil).SECoroutineReset, -1);
     Self.RegisterFunc('coroutine_start', @TBuiltInFunction(nil).SECoroutineResume, 1);
     Self.RegisterFunc('coroutine_resume', @TBuiltInFunction(nil).SECoroutineResume, 1);
     Self.RegisterFunc('coroutine_is_terminated', @TBuiltInFunction(nil).SECoroutineIsTerminated, 1);
