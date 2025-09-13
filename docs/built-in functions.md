@@ -141,7 +141,7 @@
 - Converts a valid array to a buffer. The buffer's type of data is double.
 
 ## Coroutines
-`coroutine_create(function, any...): pasobject`
+`coroutine_create(f: function, any...): pasobject`
 - Creates a new coroutine with the provided function and returns coroutine's pasobject instance. The first argument must be a function, any additional arguments will be passed to that function when the coroutine starts. The coroutine's pasobject instance is passed to the function as `self`.
 
 `coroutine_start(coroutine: pasobject): any`
@@ -159,8 +159,8 @@
 `coroutine_is_running(coroutine: pasobject): boolean`
 - Returns `true` if the coroutine is running. Useful to detect if a function is executing inside a coroutine.
 
-`coroutine_reset(coroutine: pasobject, any...)`
-- Reset coroutine with new arguments. This allows to reuse a coroutine without having to create a new one.
+`coroutine_reset(coroutine: pasobject, f: function, any...)`
+- Reset coroutine with new function and arguments. This allows to reuse a coroutine without having to create a new one.
 
 ## Datetime
 `ticks(): number`

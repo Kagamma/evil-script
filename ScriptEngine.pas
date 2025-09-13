@@ -568,7 +568,7 @@ type
     constructor Create(const AVM: TSEVM; const Fn: TSEValue; const Args: PSEValue; const ArgCount, AStackSize: Cardinal);
     destructor Destroy; override;
     function Execute: TSEValue;
-    procedure Reset(const Args: PSEValue; const ArgCount: Cardinal);
+    procedure Reset(const Fn: TSEValue; const Args: PSEValue; const ArgCount: Cardinal);
   end;
   TSEVMCoroutineList = specialize TList<TSEVMCoroutine>;
 
@@ -2652,7 +2652,8 @@ end;
 class function TBuiltInFunction.SECoroutineReset(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 begin
   SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
-  TSEVMCoroutine(Args[0].VarPascalObject^.Value).Reset(@Args[1], ArgCount - 1);
+  SEValidateType(@Args[1], sevkFunction, 2, {$I %CURRENTROUTINE%});
+  TSEVMCoroutine(Args[0].VarPascalObject^.Value).Reset(Args[1], @Args[2], ArgCount - 3);
 end;
 
 class function TBuiltInFunction.SECoroutineResume(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -3504,7 +3505,7 @@ end;
 
 operator := (V: String) R: TSEValue; inline;
 begin
-  FillChar(R, SizeOf(TSEValue), 0);
+  R := Default(TSEValue);
   GC.AllocString(@R, V);
 end;
 
@@ -4434,7 +4435,7 @@ var
       begin
         VM := VMList[I];
         P := @VM.Stack[0];
-        while P < VM.StackPtr do
+        while P <= VM.StackPtr do
         begin
           Self.Mark(P);
           Inc(P);
@@ -6532,7 +6533,7 @@ begin
   end;
 end;
 
-procedure TSEVMCoroutine.Reset(const Args: PSEValue; const ArgCount: Cardinal);
+procedure TSEVMCoroutine.Reset(const Fn: TSEValue; const Args: PSEValue; const ArgCount: Cardinal);
 var
   I: Integer;
 begin
@@ -10287,6 +10288,7 @@ var
   I: Integer;
   Stack: PSEValue;
   Func: PSEFuncScriptInfo;
+  V: TSEValue;
 begin
   {$ifdef SE_PROFILER}
   FrameProfiler.Start('TEvilC.ExecFunc');
@@ -10295,7 +10297,13 @@ begin
     Result := SENull;
     if (not Self.VM.IsDone) and (Self.VM.IsPaused or Self.VM.IsYielded) then
     begin
+      for V in Args do
+        if V.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer] then
+          GC.Managed(@V);
       Self.VM.Exec;
+      for V in Args do
+        if V.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer] then
+          GC.UnManaged(@V);
       if Self.VM.IsDone then
       begin
         Stack := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
