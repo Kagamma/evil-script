@@ -11,7 +11,7 @@
 			"patterns": [
 				{
 					"name": "keyword.control",
-					"match": "\\b(true|false|null|self|if|using|for|while|do|to|downto|in|break|continue|step|fn|import|let|switch|case|default|return|yield)\\b"
+					"match": "\\b(true|false|null|self|if|using|for|while|do|to|downto|in|break|continue|step|fn|import|let|switch|case|default|return|yield|try|catch|throw)\\b"
 				},
 				{
 					"name": "variable.language",
