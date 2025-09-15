@@ -1,0 +1,30 @@
+{
+    "name": "evilscript-vscode",
+    "displayName": "Evil script",
+    "description": "Evil script",
+    "version": "0.0.1",
+    "publisher": "kagamma",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/Kagamma/evil-script"
+    },
+    "engines": {
+        "vscode": "^1.14.0"
+    },
+    "categories": [
+        "Programming Languages"
+    ],
+    "contributes": {
+        "languages": [{
+            "id": "evil-script",
+            "aliases": ["evil-script"],
+            "extensions": [".evil"],
+            "configuration": "./language-configuration.json"
+        }],
+        "grammars": [{
+            "language": "evil-script",
+            "scopeName": "source.evil",
+            "path": "./src/grammars.json"
+        }]
+    }
+}

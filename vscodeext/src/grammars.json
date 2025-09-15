@@ -1,0 +1,86 @@
+{
+	"$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+	"name": "",
+	"patterns": [
+		{
+			"include": "#keywords"
+		}
+	],
+	"repository": {
+		"keywords": {
+			"patterns": [
+				{
+					"name": "keyword.control",
+					"match": "\\b(true|false|null|self|if|using|for|while|do|to|downto|in|break|continue|step|fn|import|let|switch|case|default|local|return|yield)\\b"
+				},
+				{
+					"name": "comment.line",
+					"match": "\/\/.+$"
+				},
+				{
+					"name": "comment.block",
+					"begin": "/\\*",
+					"end": "\\*/"
+				},
+				{
+					"name": "constant.numeric",
+					"match": "\\b[\\d\\.\\-]+\\b"
+				},
+				{
+					"name": "entity.name.function.call",
+					"match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b(?=\\()"
+				},
+                {
+					"name": "variable.language",
+                    "match": "(^|\\b)(?!if|while|fn|return|yield)[a-zA-Z_][a-zA-Z0-9_]*\\b\\s*(?==|in)",
+					"captures": {
+						"2": { "name": "variable.language" }
+					}
+                },
+				{
+					"name": "string.quoted.single.evil",
+					"begin": "'",
+					"end": "'",
+					"patterns": [
+						{
+							"name": "meta.embedded.expression.evil",
+							"begin": "\\${",
+							"end": "\\}",
+							"patterns": [
+								{
+									"include": "#keywords"
+								}
+							]
+						},
+						{
+							"name": "constant.character.escape.evil",
+							"match": "\\\\."
+						}
+					]
+				},
+                {
+                    "name": "string.quoted.double.evil",
+                    "begin": "\"",
+                    "end": "\"",
+                    "patterns": [
+                        {
+                            "name": "meta.embedded.expression.evil",
+                            "begin": "\\${",
+                            "end": "\\}",
+                            "patterns": [
+                                {
+                                    "include": "#keywords"
+                                }
+                            ]
+                        },
+                        {
+                            "name": "constant.character.escape.evil",
+                            "match": "\\\\."
+                        }
+                    ]
+                }
+			]
+		}
+	},
+	"scopeName": "source.evil"
+}

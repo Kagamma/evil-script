@@ -275,6 +275,7 @@ type
     procedure FromJSON(constref S: String);
     function ToJSON: String;
     function ToString: String;
+    function Size: Integer;
   end;
 
   TSEValueDict = specialize TSEDictionary<{$ifdef SE_MAP_SHORTSTRING}ShortString{$else}String{$endif}, TSEValue>;
@@ -1669,6 +1670,11 @@ end;
 function TSEValueHelper.ToString: String;
 begin
   Result := SEValueToText(Self);
+end;
+
+function TSEValueHelper.Size: Integer;
+begin
+  Result := SESize(Self);
 end;
 
 class function TBuiltInFunction.SEBufferCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -4084,7 +4090,7 @@ begin
   Self.FObjectThreshold := 700;
   Self.FReachableValueList := TSEValueList.Create;
   Self.FVMThreadList := TSEVMList.Create;
-  Self.EnableParallel := False;
+  Self.EnableParallel := {$ifdef SE_MAP_AVK959}True{$else}False{$endif};
 end;
 
 destructor TSEGarbageCollector.Destroy;
