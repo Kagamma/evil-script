@@ -595,10 +595,6 @@ object CodeEditorFrm: TCodeEditorFrm
       object SynGutterMarks1: TSynGutterMarks
         Width = 24
         MouseActions = <>
-        MaxExtraMarksColums = 0
-        Options = [sgmoDeDuplicateMarksOnOverflow]
-        MarkupInfoCurrentLine.Background = clBtnFace
-        MarkupInfoCurrentLine.FrameColor = clBtnFace
       end
       object SynGutterLineNumber1: TSynGutterLineNumber
         Width = 19
@@ -616,15 +612,12 @@ object CodeEditorFrm: TCodeEditorFrm
         MouseActions = <>
         ModifiedColor = 59900
         SavedColor = clGreen
-        MarkupInfoCurrentLine.Background = 1644825
-        MarkupInfoCurrentLine.FrameColor = 1644825
       end
       object SynGutterSeparator1: TSynGutterSeparator
         Width = 2
         MouseActions = <>
         MarkupInfo.Background = clWhite
         MarkupInfo.Foreground = clGray
-        MarkupInfoCurrentLine.Background = clWhite
       end
       object SynGutterCodeFolding1: TSynGutterCodeFolding
         MouseActions = <>

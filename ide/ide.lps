@@ -21,13 +21,13 @@
         <ResourceBaseClass Value="Form"/>
         <IsVisibleTab Value="True"/>
         <TopLine Value="235"/>
-        <CursorPos X="41" Y="258"/>
+        <CursorPos X="32" Y="247"/>
         <UsageCount Value="20"/>
         <Loaded Value="True"/>
         <LoadedDesigner Value="True"/>
       </Unit>
     </Units>
-    <JumpHistory HistoryIndex="27">
+    <JumpHistory HistoryIndex="24">
       <Position>
         <Filename Value="GameCodeEditor.pas"/>
         <Caret Line="11" Column="26"/>
@@ -58,23 +58,11 @@
       </Position>
       <Position>
         <Filename Value="GameCodeEditor.pas"/>
-        <Caret Line="69" Column="3" TopLine="81"/>
-      </Position>
-      <Position>
-        <Filename Value="GameCodeEditor.pas"/>
-        <Caret Line="83" Column="31" TopLine="307"/>
-      </Position>
-      <Position>
-        <Filename Value="GameCodeEditor.pas"/>
         <Caret Line="110" Column="35" TopLine="94"/>
       </Position>
       <Position>
         <Filename Value="GameCodeEditor.pas"/>
         <Caret Line="198" Column="46" TopLine="107"/>
-      </Position>
-      <Position>
-        <Filename Value="GameCodeEditor.pas"/>
-        <Caret Line="126" Column="37" TopLine="346"/>
       </Position>
       <Position>
         <Filename Value="GameCodeEditor.pas"/>
