@@ -1,5 +1,4 @@
 node_modules
 nodes-specification
 .vscode
-*.vsix
 build.bat

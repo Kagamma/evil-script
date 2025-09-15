@@ -11,7 +11,11 @@
 			"patterns": [
 				{
 					"name": "keyword.control",
-					"match": "\\b(true|false|null|self|const|if|using|for|while|do|to|downto|in|break|continue|step|fn|import|let|switch|case|default|local|return|yield)\\b"
+					"match": "\\b(true|false|null|self|if|using|for|while|do|to|downto|in|break|continue|step|fn|import|let|switch|case|default|return|yield)\\b"
+				},
+				{
+					"name": "variable.language",
+					"match": "\\b(const|local)\\b"
 				},
 				{
 					"name": "comment.line",
