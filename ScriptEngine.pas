@@ -6060,7 +6060,10 @@ labelStart:
           if C^.Kind = sevkNull then
             C := Pop;
           TSEValueMap(A^.VarMap).Lock;
-          TSEValueMap(A^.VarMap).Items[Trunc(C^.VarNumber)] := B^;
+          if C^.Kind = sevkString then
+            TSEValueMap(A^.VarMap).Map.AddOrSetValue(C^.VarString^, B^)
+          else
+            TSEValueMap(A^.VarMap).Items[Trunc(C^.VarNumber)] := B^;
           TSEValueMap(A^.VarMap).Unlock;
           Inc(CodePtrLocal, 4);
           DispatchGoto;
