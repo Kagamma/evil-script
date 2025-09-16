@@ -8518,9 +8518,30 @@ var
         tkBracketOpen:
           begin
             NextToken;
-            PeekAtNextTokenExpected([tkNegative, tkNot, tkBracketOpen, tkNumber, tkIdent]);
-            Logic();
-            NextTokenExpected([tkBracketClose]);
+            if PeekAtNextToken.Kind = tkFunctionDecl then
+            begin
+              Factor;
+              NextTokenExpected([tkBracketClose]);
+              if PeekAtNextToken.Kind = tkBracketOpen then
+              begin
+                ParseFuncRefCall;
+              end;
+            end else
+            begin
+              PeekAtNextTokenExpected([tkNegative, tkNot, tkBracketOpen, tkNumber, tkIdent, tkFunctionDecl]);
+              Logic();
+              NextTokenExpected([tkBracketClose]);
+            end;
+          end;
+        tkFunctionDecl:
+          begin
+            PushConstCount := 0;
+            IsTailed := True;
+            NextToken;
+            if IsParsedAtFuncCall then
+              ParseFuncAnonDecl(2)
+            else
+              ParseFuncAnonDecl;
           end;
         tkSquareBracketOpen:
           begin
@@ -8536,16 +8557,6 @@ var
           begin
             NextToken;
             EmitExpr([Pointer(opPushConst), Token.Value]);
-          end;
-        tkFunctionDecl:
-          begin
-            PushConstCount := 0;
-            IsTailed := True;
-            NextToken;
-            if IsParsedAtFuncCall then
-              ParseFuncAnonDecl(2)
-            else
-              ParseFuncAnonDecl;
           end;
         tkIdent:
           begin
