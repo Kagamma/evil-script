@@ -8485,9 +8485,7 @@ var
       Ind: Integer;
       P: Pointer;
 
-      procedure FuncTail;
-      var
-        IsFirst: Boolean = True;
+      procedure FuncTail(IsFirst: Boolean = True);
       begin
         while PeekAtNextToken.Kind = tkBracketOpen do
         begin
@@ -8524,7 +8522,10 @@ var
               NextTokenExpected([tkBracketClose]);
               if PeekAtNextToken.Kind = tkBracketOpen then
               begin
-                ParseFuncRefCall;
+                AllocFuncRef;
+                EmitAssignVar(FuncRefIdent);
+                EmitPushVar(FuncRefIdent, True);
+                FuncTail(False);
               end;
             end else
             begin
