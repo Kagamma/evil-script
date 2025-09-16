@@ -1359,7 +1359,7 @@ begin
       begin
         TSEValueMap(V.VarMap).Del2(I.VarString^);
       end;
-    sevkNumber, sevkBoolean:
+    sevkNumber:
       begin
         TSEValueMap(V.VarMap).Del2(Round(I.VarNumber));
       end;
@@ -1394,7 +1394,7 @@ begin
         begin
           Result := TSEValueMap(V.VarMap).Map[I.VarString^];
         end;
-      sevkNumber, sevkBoolean:
+      sevkNumber:
         begin
           Result := TSEValueMap(V.VarMap).Items[Round(I.VarNumber)];
         end;
@@ -1421,13 +1421,11 @@ begin
 end;
 
 procedure SEMapSet(constref V, I: TSEValue; const A: TSEValue); inline; overload;
-var
-  S: String;
 begin
   case I.Kind of
     sevkString:
       TSEValueMap(V.VarMap).Set2(I.VarString^, A);
-    sevkNumber, sevkBoolean:
+    sevkNumber:
       TSEValueMap(V.VarMap).Set2(Round(I.VarNumber), A);
     sevkPackedString:
       TSEValueMap(V.VarMap).Set2(I.VarPackedString, A);
@@ -3246,7 +3244,7 @@ var
 begin
   if V1.Kind = V2.Kind then
   case V1.Kind of
-    sevkNumber, sevkBoolean:
+    sevkNumber:
       begin
         R.Kind := sevkNumber;
         R.VarNumber := V1.VarNumber + V2.VarNumber;
@@ -3282,7 +3280,7 @@ begin
       end;
   end
   else
-    if (V1.Kind = sevkBuffer) and (V2.Kind in [sevkNumber, sevkBoolean]) then
+    if (V1.Kind = sevkBuffer) and (V2.Kind = sevkNumber) then
     begin
       GC.AllocBuffer(@Temp, 0);
       Temp.VarBuffer^.Ptr := Pointer(QWord(V1.VarBuffer^.Ptr) + Round(V2.VarNumber));
@@ -3295,7 +3293,7 @@ var
   Temp: TSEValue;
 begin
   case V1.Kind of
-    sevkNumber, sevkBoolean:
+    sevkNumber:
       begin
         R.Kind := sevkNumber;
         R.VarNumber := V1.VarNumber - V2.VarNumber;
@@ -3419,7 +3417,7 @@ procedure SEValueShiftLeft(out R: TSEValue; constref V1, V2: TSEValue); inline; 
 begin
   if V1.Kind = V2.Kind then
   case V1.Kind of
-    sevkNumber, sevkBoolean:
+    sevkNumber:
       begin
         R.Kind := sevkNumber;
         R.VarNumber := Round(V1.VarNumber) shl Round(V2.VarNumber);
@@ -3431,7 +3429,7 @@ procedure SEValueShiftRight(out R: TSEValue; constref V1, V2: TSEValue); inline;
 begin
   if V1.Kind = V2.Kind then
   case V1.Kind of
-    sevkNumber, sevkBoolean:
+    sevkNumber:
       begin
         R.Kind := sevkNumber;
         R.VarNumber := Round(V1.VarNumber) shr Round(V2.VarNumber);
@@ -3629,7 +3627,7 @@ var
 begin
   if V1.Kind = V2.Kind then
   case V1.Kind of
-    sevkNumber, sevkBoolean:
+    sevkNumber:
       begin
         R.Kind := sevkNumber;
         R.VarNumber := V1.VarNumber + V2.VarNumber;
@@ -3671,7 +3669,7 @@ begin
         R.VarPointer := V1.VarPointer + V2.VarPointer;
       end;
   end else
-    if (V1.Kind = sevkBuffer) and (V2.Kind in [sevkNumber, sevkBoolean]) then
+    if (V1.Kind = sevkBuffer) and (V2.Kind = sevkNumber) then
     begin
       GC.AllocBuffer(@R, 0);
       R.VarBuffer^.Ptr := V1.VarBuffer^.Ptr + Pointer(Round(V2.VarNumber));
@@ -3685,7 +3683,7 @@ operator - (V1, V2: TSEValue) R: TSEValue; inline;
 begin
   if V1.Kind = V2.Kind then
   case V1.Kind of
-    sevkNumber, sevkBoolean:
+    sevkNumber:
       begin
         R.Kind := sevkNumber;
         R.VarNumber := V1.VarNumber - V2.VarNumber;
@@ -3865,28 +3863,14 @@ begin
 end;
 
 procedure TSEValueMap.Set2(const Key: String; const AValue: TSEValue);
-var
-  Index, I: Integer;
-  IsNumber: Boolean;
 begin
   Self.Lock;
   try
-    IsNumber := TryStrToInt(Key, Index);
-    if IsNumber and Self.FIsValidArray and (Index >= 0) then
-    begin
-      if Index > Self.Count - 1 then
-      begin
-        Self.Count := Index + 1;
-      end;
-      Self.FItems[Index] := AValue;
-    end else
+    if Self.FIsValidArray then
     begin
       Self.ToMap;
     end;
-    if not Self.IsValidArray then
-    begin
-      Self.FMap.AddOrSetValue(Key, AValue);
-    end;
+    Self.FMap.AddOrSetValue(Key, AValue);
   finally
     Self.Unlock;
   end;
@@ -3898,44 +3882,21 @@ var
 begin
   Self.Lock;
   try
-    if Self.FIsValidArray and (Index >= 0) then
+    if Index > Self.Count - 1 then
     begin
-      if Index > Self.Count - 1 then
-      begin
-        Self.Count := Index + 1;
-      end;
-      Self.FItems[Index] := AValue;
-    end else
-    begin
-      Self.ToMap;
+      Self.Count := Index + 1;
     end;
-    if not Self.IsValidArray then
-    begin
-      Self.FMap.AddOrSetValue(IntToStr(Index), AValue);
-    end;
+    Self.FItems[Index] := AValue;
   finally
     Self.Unlock;
   end;
 end;
 
 procedure TSEValueMap.Del2(const Key: String);
-var
-  Index: Integer;
-  IsNumber: Boolean;
 begin
   Self.Lock;
   try
-    IsNumber := TryStrToInt(Key, Index);
-    if IsNumber and Self.FIsValidArray and (Index >= 0) then
-    begin
-      if Index <= Self.Count - 1 then
-      begin
-        Self.Delete(Index);
-      end;
-    end else
-    begin
-      Self.FMap.Remove(Key);
-    end;
+    Self.FMap.Remove(Key);
   finally
     Self.Unlock;
   end;
@@ -3945,15 +3906,9 @@ procedure TSEValueMap.Del2(const Index: Int64);
 begin
   Self.Lock;
   try
-    if Self.FIsValidArray and (Index >= 0) then
+    if Index <= Self.Count - 1 then
     begin
-      if Index <= Self.Count - 1 then
-      begin
-        Self.Delete(Index);
-      end;
-    end else
-    begin
-      Self.FMap.Remove(IntToStr(Index));
+      Self.Delete(Index);
     end;
   finally
     Self.Unlock;
@@ -3961,35 +3916,16 @@ begin
 end;
 
 function TSEValueMap.Get2(const Key: String): TSEValue;
-var
-  Index: Integer;
-  IsNumber: Boolean;
 begin
-  IsNumber := TryStrToInt(Key, Index);
-  if IsNumber and Self.FIsValidArray and (Index >= 0) then
-  begin
-    if Index <= Self.Count - 1 then
-      Result := Self.FItems[Index]
-    else
-      Result := SENull;
-  end else
-  begin
-    Result := Self.FMap[Key];
-  end;
+  Result := Self.FMap[Key];
 end;
 
 function TSEValueMap.Get2(const Index: Int64): TSEValue;
 begin
-  if Self.FIsValidArray and (Index >= 0) then
-  begin
-    if Index <= Self.Count - 1 then
-      Result := Self.FItems[Index]
-    else
-      Result := SENull;
-  end else
-  begin
-    Result := Self.FMap[IntToStr(Index)];
-  end;
+  if Index <= Self.Count - 1 then
+    Result := Self.FItems[Index]
+  else
+    Result := SENull;
 end;
 
 function TSEValueMap.Ptr(const I: Integer): PSEValue;
@@ -6123,10 +6059,9 @@ labelStart:
           C := @BinaryLocal[CodePtrLocal + 3];
           if C^.Kind = sevkNull then
             C := Pop;
-          if C^.Kind = sevkNumber then
-            TSEValueMap(A^.VarMap).Items[Trunc(C^.VarNumber)] := B^
-          else
-            TSEValueMap(A^.VarMap).Map.AddOrSetValue(C^.VarString^, B^);
+          TSEValueMap(A^.VarMap).Lock;
+          TSEValueMap(A^.VarMap).Items[Trunc(C^.VarNumber)] := B^;
+          TSEValueMap(A^.VarMap).Unlock;
           Inc(CodePtrLocal, 4);
           DispatchGoto;
         end;
@@ -6135,7 +6070,9 @@ labelStart:
         labelAssignMapFast:
           A := GetVariable(BinaryLocal[CodePtrLocal + 1].VarPointer, BinaryLocal[CodePtrLocal + 2].VarPointer);
           B := Pop;
+          TSEValueMap(A^.VarMap).Lock;
           TSEValueMap(A^.VarMap).Map.AddOrSetValue(Self.ConstStrings[Integer(BinaryLocal[CodePtrLocal + 3].VarPointer)], B^);
+          TSEValueMap(A^.VarMap).Unlock;
           Inc(CodePtrLocal, 4);
           DispatchGoto;
         end;
@@ -6184,7 +6121,7 @@ labelStart:
                     AssignGlobalInt(Integer(A^), V);
                 end;
               end;
-            sevkNumber, sevkBoolean:
+            sevkNumber:
               begin
                 if V^.Kind = sevkString then
                 begin
@@ -6263,7 +6200,7 @@ labelStart:
                     AssignLocalInt(Integer(A^), J, V);
                 end;
               end;
-            sevkNumber, sevkBoolean:
+            sevkNumber:
               begin
                 if V^.Kind = sevkString then
                 begin

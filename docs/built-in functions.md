@@ -13,10 +13,10 @@
 - [Strings](#strings)
 
 ## Base64
-`base64_encode(buf: buffer): string`
+`base64_encode(s: string): string`
 - Encodes a given string to base64 string.
 
-`base64_decode(s: string): buffer`
+`base64_decode(s: string): string`
 - Decodes a given base64 string back to original string.
 
 ## Buffers
