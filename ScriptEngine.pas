@@ -1370,43 +1370,31 @@ end;
 
 function SEMapGet(constref V: TSEValue; constref I: Integer): TSEValue; inline; overload;
 begin
-  try
-    Result := TSEValueMap(V.VarMap).Items[I];
-  except
-    Result := SENull;
-  end;
+  Result := TSEValueMap(V.VarMap).Items[I];
 end;
 
 function SEMapGet(constref V: TSEValue; constref S: String): TSEValue; inline; overload;
 begin
-  try
-    Result := TSEValueMap(V.VarMap).Map[S];
-  except
-    Result := SENull;
-  end;
+  Result := TSEValueMap(V.VarMap).Get2(S);
 end;
 
 function SEMapGet(constref V, I: TSEValue): TSEValue; inline; overload;
 begin
-  try
-    case I.Kind of
-      sevkString:
-        begin
-          Result := TSEValueMap(V.VarMap).Map[I.VarString^];
-        end;
-      sevkNumber:
-        begin
-          Result := TSEValueMap(V.VarMap).Items[Round(I.VarNumber)];
-        end;
-      sevkPackedString:
-        begin
-          Result := TSEValueMap(V.VarMap).Map[I.VarPackedString];
-        end;
-      else
-        Exit(SENull);
-    end;
-  except
-    Result := SENull;
+  case I.Kind of
+    sevkString:
+      begin
+        Result := TSEValueMap(V.VarMap).Get2(I.VarString^);
+      end;
+    sevkNumber:
+      begin
+        Result := TSEValueMap(V.VarMap).Get2(Round(I.VarNumber));
+      end;
+    sevkPackedString:
+      begin
+        Result := TSEValueMap(V.VarMap).Get2(I.VarPackedString);
+      end;
+    else
+      Exit(SENull);
   end;
 end;
 
@@ -3917,7 +3905,8 @@ end;
 
 function TSEValueMap.Get2(const Key: String): TSEValue;
 begin
-  Result := Self.FMap[Key];
+  Result := SENull;
+  Self.FMap.TryGetValue(Key, Result);
 end;
 
 function TSEValueMap.Get2(const Index: Int64): TSEValue;
