@@ -175,7 +175,7 @@ type
     sevkBoolean,
     sevkFunction,
     sevkPascalObject,
-    sevkPackedString
+    sevkConstString
   );
   PSECommonString = ^String;
   TSEBuffer = record
@@ -239,9 +239,9 @@ type
         (
           VarPascalObject: PSEPascalObject;
         );
-      sevkPackedString:
+      sevkConstString:
         (
-          VarPackedString: array[0..7] of Char;
+          VarConstStringIndex: Cardinal;
         );
   end;
 
@@ -293,11 +293,11 @@ type
     procedure Unlock; inline;
     function TryLock: Boolean; inline;
     procedure ToMap;
-    procedure Set2(const Key: String; const AValue: TSEValue); overload; inline;
+    procedure Set2(const Key: PString; const AValue: TSEValue); overload; inline;
     procedure Set2(const Index: SizeInt; const AValue: TSEValue); overload; inline;
-    function Get2(const Key: String): TSEValue; overload; inline;
+    function Get2(const Key: PString): TSEValue; overload; inline;
     function Get2(const Index: SizeInt): TSEValue; overload; inline;
-    procedure Del2(const Key: String); overload; inline;
+    procedure Del2(const Key: PString); overload; inline;
     procedure Del2(const Index: SizeInt); overload; inline;
     function Ptr(const I: Integer): PSEValue;
     property Map: TSEValueDict read FMap;
@@ -457,6 +457,13 @@ type
   end;
   PSEFuncImportInfo = ^TSEFuncImportInfo;
 
+  TSEStringLookupMap = specialize TSEDictionary<String, Cardinal>;
+  TSEStringListAncestor = specialize TList<RawByteString>;
+  TSEStringList = class(TSEStringListAncestor)
+  public
+    function Ptr(const P: Cardinal): PRawByteString;
+  end;
+
   TSEFuncNativeListAncestor = specialize TList<TSEFuncNativeInfo>;
   TSEFuncNativeList = class(TSEFuncNativeListAncestor)
   public
@@ -591,7 +598,6 @@ type
     Stack: array of TSEValue;
     Frame: array of TSEFrame;
     Trap: array of TSETrap;
-    ConstStrings: TStringList;
     CodePtr: Integer;
     StackPtr: PSEValue;
     BinaryPtr: Integer;
@@ -622,7 +628,6 @@ type
     LineOfCodeList: TSELineOfCodeList;
     FuncScriptList: TSEFuncScriptList;
     FuncImportList: TSEFuncImportList;
-    ConstStrings: TStringList;
     SymbolList: TSESymbolList;
   end;
   TSECacheMapAncestor = specialize TSEDictionary<String, TSECache>;
@@ -1147,6 +1152,8 @@ var
   CommonNativeFuncList: TSEFuncNativeList;
   FunctionAssert: array of TSEValue;
   FunctionThrow: array of TSEValue;
+  ConstStrings: TSEStringList;
+  ConstStringsLookup: TSEStringLookupMap;
 
 {$ifdef SE_THREADS}
 threadvar
@@ -1312,8 +1319,8 @@ begin
       begin
         Result := 'pasobject@' + IntToStr(QWord(Value.VarPascalObject^.Value));
       end;
-    sevkPackedString:
-      Result := '.' + Value.VarPackedString;
+    sevkConstString:
+      Result := '.' + ConstStrings.Ptr(Value.VarConstStringIndex)^;
     else
       Result := Value;
   end;
@@ -1349,7 +1356,7 @@ end;
 
 procedure SEMapDelete(constref V: TSEValue; constref S: String); inline; overload;
 begin
-  TSEValueMap(V.VarMap).Del2(S);
+  TSEValueMap(V.VarMap).Del2(@S);
 end;
 
 procedure SEMapDelete(constref V, I: TSEValue); inline; overload;
@@ -1357,7 +1364,7 @@ begin
   case I.Kind of
     sevkString:
       begin
-        TSEValueMap(V.VarMap).Del2(I.VarString^);
+        TSEValueMap(V.VarMap).Del2(I.VarString);
       end;
     sevkNumber:
       begin
@@ -1375,7 +1382,7 @@ end;
 
 function SEMapGet(constref V: TSEValue; constref S: String): TSEValue; inline; overload;
 begin
-  Result := TSEValueMap(V.VarMap).Get2(S);
+  Result := TSEValueMap(V.VarMap).Get2(@S);
 end;
 
 function SEMapGet(constref V, I: TSEValue): TSEValue; inline; overload;
@@ -1383,15 +1390,15 @@ begin
   case I.Kind of
     sevkString:
       begin
-        Result := TSEValueMap(V.VarMap).Get2(I.VarString^);
+        Result := TSEValueMap(V.VarMap).Get2(I.VarString);
       end;
     sevkNumber:
       begin
         Result := TSEValueMap(V.VarMap).Get2(Round(I.VarNumber));
       end;
-    sevkPackedString:
+    sevkConstString:
       begin
-        Result := TSEValueMap(V.VarMap).Get2(I.VarPackedString);
+        Result := TSEValueMap(V.VarMap).Get2(ConstStrings.Ptr(I.VarConstStringIndex));
       end;
     else
       Exit(SENull);
@@ -1405,18 +1412,18 @@ end;
 
 procedure SEMapSet(constref V: TSEValue; constref S: String; const A: TSEValue); inline; overload;
 begin
-  TSEValueMap(V.VarMap).Set2(S, A);
+  TSEValueMap(V.VarMap).Set2(@S, A);
 end;
 
 procedure SEMapSet(constref V, I: TSEValue; const A: TSEValue); inline; overload;
 begin
   case I.Kind of
     sevkString:
-      TSEValueMap(V.VarMap).Set2(I.VarString^, A);
+      TSEValueMap(V.VarMap).Set2(I.VarString, A);
     sevkNumber:
       TSEValueMap(V.VarMap).Set2(Round(I.VarNumber), A);
-    sevkPackedString:
-      TSEValueMap(V.VarMap).Set2(I.VarPackedString, A);
+    sevkConstString:
+      TSEValueMap(V.VarMap).Set2(ConstStrings.Ptr(I.VarConstStringIndex), A);
   end;
 end;
 
@@ -1462,9 +1469,9 @@ begin
       SB.Append(#10);
     end;
     SB.Append('--- STRING DATA ---'#10);
-    for I := 0 to VM.ConstStrings.Count - 1 do
+    for I := 0 to ConstStrings.Count - 1 do
     begin
-      S := VM.ConstStrings[I];
+      S := ConstStrings[I];
       if Length(S) > 255 then
       begin
         SetLength(S, 252);
@@ -1545,7 +1552,7 @@ begin
           try
             for Key in TSEValueMap(V.VarMap).Map.Keys do
             begin
-              SEMapSet(Result, Key, TSEValueMap(V.VarMap).Get2(Key));
+              SEMapSet(Result, Key, TSEValueMap(V.VarMap).Get2(@Key));
             end;
           finally
             TSEValueMap(V.VarMap).Unlock;
@@ -3182,6 +3189,11 @@ begin
   Result := TObject(Args[0].VarPascalObject^.Value).ClassName;
 end;
 
+function TSEStringList.Ptr(const P: Cardinal): PRawByteString; inline;
+begin
+  Result := @FItems[P];
+end;
+
 function TSEGCNodeList.Ptr(const P: Cardinal): PSEGCNode; inline;
 begin
   Result := @FItems[P];
@@ -3850,7 +3862,7 @@ begin
   end;
 end;
 
-procedure TSEValueMap.Set2(const Key: String; const AValue: TSEValue);
+procedure TSEValueMap.Set2(const Key: PString; const AValue: TSEValue);
 begin
   Self.Lock;
   try
@@ -3858,7 +3870,7 @@ begin
     begin
       Self.ToMap;
     end;
-    Self.FMap.AddOrSetValue(Key, AValue);
+    Self.FMap.AddOrSetValue(Key^, AValue);
   finally
     Self.Unlock;
   end;
@@ -3880,11 +3892,11 @@ begin
   end;
 end;
 
-procedure TSEValueMap.Del2(const Key: String);
+procedure TSEValueMap.Del2(const Key: PString);
 begin
   Self.Lock;
   try
-    Self.FMap.Remove(Key);
+    Self.FMap.Remove(Key^);
   finally
     Self.Unlock;
   end;
@@ -3903,10 +3915,10 @@ begin
   end;
 end;
 
-function TSEValueMap.Get2(const Key: String): TSEValue;
+function TSEValueMap.Get2(const Key: PString): TSEValue;
 begin
   Result := SENull;
-  Self.FMap.TryGetValue(Key, Result);
+  Self.FMap.TryGetValue(Key^, Result);
 end;
 
 function TSEValueMap.Get2(const Index: SizeInt): TSEValue;
@@ -4656,7 +4668,6 @@ begin
   Result.Binaries := Self.Binaries.Ref;
   // TODO: Make sure these works correctly without crash
   Result.SymbolList := Self.SymbolList;
-  Result.ConstStrings := Self.ConstStrings;
 end;
 
 procedure TSEVM.ModifyGlobalVariable(const AName: String; const AValue: TSEValue);
@@ -4776,8 +4787,6 @@ begin
   Self.Binaries := Default(TSEBinariesManaged);
   Self.Binaries.Alloc(1);
   Self.Binaries.Value^.Data[0] := TSEBinary.Create;
-  Self.ConstStrings := TStringList.Create;
-  Self.ConstStrings.Capacity := 64;
   Self.SymbolList := TSESymbolList.Create;
   Self.Global := Default(TSEValueArrayManaged);
 end;
@@ -4789,7 +4798,6 @@ begin
     VMList.Remove(Self);
   if {$ifdef SE_THREADS}(Self.ThreadOwner = nil) and{$endif} (Self.CoroutineOwner = nil) then
   begin
-    Self.ConstStrings.Free;
     Self.SymbolList.Free;
   end;
   Self.Global.Free;
@@ -5801,7 +5809,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opPushConstString:{$endif}
         begin
         labelPushConstString:
-          Push(Self.ConstStrings[Integer(BinaryLocal[CodePtrLocal + 1].VarPointer)]);
+          Push(ConstStrings.Ptr(Integer(BinaryLocal[CodePtrLocal + 1].VarPointer))^);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
@@ -5853,7 +5861,7 @@ labelStart:
         begin
         labelPushArrayPopString:
           B := Pop;
-          Push(SEMapGet(B^, Self.ConstStrings[Integer(BinaryLocal[CodePtrLocal + 1].VarPointer)]));
+          Push(SEMapGet(B^, ConstStrings.Ptr(Integer(BinaryLocal[CodePtrLocal + 1].VarPointer))^));
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
@@ -6071,7 +6079,7 @@ labelStart:
           A := GetVariable(BinaryLocal[CodePtrLocal + 1].VarPointer, BinaryLocal[CodePtrLocal + 2].VarPointer);
           B := Pop;
           TSEValueMap(A^.VarMap).Lock;
-          TSEValueMap(A^.VarMap).Map.AddOrSetValue(Self.ConstStrings[Integer(BinaryLocal[CodePtrLocal + 3].VarPointer)], B^);
+          TSEValueMap(A^.VarMap).Map.AddOrSetValue(ConstStrings.Ptr(Integer(BinaryLocal[CodePtrLocal + 3].VarPointer))^, B^);
           TSEValueMap(A^.VarMap).Unlock;
           Inc(CodePtrLocal, 4);
           DispatchGoto;
@@ -7637,15 +7645,20 @@ var
     Self.VarList.Add(Result);
   end;
 
-  function CreateConstString(const S: String): Integer; inline;
+  function CreateConstString(const S: String): Cardinal; inline;
   begin
-    Result := Self.VM.ConstStrings.Add(S);
+    if not ConstStringsLookup.TryGetValue(S, Result) then
+    begin
+      ConstStrings.Add(S);
+      Result := ConstStrings.Count - 1;
+      ConstStringsLookup.Add(S, Result);
+    end;
   end;
 
-  function CreatePackedString(const S: String): TSEValue; inline;
+  function CreateConstStringValue(const S: String): TSEValue; inline;
   begin
-    Result.Kind := sevkPackedString;
-    Result.VarPackedString := S;
+    Result.Kind := sevkConstString;
+    Result.VarConstStringIndex := CreateConstString(S);
   end;
 
   procedure Rewind(const StartAddr, Count: Integer); inline;
@@ -8323,8 +8336,8 @@ var
         OpInfoPrev2: PSEOpcodeInfo;
         function SameKind: Boolean; inline;
         begin
-          S2 := Self.VM.ConstStrings[Integer(Self.Binary[Self.Binary.Count - 1].VarPointer)];
-          S1 := Self.VM.ConstStrings[Integer(Self.Binary[Self.Binary.Count - 3].VarPointer)];
+          S2 := ConstStrings[Integer(Self.Binary[Self.Binary.Count - 1].VarPointer)];
+          S1 := ConstStrings[Integer(Self.Binary[Self.Binary.Count - 3].VarPointer)];
           Result := True;
         end;
 
@@ -8405,10 +8418,7 @@ var
             AllocFuncRef;
             EmitAssignVar(FuncRefIdent);
             EmitPushVar(FuncRefIdent, True);
-            if Length(Token.Value) <= 8 then
-              EmitExpr([Pointer(opPushArrayPop), CreatePackedString(Token.Value)])
-            else
-              EmitExpr([Pointer(opPushArrayPopString), Pointer(CreateConstString(Token.Value))]);
+            EmitExpr([Pointer(opPushArrayPop), CreateConstStringValue(Token.Value)]);
             Tail;
           end;
       end;
@@ -8535,10 +8545,7 @@ var
                             NextToken;
                             Token2 := NextTokenExpected([tkIdent]);
                             EmitPushVar(Ident^, True);
-                            if Length(Token2.Value) <= 8 then
-                              Emit([Pointer(opPushArrayPop), CreatePackedString(Token2.Value)])
-                            else
-                              Emit([Pointer(opPushArrayPopString), Pointer(CreateConstString(Token2.Value))]);
+                            Emit([Pointer(opPushArrayPop), CreateConstStringValue(Token2.Value)]);
                             Tail;
                             FuncTail;
                           end;
@@ -9612,10 +9619,7 @@ var
               Token := NextTokenExpected([tkIdent]);
               EmitAssignVar(FuncRefIdent);
               EmitPushVar(FuncRefIdent, True);
-              if Length(Token.Value) <= 8 then
-                Emit([Pointer(opPushArrayPop), CreatePackedString(Token.Value)])
-              else
-                Emit([Pointer(opPushArrayPopString), Pointer(CreateConstString(Token.Value))]);
+              Emit([Pointer(opPushArrayPop), CreateConstStringValue(Token.Value)]);
             end;
         end;
       end;
@@ -9664,10 +9668,7 @@ var
             begin
               NextToken;
               Token2 := NextTokenExpected([tkIdent]);
-              if Length(Token2.Value) <= 8 then
-                Emit([Pointer(opPushConst), CreatePackedString(Token2.Value)])
-              else
-                EmitConstString(Token2.Value);
+              Emit([Pointer(opPushConst), CreateConstStringValue(Token2.Value)]);
             end;
         end;
         Inc(ArgCount);
@@ -10098,7 +10099,6 @@ begin
   Self.VM.Reset;
 
   Self.VM.BinaryClear;
-  Self.VM.ConstStrings.Clear;
   Self.VM.IsDone := True;
   Self.Vm.IsPaused := False;
   Self.BinaryPos := 0;
@@ -10382,7 +10382,6 @@ begin
   Result.FuncScriptList := TSEFuncScriptList.Create;
   Result.FuncImportList := TSEFuncImportList.Create;
   Result.GlobalVarSymbols := TStringList.Create;
-  Result.ConstStrings := TStringList.Create;
   Result.SymbolList := TSESymbolList.Create;
   SetLength(Result.Binaries, Self.VM.Binaries.Value^.Size);
   for J := 0 to Self.VM.Binaries.Value^.Size - 1 do
@@ -10416,7 +10415,6 @@ begin
   end;
   Result.GlobalVarSymbols.Assign(Self.GlobalVarSymbols);
   Result.GlobalVarCount := Self.GlobalVarCount;
-  Result.ConstStrings.Assign(Self.VM.ConstStrings);
 end;
 
 procedure TEvilC.Restore(const Cache: TSECache);
@@ -10455,7 +10453,6 @@ begin
     Self.VM.SymbolList.Add(Cache.SymbolList[I]);
   Self.GlobalVarSymbols.Assign(Cache.GlobalVarSymbols);
   Self.GlobalVarCount := Cache.GlobalVarCount;
-  Self.VM.ConstStrings.Assign(Cache.ConstStrings);
   Self.IsParsed := True;
 end;
 
@@ -10493,7 +10490,6 @@ begin
     Cache.FuncScriptList.Free;
     Cache.FuncImportList.Free;
     Cache.GlobalVarSymbols.Free;
-    Cache.ConstStrings.Free;
     Cache.SymbolList.Free;
     Self.Remove(AName);
   except
@@ -10515,7 +10511,6 @@ begin
     Cache.FuncScriptList.Free;
     Cache.FuncImportList.Free;
     Cache.GlobalVarSymbols.Free;
-    Cache.ConstStrings.Free;
     Cache.SymbolList.Free;
   end;
   inherited;
@@ -10525,6 +10520,8 @@ var
   I: Integer;
 
 initialization
+  ConstStrings := TSEStringList.Create;
+  ConstStringsLookup := TSEStringLookupMap.Create;
   CommonNativeFuncList := TSEFuncNativeList.Create;
   {$ifdef SE_THREADS}
   InitCriticalSection(CS);
@@ -10586,6 +10583,8 @@ finalization
   DoneCriticalSection(CS);
   {$endif}
   CommonNativeFuncList.Free;
+  ConstStringsLookup.Free;
+  ConstStrings.Free;
 
 end.
 

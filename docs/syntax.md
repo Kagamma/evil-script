@@ -558,29 +558,5 @@ With assertions on, `assert` tests if expr is false, and if so, raise an excepti
 If assertions are not enabled at compile time, this routine does nothing, and no code is generated for the `assert` call.
 
 ## Performance tips
-- Use dot notation for strings with a length of 8 or fewer characters. The engine optimizes this operation by packing the string into a single `Double` type instead of allocating it on the heap.
-
-  - Consider the following example:
-      ```
-        a = []
-        a.x = 1
-        a.a_long_string = 2
-      ```
-  - The result assembly:
-      ```
-      --- @main ---
-      0: opCallNative 48, 0, 0
-      4: opAssignGlobalVar 2
-      6: opPushConst .x <--- x is packed into a Double and push to stack
-      8: opPushConst 1
-      10: opAssignGlobalArray 2, 1
-      13: opPushConstString 0 <--- Ref to a_long_string, which is then allocated on the heap
-      15: opPushConst 2
-      17: opAssignGlobalArray 2, 1
-      20: opHlt
-
-      --- STRING DATA ---
-      0: a_long_string
-      ```
+- Use dot notation when accessing maps. Currently dot notation is much faster than using strings. TODO: Optimize for strings as well.
 - Named functions are always faster than anonymous functions or function references.
-
