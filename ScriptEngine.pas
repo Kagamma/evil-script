@@ -294,11 +294,11 @@ type
     function TryLock: Boolean; inline;
     procedure ToMap;
     procedure Set2(const Key: String; const AValue: TSEValue); overload; inline;
-    procedure Set2(const Index: Int64; const AValue: TSEValue); overload; inline;
+    procedure Set2(const Index: SizeInt; const AValue: TSEValue); overload; inline;
     function Get2(const Key: String): TSEValue; overload; inline;
-    function Get2(const Index: Int64): TSEValue; overload; inline;
+    function Get2(const Index: SizeInt): TSEValue; overload; inline;
     procedure Del2(const Key: String); overload; inline;
-    procedure Del2(const Index: Int64); overload; inline;
+    procedure Del2(const Index: SizeInt); overload; inline;
     function Ptr(const I: Integer): PSEValue;
     property Map: TSEValueDict read FMap;
     property IsValidArray: Boolean read FIsValidArray;
@@ -899,7 +899,7 @@ type
   TScriptEngine = TEvilC;
 
 function SEValueToText(const Value: TSEValue; const IsRoot: Boolean = True): String;
-function SESize(constref Value: TSEValue): Cardinal; inline;
+function SESize(constref Value: TSEValue): SizeInt; inline;
 procedure SEValidateType(V: PSEValue; Expected: TSEValueKind; At: DWord; const FuncName: String); inline;
 procedure SEMapDelete(constref V: TSEValue; constref I: Integer); inline; overload;
 procedure SEMapDelete(constref V: TSEValue; constref S: String); inline; overload;
@@ -1319,7 +1319,7 @@ begin
   end;
 end;
 
-function SESize(constref Value: TSEValue): Cardinal; inline;
+function SESize(constref Value: TSEValue): SizeInt; inline;
 begin
   case Value.Kind of
     sevkMap:
@@ -3864,10 +3864,10 @@ begin
   end;
 end;
 
-procedure TSEValueMap.Set2(const Index: Int64; const AValue: TSEValue);
-var
-  I: Integer;
+procedure TSEValueMap.Set2(const Index: SizeInt; const AValue: TSEValue);
 begin
+  if Index < 0 then
+    Exit;
   Self.Lock;
   try
     if Index > Self.Count - 1 then
@@ -3890,11 +3890,11 @@ begin
   end;
 end;
 
-procedure TSEValueMap.Del2(const Index: Int64);
+procedure TSEValueMap.Del2(const Index: SizeInt);
 begin
   Self.Lock;
   try
-    if Index <= Self.Count - 1 then
+    if (Index <= Self.Count - 1) and (Index >= 0) then
     begin
       Self.Delete(Index);
     end;
@@ -3909,9 +3909,9 @@ begin
   Self.FMap.TryGetValue(Key, Result);
 end;
 
-function TSEValueMap.Get2(const Index: Int64): TSEValue;
+function TSEValueMap.Get2(const Index: SizeInt): TSEValue;
 begin
-  if Index <= Self.Count - 1 then
+  if (Index <= Self.Count - 1) and (Index >= 0) then
     Result := Self.FItems[Index]
   else
     Result := SENull;
@@ -4021,13 +4021,21 @@ end;
 destructor TSEGarbageCollector.Destroy;
 var
   I: Integer;
-  Value: TSEGCNode;
+  Value: PSEGCNode;
 begin
-  for I := 1 to Self.FNodeList.Count - 1 do
+  I := Self.FNodeLastOld;
+  while I <> 0 do
   begin
-    Value := Self.FNodeList[I];
-    Value.Garbage := True;
-    Self.FNodeList[I] := Value;
+    Value := Self.FNodeList.Ptr(I);
+    Value^.Garbage := not Value^.Lock;
+    I := Value^.Prev;
+  end;
+  I := Self.FNodeLastYoung;
+  while I <> 0 do
+  begin
+    Value := Self.FNodeList.Ptr(I);
+    Value^.Garbage := not Value^.Lock;
+    I := Value^.Prev;
   end;
   Self.Sweep(1);
   Self.Sweep(2);
