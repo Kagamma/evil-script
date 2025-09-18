@@ -3393,15 +3393,15 @@ begin
   if V2.Kind = sevkBoolean then
   case V1.Kind of
     sevkNumber:
-      R := (V1.VarNumber <> 0) <> V2.VarBoolean;
+      R := (V1.VarNumber <> 0) = Boolean(Round(V2.VarNumber));
     sevkString:
-      R := (Length(V1.VarString^) > 0) <> V2.VarBoolean;
+      R := (Length(V1.VarString^) > 0) = Boolean(Round(V2.VarNumber));
     sevkMap,
     sevkPascalObject,
     sevkFunction:
-      R := True <> V2.VarBoolean;
+      R := True = Boolean(Round(V2.VarNumber));
     sevkNull:
-      R := False <> V2.VarBoolean;
+      R := False = Boolean(Round(V2.VarNumber));
   end
   else
     R := False;
@@ -3427,15 +3427,15 @@ begin
   if V2.Kind = sevkBoolean then
   case V1.Kind of
     sevkNumber:
-      R := (V1.VarNumber <> 0) = V2.VarBoolean;
+      R := (V1.VarNumber <> 0) <> Boolean(Round(V2.VarNumber));
     sevkString:
-      R := (Length(V1.VarString^) > 0) = V2.VarBoolean;
+      R := (Length(V1.VarString^) > 0) <> Boolean(Round(V2.VarNumber));
     sevkMap,
     sevkPascalObject,
     sevkFunction:
-      R := True = V2.VarBoolean;
+      R := True <> Boolean(Round(V2.VarNumber));
     sevkNull:
-      R := False = V2.VarBoolean;
+      R := False <> Boolean(Round(V2.VarNumber));
   end
   else
     R := True;
@@ -3503,15 +3503,15 @@ begin
   if V2.Kind = sevkBoolean then
   case V1.Kind of
     sevkNumber:
-      Result := (V1.VarNumber <> 0) <> V2.VarBoolean;
+      Result := (V1.VarNumber <> 0) = Boolean(Round(V2.VarNumber));
     sevkString:
-      Result := (Length(V1.VarString^) > 0) <> V2.VarBoolean;
+      Result := (Length(V1.VarString^) > 0) = Boolean(Round(V2.VarNumber));
     sevkMap,
     sevkPascalObject,
     sevkFunction:
-      Result := True <> V2.VarBoolean;
+      Result := True = Boolean(Round(V2.VarNumber));
     sevkNull:
-      Result := False <> V2.VarBoolean;
+      Result := False = Boolean(Round(V2.VarNumber));
   end
   else
     Result := False;
@@ -3535,15 +3535,15 @@ begin
   if V2.Kind = sevkBoolean then
   case V1.Kind of
     sevkNumber:
-      Result := (V1.VarNumber <> 0) = V2.VarBoolean;
+      Result := (V1.VarNumber <> 0) <> Boolean(Round(V2.VarNumber));
     sevkString:
-      Result := (Length(V1.VarString^) > 0) = V2.VarBoolean;
+      Result := (Length(V1.VarString^) > 0) <> Boolean(Round(V2.VarNumber));
     sevkMap,
     sevkPascalObject,
     sevkFunction:
-      Result := True = V2.VarBoolean;
+      Result := True <> Boolean(Round(V2.VarNumber));
     sevkNull:
-      Result := False = V2.VarBoolean;
+      Result := False <> Boolean(Round(V2.VarNumber));
   end
   else
     Result := True;
@@ -3833,15 +3833,15 @@ begin
   if V2.Kind = sevkBoolean then
   case V1.Kind of
     sevkNumber:
-      R := (V1.VarNumber <> 0) <> V2.VarBoolean;
+      R := (V1.VarNumber <> 0) = Boolean(Round(V2.VarNumber));
     sevkString:
-      R := (Length(V1.VarString^) > 0) <> V2.VarBoolean;
+      R := (Length(V1.VarString^) > 0) = Boolean(Round(V2.VarNumber));
     sevkMap,
     sevkPascalObject,
     sevkFunction:
-      R := True <> V2.VarBoolean;
+      R := True = Boolean(Round(V2.VarNumber));
     sevkNull:
-      R := False <> V2.VarBoolean;
+      R := False = Boolean(Round(V2.VarNumber));
   end
   else
     R := False;
@@ -3866,15 +3866,15 @@ begin
   if V2.Kind = sevkBoolean then
   case V1.Kind of
     sevkNumber:
-      R := (V1.VarNumber <> 0) = V2.VarBoolean;
+      R := (V1.VarNumber <> 0) <> Boolean(Round(V2.VarNumber));
     sevkString:
-      R := (Length(V1.VarString^) > 0) = V2.VarBoolean;
+      R := (Length(V1.VarString^) > 0) <> Boolean(Round(V2.VarNumber));
     sevkMap,
     sevkPascalObject,
     sevkFunction:
-      R := True = V2.VarBoolean;
+      R := True <> Boolean(Round(V2.VarNumber));
     sevkNull:
-      R := False = V2.VarBoolean;
+      R := False <> Boolean(Round(V2.VarNumber));
   end
   else
     R := True;
