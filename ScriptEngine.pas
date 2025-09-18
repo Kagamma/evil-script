@@ -37,7 +37,7 @@ unit ScriptEngine;
 // enable this to replace FP's TDirectory with avk959's TGChainHashMap. It is a lot faster than TDirectory.
 // requires https://github.com/avk959/LGenerics
 // note: enable this will undef SE_MAP_SHORTSTRING, because this optimization is not necessary for TGChainHashMap
-{.$define SE_MAP_AVK959}
+{$define SE_MAP_AVK959}
 {$ifdef SE_MAP_AVK959}
   {$undef SE_MAP_SHORTSTRING}
   {$define TSEDictionary := TGChainHashMap}
@@ -6089,6 +6089,7 @@ labelStart:
         labelAssignGlobalArray:
           A := @BinaryLocal[CodePtrLocal + 1];
           V := GetGlobalInt(Integer(A^));
+          TV := V^;
           B := Pop;
           ArgCount := BinaryLocal[CodePtrLocal + 2];
           if ArgCount = 1 then
@@ -6099,64 +6100,37 @@ labelStart:
             C := Self.StackPtr;
             for I := 1 to ArgCount - 1 do
             begin
-              OC := C;
-              OV := V;
-              TV := SEMapGet(V^, C^);
-              V := @TV;
+              TV := SEMapGet(TV, C^);
               Inc(C);
             end;
           end;
-          case B^.Kind of
-            sevkString:
-              begin
-                if V^.Kind = sevkString then
+          if TV.Kind = sevkString then
+          begin
+            case B^.Kind of
+              sevkString:
                 begin
                   {$ifdef SE_STRING_UTF8}
                     S2 := B^.VarString^;
-                    UTF8Delete(V^.VarString^, Integer(C^) + 1, 1);
+                    UTF8Delete(TV.VarString^, Integer(C^) + 1, 1);
                     S := UTF8Copy(S2, 1, 1);
-                    UTF8Insert(S, V^.VarString^, Integer(C^) + 1);
+                    UTF8Insert(S, TV.VarString^, Integer(C^) + 1);
                   {$else}
-                    V^.VarString^[Integer(C^) + 1] := B^.VarString^[1];
+                    TV.VarString^[Integer(C^) + 1] := B^.VarString^[1];
                   {$endif}
-                  // Self.Stack[A] := S;
-                  if ArgCount >= 2 then
-                    SEMapSet(OV^, OC^, V^);
-                end else
-                begin
-                  SEMapSet(V^, C^, B^);
-                  if ArgCount = 1 then
-                    AssignGlobalInt(Integer(A^), V);
                 end;
-              end;
-            sevkNumber:
-              begin
-                if V^.Kind = sevkString then
+              sevkNumber:
                 begin
                   {$ifdef SE_STRING_UTF8}
-                    UTF8Delete(V^.VarString^, Integer(C^) + 1, 1);
+                    UTF8Delete(TV.VarString^, Integer(C^) + 1, 1);
                     S := Char(Round(B^.VarNumber));
-                    UTF8Insert(S, V^.VarString^, Integer(C^) + 1);
+                    UTF8Insert(S, TV.VarString^, Integer(C^) + 1);
                   {$else}
-                    V^.VarString^[Integer(C^) + 1] := Char(Round(B^.VarNumber));
+                    TV.VarString^[Integer(C^) + 1] := Char(Round(B^.VarNumber));
                   {$endif}
-                  // Self.Stack[A] := S;
-                  if ArgCount >= 2 then
-                    SEMapSet(OV^, OC^, V^);
-                end else
-                begin
-                  SEMapSet(V^, C^, B^);
-                  if ArgCount = 1 then
-                    AssignGlobalInt(Integer(A^), V);
                 end;
-              end;
-            else
-              begin
-                SEMapSet(V^, C^, B^);
-                if ArgCount = 1 then
-                  AssignGlobalInt(Integer(A^), V);
-              end;
-          end;
+            end;
+          end else
+            SEMapSet(TV, C^, B^);
           Inc(CodePtrLocal, 3);
           DispatchGoto;
         end;
@@ -6166,6 +6140,7 @@ labelStart:
           A := @BinaryLocal[CodePtrLocal + 1];
           J := Integer(BinaryLocal[CodePtrLocal + 3].VarPointer);
           V := GetLocalInt(Integer(A^), J);
+          TV := V^;
           B := Pop;
           ArgCount := BinaryLocal[CodePtrLocal + 2];
           if ArgCount = 1 then
@@ -6176,68 +6151,41 @@ labelStart:
             C := Self.StackPtr;
             for I := 1 to ArgCount - 1 do
             begin
-              OC := C;
-              OV := V;
-              TV := SEMapGet(V^, C^);
-              V := @TV;
+              TV := SEMapGet(TV, C^);
               Inc(C);
             end;
           end;
-          case B^.Kind of
-            sevkString:
-              begin
-                if V^.Kind = sevkString then
+          if TV.Kind = sevkString then
+          begin
+            case B^.Kind of
+              sevkString:
                 begin
                   {$ifdef SE_STRING_UTF8}
-                    S1 := V^.VarString^;
+                    S1 := TV.VarString^;
                     S2 := B^.VarString^;
                     UTF8Delete(S1, Integer(C^) + 1, 1);
                     S := UTF8Copy(S2, 1, 1);
                     UTF8Insert(S, S1, Integer(C^) + 1);
-                    V^.VarString^ := S1;
+                    TV.VarString^ := S1;
                   {$else}
-                    V^.VarString^[Integer(C^) + 1] := B^.VarString^[1];
+                    TV.VarString^[Integer(C^) + 1] := B^.VarString^[1];
                   {$endif}
-                  // Self.Stack[A] := S;
-                  if ArgCount >= 2 then
-                    SEMapSet(OV^, OC^, V^);
-                end else
-                begin
-                  SEMapSet(V^, C^, B^);
-                  if ArgCount = 1 then
-                    AssignLocalInt(Integer(A^), J, V);
                 end;
-              end;
-            sevkNumber:
-              begin
-                if V^.Kind = sevkString then
+              sevkNumber:
                 begin
                   {$ifdef SE_STRING_UTF8}
-                    S1 := V^.VarString^;
+                    S1 := TV.VarString^;
                     UTF8Delete(S1, Integer(C^) + 1, 1);
                     S := Char(Round(B^.VarNumber));
                     UTF8Insert(S, S1, Integer(C^) + 1);
-                    V^.VarString^ := S1;
+                    TV.VarString^ := S1;
                   {$else}
-                    V^.VarString^[Integer(C^) + 1] := Char(Round(B^.VarNumber));
+                    TV.VarString^[Integer(C^) + 1] := Char(Round(B^.VarNumber));
                   {$endif}
-                  // Self.Stack[A] := S;
-                  if ArgCount >= 2 then
-                    SEMapSet(OV^, OC^, V^);
-                end else
-                begin
-                  SEMapSet(V^, C^, B^);
-                  if ArgCount = 1 then
-                    AssignLocalInt(Integer(A^), J, V);
                 end;
-              end;
-            else
-              begin
-                SEMapSet(V^, C^, B^);
-                if ArgCount = 1 then
-                  AssignLocalInt(Integer(A^), J, V);
-              end;
-          end;
+            end;
+          end else
+            SEMapSet(TV, C^, B^);
           Inc(CodePtrLocal, 4);
           DispatchGoto;
         end;
