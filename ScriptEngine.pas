@@ -3325,6 +3325,13 @@ begin
       end;
     sevkString:
       begin
+        R := not (Length(V.VarString^) > 0);
+      end;
+    sevkFunction,
+    sevkPascalObject,
+    sevkBuffer,
+    sevkMap:
+      begin
         R := False;
       end;
   end;
@@ -3384,8 +3391,19 @@ begin
     else
       R := V1.VarPointer = V2.VarPointer;
   end else
-  if (V1.Kind = sevkNumber) and (V2.Kind = sevkBoolean) then
-    R := (V1.VarNumber <> 0) = V2
+  if V2.Kind = sevkBoolean then
+  case V1.Kind of
+    sevkNumber:
+      R := (V1.VarNumber <> 0) <> V2.VarBoolean;
+    sevkString:
+      R := (Length(V1.VarString^) > 0) <> V2.VarBoolean;
+    sevkMap,
+    sevkPascalObject,
+    sevkFunction:
+      R := True <> V2.VarBoolean;
+    sevkNull:
+      R := False <> V2.VarBoolean;
+  end
   else
     R := False;
 end;
@@ -3407,8 +3425,19 @@ begin
     else
       R := V1.VarPointer <> V2.VarPointer;
   end else
-  if (V1.Kind = sevkNumber) and (V2.Kind = sevkBoolean) then
-    R := (V1.VarNumber <> 0) <> V2
+  if V2.Kind = sevkBoolean then
+  case V1.Kind of
+    sevkNumber:
+      R := (V1.VarNumber <> 0) = V2.VarBoolean;
+    sevkString:
+      R := (Length(V1.VarString^) > 0) = V2.VarBoolean;
+    sevkMap,
+    sevkPascalObject,
+    sevkFunction:
+      R := True = V2.VarBoolean;
+    sevkNull:
+      R := False = V2.VarBoolean;
+  end
   else
     R := True;
 end;
@@ -3472,8 +3501,19 @@ begin
     sevkPascalObject:
       Result := V1.VarPascalObject^.Value = V2.VarPascalObject^.Value;
   end else
-  if (V1.Kind = sevkNumber) and (V2.Kind = sevkBoolean) then
-    Result := (V1.VarNumber <> 0) = V2
+  if V2.Kind = sevkBoolean then
+  case V1.Kind of
+    sevkNumber:
+      Result := (V1.VarNumber <> 0) <> V2.VarBoolean;
+    sevkString:
+      Result := (Length(V1.VarString^) > 0) <> V2.VarBoolean;
+    sevkMap,
+    sevkPascalObject,
+    sevkFunction:
+      Result := True <> V2.VarBoolean;
+    sevkNull:
+      Result := False <> V2.VarBoolean;
+  end
   else
     Result := False;
 end;
@@ -3493,8 +3533,19 @@ begin
     sevkPascalObject:
       Result := V1.VarPascalObject^.Value <> V2.VarPascalObject^.Value;
   end else
-  if (V1.Kind = sevkNumber) and (V2.Kind = sevkBoolean) then
-    Result := (V1.VarNumber <> 0) <> V2
+  if V2.Kind = sevkBoolean then
+  case V1.Kind of
+    sevkNumber:
+      Result := (V1.VarNumber <> 0) = V2.VarBoolean;
+    sevkString:
+      Result := (Length(V1.VarString^) > 0) = V2.VarBoolean;
+    sevkMap,
+    sevkPascalObject,
+    sevkFunction:
+      Result := True = V2.VarBoolean;
+    sevkNull:
+      Result := False = V2.VarBoolean;
+  end
   else
     Result := True;
 end;
@@ -3780,6 +3831,20 @@ begin
     else
       R := V1.VarPointer = V2.VarPointer;
   end else
+  if V2.Kind = sevkBoolean then
+  case V1.Kind of
+    sevkNumber:
+      R := (V1.VarNumber <> 0) <> V2.VarBoolean;
+    sevkString:
+      R := (Length(V1.VarString^) > 0) <> V2.VarBoolean;
+    sevkMap,
+    sevkPascalObject,
+    sevkFunction:
+      R := True <> V2.VarBoolean;
+    sevkNull:
+      R := False <> V2.VarBoolean;
+  end
+  else
     R := False;
 end;
 operator <> (V1, V2: TSEValue) R: Boolean; inline;
@@ -3799,6 +3864,20 @@ begin
     else
       R := V1.VarPointer <> V2.VarPointer;
   end else
+  if V2.Kind = sevkBoolean then
+  case V1.Kind of
+    sevkNumber:
+      R := (V1.VarNumber <> 0) = V2.VarBoolean;
+    sevkString:
+      R := (Length(V1.VarString^) > 0) = V2.VarBoolean;
+    sevkMap,
+    sevkPascalObject,
+    sevkFunction:
+      R := True = V2.VarBoolean;
+    sevkNull:
+      R := False = V2.VarBoolean;
+  end
+  else
     R := True;
 end;
 
