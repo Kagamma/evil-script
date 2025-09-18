@@ -177,7 +177,7 @@ type
     sevkPascalObject,
     sevkConstString
   );
-  PSECommonString = ^String;
+  PSECommonString = ^RawByteString;
   TSEBuffer = record
     Base: Pointer;
     Ptr: Pointer;
@@ -4832,7 +4832,7 @@ var
   A, B, C, V,
   OA, OB, OC, OV: PSEValue;
   TV, TV2: TSEValue;
-  S, S1, S2: String;
+  S, S1, S2: RawByteString;
   WS, WS1, WS2: UnicodeString;
   FuncNativeInfo: PSEFuncNativeInfo;
   FuncScriptInfo: PSEFuncScriptInfo;
