@@ -18,7 +18,7 @@ unit ScriptEngine;
   {$endif}
 {$endif}
 // enable this if you want to use libffi to handle dynamic function calls
-{$define SE_LIBFFI}
+{.$define SE_LIBFFI}
 {$if defined(CPU32) or defined(CPU64) or defined(SE_LIBFFI)}
   {$ifndef WASI}
     {$define SE_DYNLIBS}
@@ -37,7 +37,7 @@ unit ScriptEngine;
 // enable this to replace FP's TDirectory with avk959's TGChainHashMap. It is a lot faster than TDirectory.
 // requires https://github.com/avk959/LGenerics
 // note: enable this will undef SE_MAP_SHORTSTRING, because this optimization is not necessary for TGChainHashMap
-{$define SE_MAP_AVK959}
+{.$define SE_MAP_AVK959}
 {$ifdef SE_MAP_AVK959}
   {$undef SE_MAP_SHORTSTRING}
   {$define TSEDictionary := TGChainHashMap}
