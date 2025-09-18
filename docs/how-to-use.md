@@ -170,7 +170,7 @@ A 16-byte data structure. `TSEValue.Kind` stores the type of variable, which can
       V := True;
       // Equivalent to:
       // V.Kind := sevkBoolean;
-      // V.VarBoolean := True;
+      // V.VarNumber := 1;
     ```
 - Assigns string:
     ```
