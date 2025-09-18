@@ -1,0 +1,11 @@
+let total = { x: 0, y: 5 };
+let ta = DateTime.now();
+
+for (let i = 0; i <= 9999; i++)
+  for (let j = 0; j <= 9999; j++)
+    total.x = total.y + i * j;
+
+let tb = DateTime.now();
+
+puts("\nTime: ", Math.round(DateTime.milliseconds(tb - ta)), "ms");
+puts("Total: ", total.x);

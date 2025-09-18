@@ -2,7 +2,7 @@ import time
 
 def calculate_product_sum():
     # Initialize total
-    total = {'x': 0}
+    total = {'x': 0, 'y': 5}
 
     # Get start time in milliseconds
     t = time.time() * 1000
@@ -10,7 +10,7 @@ def calculate_product_sum():
     # Nested loops
     for i in range(10000):
         for j in range(10000):
-            total['x'] = total['x'] + i * j
+            total['x'] = total['y'] + i * j
 
     # Calculate elapsed time
     elapsed_time = (time.time() * 1000) - t
