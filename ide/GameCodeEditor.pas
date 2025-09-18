@@ -188,7 +188,7 @@ begin
     begin
       SL.Add(Self.Script.VarList[I].Name);
     end;
-    for S in Self.Script.ConstMap.Keys do
+    for S in Self.Script.ConstLookup.Keys do
     begin
       SL.Add(S);
     end;
