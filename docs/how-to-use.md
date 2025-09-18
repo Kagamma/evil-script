@@ -7,7 +7,8 @@ Below is an overview document that briefly explains how to integrate Evil script
   + [Register new functions with the self variable](#register-new-functions-with-the-self-variable)
   + [Yield](#yield)
   + [Exec, ExecFunc, ExecFuncOnly](#exec-execfunc-execfunconly)
-  + [Change a global variable](#change-a-global-variable)
+  + [Change global variables](#change-global-variables)
+  + [Change constant values](#change-constant-values)
 - [TSEValue](#tsevalue)
   + [Overview](#overview)
 - [Performance tips](#performance-tips)
@@ -128,10 +129,21 @@ On Pascal side, we call `TScriptEngine.Exec` in a loop until `IsDone` flag is se
 - `ExecFunc` executes a named function. If you want to initialize global variables, call `Exec` before `ExecFunc`. `yield` can be used to quit the script and return later.
 - `ExecFuncOnly` similar to `ExecFunc` except it's one time only and because of that `yield` CANNOT be used.
 
-### Change a global variable
+### Change global variables
 Useful if we want to modify a global variable after intialized them via `TScriptEngine.Exec()`
 ```
   SE.VM.SetGlobalVariable('a', NewValue);
+```
+
+### Change constant values
+By default the compiler will optimizes constant values. If we want to change constant values without having to recompile the script, it is necessary to disable `OptimizeConstants`:
+```
+  SE.OptimizeConstants := False;
+  SE.SetConst('my_const', 5);
+  SE.Source := 'writeln(my_const)';
+  SE.Exec; // Print 5
+  SE.SetConst('my_const', 10);
+  SE.Exec; // Print 10
 ```
 
 ## TSEValue

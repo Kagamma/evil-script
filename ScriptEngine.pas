@@ -88,8 +88,6 @@ type
     opAssignGlobalArray,
     opAssignLocalVar,
     opAssignLocalArray,
-    opAssignArrayFast,
-    opAssignMapFast,
     opJumpEqual,
     opJumpEqual1,
     opJumpUnconditional,
@@ -134,6 +132,7 @@ type
     opOperatorNot,
     opOperatorShiftLeft,
     opOperatorShiftRight,
+    opPushConstFromConstList,
 
     opCallRef,
     opCallNative,
@@ -507,7 +506,7 @@ type
   end;
   TSELineOfCodeList = specialize TList<TSELineOfCode>;
 
-  TSEConstMap = specialize TSEDictionary<String, TSEValue>;
+  TSEConstLookup = specialize TSEDictionary<String, Integer>;
   TSEStack = TSEValueListAncestor;
   TSEVarMap = TSEValue;
   TSEFrame = record
@@ -698,8 +697,7 @@ type
     tkDo,
     tkTry,
     tkCatch,
-    tkThrow,
-    tkAccess
+    tkThrow
   );
 TSETokenKinds = set of TSETokenKind;
 
@@ -710,7 +708,7 @@ const
     ',', 'if', 'switch', 'case', 'default', 'identity', 'function', 'fn', 'variable', 'const', 'local',
     'unknown', 'else', 'while', 'break', 'continue', 'yield',
     '[', ']', 'and', 'or', 'xor', 'not', 'for', 'in', 'to', 'downto', 'step', 'return',
-    'atom', 'import', 'do', 'try', 'catch', 'throw', 'access'
+    'atom', 'import', 'do', 'try', 'catch', 'throw'
   );
   ValueKindNames: array[TSEValueKind] of String = (
     'null', 'number', 'string', 'map', 'buffer', 'pointer', 'boolean', 'function', 'pasobject', 'packedstring'
@@ -729,8 +727,6 @@ const
     3, // opAssignGlobalArray,
     3, // opAssignLocalVar,
     4, // opAssignLocalArray,
-    4, // opAssignArrayFast,
-    4, // opAssignMapFast,
     2, // opJumpEqual,
     3, // opJumpEqual1,
     2, // opJumpUnconditional,
@@ -775,6 +771,7 @@ const
     1, // opOperatorNot,
     1, // opOperatorShiftLeft,
     1, // opOperatorShiftRight,
+    2, // opPushConstFromConstList,
 
     4, // opCallRef,
     4, // opCallNative,
@@ -831,10 +828,12 @@ type
   private
     FSource: String;
     FInternalIdentCount: QWord;
+    ConstLookup: TSEConstLookup;
     procedure SetSource(V: String);
     function InternalIdent: String;
   public
     Owner: TObject;
+    OptimizeConstants,        // True = enable optimization for constant values stored in ConstList
     OptimizePeephole,         // True = enable peephole optimization, default is true
     OptimizeConstantFolding,  // True = enable constant folding optimization, default is true
     OptimizeAsserts: Boolean; // True = ignore assert, default is true
@@ -843,6 +842,7 @@ type
     {$ifdef SE_THREADS}
     VMThreadList: TSEVMThreadList;
     {$endif}
+    ConstList: TSEValueList;
     IncludePathList,
     IncludeList: TStrings;
     TokenList: TSETokenList;
@@ -854,7 +854,6 @@ type
     FuncNativeList: TSEFuncNativeList;
     FuncScriptList: TSEFuncScriptList;
     FuncImportList: TSEFuncImportList;
-    ConstMap: TSEConstMap;
     ScopeStack: TSEScopeStack;
     ScopeFunc: TSEScopeStack;
     LineOfCodeList: TSELineOfCodeList;
@@ -895,7 +894,7 @@ type
     function FindFuncScript(const Name: String; var Ind: Integer): PSEFuncScriptInfo; inline;
     function FindFuncImport(const Name: String; var Ind: Integer): PSEFuncImportInfo; inline;
     function FindFunc(const Name: String; var Kind: TSEFuncKind; var Ind: Integer): Pointer; inline; overload;
-    procedure PatchSymbols;
+    procedure SetConst(const Name: String; const Value: TSEValue); inline; overload;
 
     property IsPaused: Boolean read GetIsPaused write SetIsPaused;
     property Source: String read FSource write SetSource;
@@ -4428,7 +4427,7 @@ var
 
   procedure Marking;
   var
-    I: Integer;
+    I, J: Integer;
   begin
   {$ifdef SE_THREADS}
     if Self.EnableParallel then
@@ -4450,10 +4449,9 @@ var
           Self.FReachableValueList.Add(P^);
           Inc(P);
         end;
-        for Key in VM.Parent.ConstMap.Keys do
+        for J := 0 to VM.Parent.ConstList.Count - 1 do
         begin
-          V := VM.Parent.ConstMap[Key];
-          Self.FReachableValueList.Add(V);
+          Self.FReachableValueList.Add(VM.Parent.ConstList[J]);
         end;
       end;
       Self.FReachableValueList.Add(ScriptVarMap);
@@ -4477,9 +4475,9 @@ var
           Self.Mark(P);
           Inc(P);
         end;
-        for Key in VM.Parent.ConstMap.Keys do
+        for J := 0 to VM.Parent.ConstList.Count - 1 do
         begin
-          V := VM.Parent.ConstMap[Key];
+          V := VM.Parent.ConstList[J];
           Self.Mark(@V)
         end;
       end;
@@ -5393,8 +5391,6 @@ label
   labelAssignGlobalArray,
   labelAssignLocalVar,
   labelAssignLocalArray,
-  labelAssignArrayFast,
-  labelAssignMapFast,
   labelJumpEqual,
   labelJumpEqual1,
   labelJumpUnconditional,
@@ -5439,6 +5435,7 @@ label
   labelOperatorNot,
   labelOperatorShiftLeft,
   labelOperatorShiftRight,
+  labelPushConstFromConstList,
 
   labelCallRef,
   labelCallNative,
@@ -5469,8 +5466,6 @@ var
     @labelAssignGlobalArray,
     @labelAssignLocalVar,
     @labelAssignLocalArray,
-    @labelAssignArrayFast,
-    @labelAssignMapFast,
     @labelJumpEqual,
     @labelJumpEqual1,
     @labelJumpUnconditional,
@@ -5515,6 +5510,7 @@ var
     @labelOperatorNot,
     @labelOperatorShiftLeft,
     @labelOperatorShiftRight,
+    @labelPushConstFromConstList,
 
     @labelCallRef,
     @labelCallNative,
@@ -6135,34 +6131,6 @@ labelStart:
           Inc(CodePtrLocal, 3);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opAssignArrayFast:{$endif}
-        begin
-        labelAssignArrayFast:
-          A := GetVariable(BinaryLocal[CodePtrLocal + 1].VarPointer, BinaryLocal[CodePtrLocal + 2].VarPointer);
-          B := Pop;
-          C := @BinaryLocal[CodePtrLocal + 3];
-          if C^.Kind = sevkNull then
-            C := Pop;
-          TSEValueMap(A^.VarMap).Lock;
-          if C^.Kind = sevkString then
-            TSEValueMap(A^.VarMap).Map.AddOrSetValue(C^.VarString^, B^)
-          else
-            TSEValueMap(A^.VarMap).Items[Trunc(C^.VarNumber)] := B^;
-          TSEValueMap(A^.VarMap).Unlock;
-          Inc(CodePtrLocal, 4);
-          DispatchGoto;
-        end;
-      {$ifndef SE_COMPUTED_GOTO}opAssignMapFast:{$endif}
-        begin
-        labelAssignMapFast:
-          A := GetVariable(BinaryLocal[CodePtrLocal + 1].VarPointer, BinaryLocal[CodePtrLocal + 2].VarPointer);
-          B := Pop;
-          TSEValueMap(A^.VarMap).Lock;
-          TSEValueMap(A^.VarMap).Map.AddOrSetValue(ConstStrings.Ptr(Integer(BinaryLocal[CodePtrLocal + 3].VarPointer))^, B^);
-          TSEValueMap(A^.VarMap).Unlock;
-          Inc(CodePtrLocal, 4);
-          DispatchGoto;
-        end;
       {$ifndef SE_COMPUTED_GOTO}opAssignGlobalArray:{$endif}
         begin
         labelAssignGlobalArray:
@@ -6266,6 +6234,13 @@ labelStart:
           end else
             SEMapSet(TV, C^, B^);
           Inc(CodePtrLocal, 4);
+          DispatchGoto;
+        end;
+      {$ifndef SE_COMPUTED_GOTO}opPushConstFromConstList:{$endif}
+        begin
+        labelPushConstFromConstList:
+          Push(Self.Parent.ConstList[Integer(BinaryLocal[CodePtrLocal + 1].VarPointer)]);
+          Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
       {$ifdef UNIX}
@@ -6550,7 +6525,8 @@ begin
   Self.FuncNativeList := TSEFuncNativeList.Create;
   Self.FuncScriptList := TSEFuncScriptList.Create;
   Self.FuncImportList := TSEFuncImportList.Create;
-  Self.ConstMap := TSEConstMap.Create;
+  Self.ConstLookup := TSEConstLookup.Create;
+  Self.ConstList := TSEValueList.Create;
   Self.ScopeStack := TSEScopeStack.Create;
   Self.ScopeFunc := TSEScopeStack.Create;
   Self.LineOfCodeList := TSELineOfCodeList.Create;
@@ -6559,6 +6535,7 @@ begin
   Self.CurrentFileList := TStringList.Create;
   Self.LocalVarCountList := TSEIntegerList.Create;
   //
+  Self.OptimizeConstants := True;
   Self.OptimizeAsserts := True;
   Self.OptimizeConstantFolding := True;
   Self.OptimizePeephole := True;
@@ -6764,7 +6741,8 @@ begin
   FreeAndNil(Self.FuncNativeList);
   FreeAndNil(Self.FuncScriptList);
   FreeAndNil(Self.FuncImportList);
-  FreeAndNil(Self.ConstMap);
+  FreeAndNil(Self.ConstList);
+  FreeAndNil(Self.ConstLookup);
   FreeAndNil(Self.ScopeStack);
   FreeAndNil(Self.ScopeFunc);
   FreeAndNil(Self.LineOfCodeList);
@@ -6778,24 +6756,24 @@ end;
 
 procedure TEvilC.AddDefaultConsts;
 begin
-  Self.ConstMap.AddOrSetValue('PI', PI);
-  Self.ConstMap.AddOrSetValue('true', True);
-  Self.ConstMap.AddOrSetValue('false', False);
-  Self.ConstMap.AddOrSetValue('null', SENull);
-  Self.ConstMap.AddOrSetValue('os', GetOS);
-  Self.ConstMap.AddOrSetValue('sevkNumber', TSENumber(Integer(sevkNumber)));
-  Self.ConstMap.AddOrSetValue('sevkString', TSENumber(Integer(sevkString)));
-  Self.ConstMap.AddOrSetValue('sevkPascalObject', TSENumber(Integer(sevkPascalObject)));
-  Self.ConstMap.AddOrSetValue('sevkBuffer', TSENumber(Integer(sevkBuffer)));
-  Self.ConstMap.AddOrSetValue('sevkMap', TSENumber(Integer(sevkMap)));
-  Self.ConstMap.AddOrSetValue('sevkNull', TSENumber(Integer(sevkNull)));
-  Self.ConstMap.AddOrSetValue('sevkFunction', TSENumber(Integer(sevkFunction)));
-  Self.ConstMap.AddOrSetValue('sevkPointer', TSENumber(Integer(sevkPointer)));
+  Self.SetConst('PI', PI);
+  Self.SetConst('true', True);
+  Self.SetConst('false', False);
+  Self.SetConst('null', SENull);
+  Self.SetConst('os', GetOS);
+  Self.SetConst('sevkNumber', TSENumber(Integer(sevkNumber)));
+  Self.SetConst('sevkString', TSENumber(Integer(sevkString)));
+  Self.SetConst('sevkPascalObject', TSENumber(Integer(sevkPascalObject)));
+  Self.SetConst('sevkBuffer', TSENumber(Integer(sevkBuffer)));
+  Self.SetConst('sevkMap', TSENumber(Integer(sevkMap)));
+  Self.SetConst('sevkNull', TSENumber(Integer(sevkNull)));
+  Self.SetConst('sevkFunction', TSENumber(Integer(sevkFunction)));
+  Self.SetConst('sevkPointer', TSENumber(Integer(sevkPointer)));
   {$ifdef SE_THREADS}
-  Self.ConstMap.AddOrSetValue('wrSignaled', TSENumber(Integer(wrSignaled)));
-  Self.ConstMap.AddOrSetValue('wrTimeout', TSENumber(Integer(wrTimeout)));
-  Self.ConstMap.AddOrSetValue('wrAbandoned', TSENumber(Integer(wrAbandoned)));
-  Self.ConstMap.AddOrSetValue('wrError', TSENumber(Integer(wrError)));
+  Self.SetConst('wrSignaled', TSENumber(Integer(wrSignaled)));
+  Self.SetConst('wrTimeout', TSENumber(Integer(wrTimeout)));
+  Self.SetConst('wrAbandoned', TSENumber(Integer(wrAbandoned)));
+  Self.SetConst('wrError', TSENumber(Integer(wrError)));
   {$endif}
 end;
 
@@ -6921,8 +6899,6 @@ begin
           Token.Kind := tkEOF
         else
           continue;
-      '@':
-        Token.Kind := tkAccess;
       '.':
         Token.Kind := tkDot;
       '&':
@@ -7491,6 +7467,21 @@ begin
     Kind := sefkScript;
 end;
 
+procedure TEvilC.SetConst(const Name: String; const Value: TSEValue);
+var
+  Index: Integer;
+begin
+  if not Self.ConstLookup.TryGetValue(Name, Index) then
+  begin
+    Self.ConstList.Add(Value);
+    Index := ConstList.Count - 1;
+    Self.ConstLookup.Add(Name, Index);
+  end else
+  begin
+    Self.ConstList[Index] := Value;
+  end;
+end;
+
 procedure TEvilC.Parse;
 var
   Pos: Integer = -1;
@@ -7812,16 +7803,6 @@ var
       Result := Emit([Pointer(opAssignGlobalArray), Ident.Addr, ArgCount]);
   end;
 
-  function EmitAssignArrayFast(const Ident: TSEIdent; const AValue: TSEValue): Integer; inline;
-  begin
-    Result := Emit([Pointer(opAssignArrayFast), Pointer(Ident.Addr), GetVarFrame(Ident), AValue])
-  end;
-
-  function EmitAssignMapFast(const Ident: TSEIdent; const AValue: String): Integer; inline;
-  begin
-    Result := Emit([Pointer(opAssignMapFast), Pointer(Ident.Addr), GetVarFrame(Ident), Pointer(CreateConstString(Avalue))]);
-  end;
-
   procedure Patch(const Addr: Integer; const Data: TSEValue); inline;
   begin
     Self.Binary[Addr] := Data;
@@ -7844,7 +7825,7 @@ var
       Exit(tkVariable);
     if FindFunc(Ident) <> nil then
       Exit(tkFunction);
-    if Self.ConstMap.{$ifdef SE_MAP_AVK959}Contains{$else}ContainsKey{$endif}(Ident) then
+    if Self.ConstLookup.{$ifdef SE_MAP_AVK959}Contains{$else}ContainsKey{$endif}(Ident) then
       Exit(tkConst);
     Exit(tkUnknown);
   end;
@@ -8455,6 +8436,7 @@ var
     var
       Token, Token2: TSEToken;
       Ident: PSEIdent;
+      V,
       FuncValue: TSEValue;
       Ind: Integer;
       P: Pointer;
@@ -8585,8 +8567,12 @@ var
               tkConst:
                 begin
                   NextToken;
-                  EmitExpr([Pointer(opPushConst), Self.ConstMap[Token.Value]]);
-                  AddSymbol(sesConst, Token.Value, Self.Binary.Count - 1);
+                  Ind := Self.ConstLookup[Token.Value];
+                  V := Self.ConstList[Ind];
+                  if (not Self.OptimizeConstants) or (V.Kind in [sevkBuffer, sevkString, sevkMap, sevkPascalObject]) then
+                    EmitExpr([Pointer(opPushConstFromConstList), Pointer(Ind)])
+                  else
+                    EmitExpr([Pointer(opPushConst), Self.ConstList[Ind]]);
                 end;
               tkFunction:
                 begin
@@ -9658,7 +9644,7 @@ var
     Emit([Pointer(opPopConst)]);
   end;
 
-  procedure ParseVarAssign(const Name: String; const IsNew, IsAccess: Boolean);
+  procedure ParseVarAssign(const Name: String; const IsNew: Boolean);
   var
     Ident: PSEIdent;
     Token, Token2: TSEToken;
@@ -9678,56 +9664,25 @@ var
       Error(Format('Cannot reassign value to constant "%s"', [Name]), PeekAtNextToken);
       RewindStartAddr := Self.Binary.Count;
     VarStartTokenPos := Pos;
-    if not IsAccess then
+    while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
     begin
-      while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
-      begin
-        if IsNew then
-          Error(Format('Variable "%s" is not an array / a map', [Name]), PeekAtNextToken);
-        case PeekAtNextToken.Kind of
-          tkSquareBracketOpen:
-            begin
-              NextToken;
-              ParseExpr;
-              NextTokenExpected([tkSquareBracketClose]);
-            end;
-          tkDot:
-            begin
-              NextToken;
-              Token2 := NextTokenExpected([tkIdent]);
-              Emit([Pointer(opPushConst), CreateConstStringValue(Token2.Value)]);
-            end;
-        end;
-        Inc(ArgCount);
-      end;
-    end else
-    begin
-      PeekAtNextTokenExpected([tkSquareBracketOpen, tkDot]);
-      if PeekAtNextToken.Kind = tkSquareBracketOpen then
-      begin
-        AccessNumber := SENull;
-        NextToken;
-        OpBinaryStart := Self.OpcodeInfoList.Count;
-        ParseExpr;
-        OpBinaryEnd := Self.OpcodeInfoList.Count;
-        if (OpBinaryEnd - OpBinaryStart) = 1 then
-        begin
-          OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushConst]);
-          if (OpInfoPrev1 <> nil) then
+      if IsNew then
+        Error(Format('Variable "%s" is not an array / a map', [Name]), PeekAtNextToken);
+      case PeekAtNextToken.Kind of
+        tkSquareBracketOpen:
           begin
-            if (OpInfoPrev1^.Binary <> Pointer(Self.Binary)) then
-              Exit;
-            AccessNumber := Self.Binary[OpInfoPrev1^.Pos + 1];
-            Self.Binary.DeleteRange(Self.Binary.Count - OpInfoPrev1^.Size, OpInfoPrev1^.Size);
-            Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 1, 1);
+            NextToken;
+            ParseExpr;
+            NextTokenExpected([tkSquareBracketClose]);
           end;
-        end;
-        NextTokenExpected([tkSquareBracketClose]);
-      end else
-      begin
-        NextToken;
-        AccessString := NextTokenExpected([tkIdent]).Value;
+        tkDot:
+          begin
+            NextToken;
+            Token2 := NextTokenExpected([tkIdent]);
+            Emit([Pointer(opPushConst), CreateConstStringValue(Token2.Value)]);
+          end;
       end;
+      Inc(ArgCount);
     end;
 
     Token := PeekAtNextTokenExpected([tkEqual, tkOpAssign, tkBracketOpen]);
@@ -9739,7 +9694,7 @@ var
           NextToken;
           if Token.Kind = tkOpAssign then
           begin
-            if (ArgCount > 0) or IsAccess then
+            if ArgCount > 0 then
             begin
               J := Pos + 1;
               for I := VarStartTokenPos to VarEndTokenPos do
@@ -9769,26 +9724,17 @@ var
                   Emit([Pointer(opOperatorDiv)]);
             end;
           end;
-          if IsAccess then
+          if ArgCount > 0 then
+            EmitAssignArray(Ident^, ArgCount)
+          else
           begin
-            if AccessString = '' then
-              EmitAssignArrayFast(Ident^, AccessNumber)
-            else
-              EmitAssignMapFast(Ident^, AccessString);
-          end else
-          begin
-            if ArgCount > 0 then
-              EmitAssignArray(Ident^, ArgCount)
-            else
-            begin
-              EmitAssignVar(Ident^);
-              PeepholeIncOptimization;
-            end;
+            EmitAssignVar(Ident^);
+            PeepholeIncOptimization;
           end;
         end;
       tkBracketOpen:
         begin
-          if IsNew or IsAccess then
+          if IsNew then
             Error(Format('Variable "%s" is not a function', [Name]), PeekAtNextToken);
           ParseFuncRefCallByMapRewind(Ident^, ArgCount, RewindStartAddr, Ident);
           ParseAssignTail;
@@ -9839,7 +9785,7 @@ var
     Emit([Pointer(opThrow)]);
   end;
 
-  procedure ParseIdent(const Token: TSEToken; const IsConst, IsLocal, IsAccess: Boolean);
+  procedure ParseIdent(const Token: TSEToken; const IsConst, IsLocal: Boolean);
   var
     OpCountBefore,
     OpCountAfter: Integer;
@@ -9851,7 +9797,7 @@ var
           NextToken;
           CreateIdent(ikVariable, Token, False, IsConst);
           OpCountBefore := Self.OpcodeInfoList.Count;
-          ParseVarAssign(Token.Value, True, False);
+          ParseVarAssign(Token.Value, True);
           OpCountAfter := Self.OpcodeInfoList.Count;
           if (IsConst) and
             (Self.OptimizePeephole) and
@@ -9873,18 +9819,12 @@ var
       tkVariable:
         begin
           NextToken;
-          if not IsAccess then
+          if PeekAtNextToken.Kind = tkBracketOpen then // Likely function ref
           begin
-            if PeekAtNextToken.Kind = tkBracketOpen then // Likely function ref
-            begin
-              ParseFuncRefCallByName(Token.Value);
-              ParseAssignTail;
-            end else
-              ParseVarAssign(Token.Value, False, False);
+            ParseFuncRefCallByName(Token.Value);
+            ParseAssignTail;
           end else
-          begin
-            ParseVarAssign(Token.Value, False, True);
-          end;
+            ParseVarAssign(Token.Value, False);
         end;
       tkFunction:
         begin
@@ -9916,7 +9856,7 @@ var
         begin
           NextToken;
           Token := PeekAtNextTokenExpected([tkIdent]);
-          ParseIdent(Token, True, False, False);
+          ParseIdent(Token, True, False);
         end;
       tkLocal:
         begin
@@ -9927,7 +9867,7 @@ var
             NextToken;
           end;
           Token := PeekAtNextTokenExpected([tkIdent]);
-          ParseIdent(Token, IsConst, True, False);
+          ParseIdent(Token, IsConst, True);
         end;
       tkIf:
         begin
@@ -9978,7 +9918,7 @@ var
             NextToken;
             Token.Kind := tkEqual;
             TokenList.Insert(Pos + 1, Token); // Insert equal token
-            ParseVarAssign('result', False, False);
+            ParseVarAssign('result', False);
             NextTokenExpected([tkBracketClose]);
           end;
           if Self.FuncTraversal = 0 then
@@ -10015,7 +9955,7 @@ var
             NextToken;
             Token.Kind := tkEqual;
             TokenList.Insert(Pos + 1, Token); // Insert equal token
-              ParseVarAssign('result', False, False);
+              ParseVarAssign('result', False);
             NextTokenExpected([tkBracketClose]);
           end;
           Emit([Pointer(opYield)]);
@@ -10053,15 +9993,9 @@ var
           Self.VarList.DeleteRange(I, Self.VarList.Count - I);
           NextToken;
         end;
-      tkAccess:
-        begin
-          NextToken;
-          Token := PeekAtNextTokenExpected([tkIdent]);
-          ParseIdent(Token, False, False, True);
-        end;
       tkIdent:
         begin
-          ParseIdent(Token, False, False, False);
+          ParseIdent(Token, False, False);
         end;
       tkImport:
         begin
@@ -10481,25 +10415,6 @@ begin
   Self.GlobalVarSymbols.Assign(Cache.GlobalVarSymbols);
   Self.GlobalVarCount := Cache.GlobalVarCount;
   Self.IsParsed := True;
-end;
-
-procedure TEvilC.PatchSymbols;
-var
-  I: Integer;
-  P: PSESymbol;
-  Bin: TSEBinary;
-begin
-  for I := 0 to Self.VM.SymbolList - 1 do
-  begin
-    P := Self.VM.SymbolList.Ptr(I);
-    case P^.Kind of
-      sesConst:
-        begin
-          Bin := Self.VM.Binaries.Value^.Data[P^.Binary];
-          Bin[P^.Code] := Self.ConstMap[P^.Name];
-        end;
-    end;
-  end;
 end;
 
 procedure TSECacheMap.ClearSingle(const AName: String);
