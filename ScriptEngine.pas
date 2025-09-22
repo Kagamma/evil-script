@@ -48,7 +48,12 @@ unit ScriptEngine;
 {$ifndef GO32v2}
   {$define SE_THREADS}
 {$endif}
-{$align 16}
+{$ifdef CPU64}
+  {$align 16}
+{$endif}
+{$ifdef CPU32}
+  {$align 4}
+{$endif}
 {$packenum 4}
 
 interface
@@ -274,7 +279,7 @@ type
     procedure FromJSON(constref S: String);
     function ToJSON: String;
     function ToString: String;
-    function Size: Integer;
+    function Size: SizeInt;
   end;
 
   TSEValueDict = specialize TSEDictionary<{$ifdef SE_MAP_SHORTSTRING}ShortString{$else}String{$endif}, TSEValue>;
@@ -1664,7 +1669,7 @@ begin
   Result := SEValueToText(Self);
 end;
 
-function TSEValueHelper.Size: Integer;
+function TSEValueHelper.Size: SizeInt;
 begin
   Result := SESize(Self);
 end;
