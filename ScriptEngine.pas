@@ -60,7 +60,7 @@ interface
 
 uses
   SysUtils, Classes, Generics.Collections, StrUtils, Types, DateUtils, RegExpr, {$ifdef SE_THREADS}syncobjs,{$endif}
-  contnrs,
+  contnrs, Rtti, TypInfo,
   {$ifdef SE_PROFILER}
   CastleTimeUtils,
   {$endif}
@@ -271,6 +271,8 @@ type
     procedure SetValue(constref I: Integer; const A: TSEValue); inline; overload;
     procedure SetValue(constref S: String; const A: TSEValue); inline; overload;
     procedure SetValue(I: TSEValue; const A: TSEValue); inline; overload;
+    function GetProp(I: TSEValue): TSEValue;
+    procedure SetProp(I: TSEValue; const A: TSEValue);
     function ContainsKey(constref S: String): Boolean; inline; overload;
     procedure UnManaged; inline;
     procedure Managed; inline;
@@ -1620,6 +1622,107 @@ end;
 procedure TSEValueHelper.SetValue(I: TSEValue; const A: TSEValue); inline; overload;
 begin
   SEMapSet(Self, I, A);
+end;
+
+function TSEValueHelper.GetProp(I: TSEValue): TSEValue;
+var
+  Obj: TObject;
+  Ctx: TRttiContext;
+  RttiType: TRttiType;
+  Prop: TRttiProperty;
+  Value: TValue;
+  PName: String;
+begin
+  Obj := Self.VarPascalObject^.Value;
+  Ctx := TRttiContext.Create;
+  try
+    case I.Kind of
+      sevkString:
+        PName := UpCase(I.VarString^);
+      sevkConstString:
+        PName := UpCase(ConstStrings.Ptr(I.VarConstStringIndex)^);
+    end;
+    RttiType := Ctx.GetType(Obj.ClassType);
+    for Prop in RttiType.GetProperties do
+    begin
+      if UpCase(Prop.Name) = PName then
+      begin
+        Value := Prop.GetValue(Obj);
+        case Prop.PropertyType.TypeKind of
+          tkSet,
+          tkInteger,
+          tkQWord,
+          tkInt64:
+            Result := Value.AsInt64;
+          tkFloat:
+            Result := TSEValue(Value.AsExtended);
+          tkBool:
+            Result := Value.AsBoolean;
+          tkLString,
+          tkAString,
+          tkWString,
+          tkSString:
+            Result := Value.AsString;
+          tkUChar,
+          tkWChar,
+          tkChar:
+            Result := TSEValue(Value.AsChar);
+          else
+          begin
+            WriteStr(PName, Prop.PropertyType.TypeKind);
+            raise Exception.Create('Property "' + Prop.Name + '" type "' + PName + '" not supported');
+          end;
+        end;
+        break;
+      end;
+    end;
+  finally
+    Ctx.Free;
+  end;
+end;
+
+procedure TSEValueHelper.SetProp(I: TSEValue; const A: TSEValue);
+var
+  Obj: TObject;
+  Ctx: TRttiContext;
+  RttiType: TRttiType;
+  Prop: TRttiProperty;
+  PName: String;
+begin
+  Obj := Self.VarPascalObject^.Value;
+  Ctx := TRttiContext.Create;
+  try
+    case I.Kind of
+      sevkString:
+        PName := UpCase(I.VarString^);
+      sevkConstString:
+        PName := UpCase(ConstStrings.Ptr(I.VarConstStringIndex)^);
+    end;
+    RttiType := Ctx.GetType(Obj.ClassType);
+    for Prop in RttiType.GetProperties do
+    begin
+      if UpCase(Prop.Name) = PName then
+      begin
+        case A.Kind of
+          sevkBoolean:
+            Prop.SetValue(Obj, Boolean(Round(A.VarNumber)));
+          sevkNumber:
+            Prop.SetValue(Obj, A.VarNumber);
+          sevkString:
+            Prop.SetValue(Obj, A.VarString^);
+          sevkPascalObject:
+            Prop.SetValue(Obj, A.VarPascalObject^.Value);
+          sevkBuffer:
+            Prop.SetValue(Obj, QWord(A.VarBuffer^.Ptr));
+          else
+            Prop.SetValue(Obj, QWord(A.VarPointer));
+        end;
+        break;
+      end;
+    end;
+  finally
+    Ctx.Free;
+  end;
 end;
 
 function TSEValueHelper.ContainsKey(constref S: String): Boolean; inline; overload;
@@ -5931,6 +6034,8 @@ labelStart:
               {$endif}
             sevkMap:
               Push(SEMapGet(B^, A^));
+            sevkPascalObject:
+              Push(B^.GetProp(A^));
             else
               Push(0);
           end;
@@ -5941,7 +6046,12 @@ labelStart:
         begin
         labelPushArrayPopString:
           B := Pop;
-          Push(SEMapGet(B^, ConstStrings.Ptr(Integer(BinaryLocal[CodePtrLocal + 1].VarPointer))^));
+          case B^.Kind of
+            sevkMap:
+              Push(SEMapGet(B^, ConstStrings.Ptr(Integer(BinaryLocal[CodePtrLocal + 1].VarPointer))^));
+            sevkPascalObject:
+              Push(B^.GetProp(ConstStrings.Ptr(Integer(BinaryLocal[CodePtrLocal + 1].VarPointer))^));
+          end;
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
@@ -6156,33 +6266,36 @@ labelStart:
               Inc(C);
             end;
           end;
-          if TV.Kind = sevkString then
-          begin
-            case B^.Kind of
-              sevkString:
-                begin
-                  {$ifdef SE_STRING_UTF8}
-                    S2 := B^.VarString^;
-                    UTF8Delete(TV.VarString^, Integer(C^) + 1, 1);
-                    S := UTF8Copy(S2, 1, 1);
-                    UTF8Insert(S, TV.VarString^, Integer(C^) + 1);
-                  {$else}
-                    TV.VarString^[Integer(C^) + 1] := B^.VarString^[1];
-                  {$endif}
-                end;
-              sevkNumber:
-                begin
-                  {$ifdef SE_STRING_UTF8}
-                    UTF8Delete(TV.VarString^, Integer(C^) + 1, 1);
-                    S := Char(Round(B^.VarNumber));
-                    UTF8Insert(S, TV.VarString^, Integer(C^) + 1);
-                  {$else}
-                    TV.VarString^[Integer(C^) + 1] := Char(Round(B^.VarNumber));
-                  {$endif}
-                end;
-            end;
-          end else
-            SEMapSet(TV, C^, B^);
+          case TV.Kind of
+            sevkString:
+              case B^.Kind of
+                sevkString:
+                  begin
+                    {$ifdef SE_STRING_UTF8}
+                      S2 := B^.VarString^;
+                      UTF8Delete(TV.VarString^, Integer(C^) + 1, 1);
+                      S := UTF8Copy(S2, 1, 1);
+                      UTF8Insert(S, TV.VarString^, Integer(C^) + 1);
+                    {$else}
+                      TV.VarString^[Integer(C^) + 1] := B^.VarString^[1];
+                    {$endif}
+                  end;
+                sevkNumber:
+                  begin
+                    {$ifdef SE_STRING_UTF8}
+                      UTF8Delete(TV.VarString^, Integer(C^) + 1, 1);
+                      S := Char(Round(B^.VarNumber));
+                      UTF8Insert(S, TV.VarString^, Integer(C^) + 1);
+                    {$else}
+                      TV.VarString^[Integer(C^) + 1] := Char(Round(B^.VarNumber));
+                    {$endif}
+                  end;
+              end;
+            sevkPascalObject:
+              TV.SetProp(C^, B^);
+            else
+              SEMapSet(TV, C^, B^);
+          end;
           Inc(CodePtrLocal, 3);
           DispatchGoto;
         end;
@@ -6207,37 +6320,40 @@ labelStart:
               Inc(C);
             end;
           end;
-          if TV.Kind = sevkString then
-          begin
-            case B^.Kind of
-              sevkString:
-                begin
-                  {$ifdef SE_STRING_UTF8}
-                    S1 := TV.VarString^;
-                    S2 := B^.VarString^;
-                    UTF8Delete(S1, Integer(C^) + 1, 1);
-                    S := UTF8Copy(S2, 1, 1);
-                    UTF8Insert(S, S1, Integer(C^) + 1);
-                    TV.VarString^ := S1;
-                  {$else}
-                    TV.VarString^[Integer(C^) + 1] := B^.VarString^[1];
-                  {$endif}
-                end;
-              sevkNumber:
-                begin
-                  {$ifdef SE_STRING_UTF8}
-                    S1 := TV.VarString^;
-                    UTF8Delete(S1, Integer(C^) + 1, 1);
-                    S := Char(Round(B^.VarNumber));
-                    UTF8Insert(S, S1, Integer(C^) + 1);
-                    TV.VarString^ := S1;
-                  {$else}
-                    TV.VarString^[Integer(C^) + 1] := Char(Round(B^.VarNumber));
-                  {$endif}
-                end;
-            end;
-          end else
-            SEMapSet(TV, C^, B^);
+          case TV.Kind of
+            sevkString:
+              case B^.Kind of
+                sevkString:
+                  begin
+                    {$ifdef SE_STRING_UTF8}
+                      S1 := TV.VarString^;
+                      S2 := B^.VarString^;
+                      UTF8Delete(S1, Integer(C^) + 1, 1);
+                      S := UTF8Copy(S2, 1, 1);
+                      UTF8Insert(S, S1, Integer(C^) + 1);
+                      TV.VarString^ := S1;
+                    {$else}
+                      TV.VarString^[Integer(C^) + 1] := B^.VarString^[1];
+                    {$endif}
+                  end;
+                sevkNumber:
+                  begin
+                    {$ifdef SE_STRING_UTF8}
+                      S1 := TV.VarString^;
+                      UTF8Delete(S1, Integer(C^) + 1, 1);
+                      S := Char(Round(B^.VarNumber));
+                      UTF8Insert(S, S1, Integer(C^) + 1);
+                      TV.VarString^ := S1;
+                    {$else}
+                      TV.VarString^[Integer(C^) + 1] := Char(Round(B^.VarNumber));
+                    {$endif}
+                  end;
+              end;
+            sevkPascalObject:
+              TV.SetProp(C^, B^);
+            else
+              SEMapSet(TV, C^, B^);
+          end;
           Inc(CodePtrLocal, 4);
           DispatchGoto;
         end;

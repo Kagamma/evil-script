@@ -10,16 +10,17 @@ const
   HelloWorld = 'writeln(''Hello, World!'')';
   IfTest = 'i = 5.1 if i = 5.1 writeln(''True'') else writeln(''Something is wrong!'')';
   StringTest = 's = ''This is a string!'' writeln(s)';
-  PerformanceWhileTest = 'k = 0 i = 0 while i < 9999 { i = i + 1 j = 0 while j < 9999 { j = j + 1 k = i * j } } writeln(''k = '', k)';
-  PerformanceForTest = 'k = 0 for i = 0 to 9999 { for j = 0 to 9999 { k = i * j } } writeln(''k = '', k)';
+  PerformanceWhileTest = 'k = 0 i = 0 while i < 999 { i = i + 1 j = 0 while j < 9999 { j = j + 1 k = i * j } } writeln(''k = '', k)';
+  PerformanceForTest = 'k = 0 for i = 0 to 999 { for j = 0 to 9999 { k = i * j } } writeln(''k = '', k)';
   ArrayTest = 'a = [] i = 0 while i < 2 { a[i] = 1 + i * 2 i = i + 1 } a[2] = ''text'' writeln(a[0], '' '', a[1], '' '', a[2])';
   CustomFunctionTest = 'writeln(hello(''Satania''))';
   CustomFunctionWithSelfTest = 'a = [ func: add, value: 1 ] writeln(a.func(3).value)';
   ReturnAnotherNativeFunction = 'f = return_another_native_function() writeln(f())';
   CallFunction = 'a = 0 fn test(b) { a += b writeln(a) }';
   YieldTest = 'i = 0 while i < 3 { i = i + 1 yield }';
-  FibTest = 'fn fib(n) { if n < 2 result = n else result = fib(n-1) + fib(n-2) } writeln(fib(36))';
+  FibTest = 'fn fib(n) { if n < 2 result = n else result = fib(n-1) + fib(n-2) } writeln(fib(35))';
   AssertTest = 'assert(false, "Assert triggered")';
+  RttiTest = 'o = obj writeln(o.name) o.name = "REPLACED" writeln(o.name)';
   ResultTest = 'result = 5';
 
 type
@@ -29,6 +30,13 @@ type
     class function Add(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: TSEValue): TSEValue;
     class function ReturnAnotherNativeFunction(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function ReturnMe(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+  end;
+
+  TRttiTest = class
+  private
+    FName: String;
+  published
+    property Name: String read FName write FName;
   end;
 
 class function TCustomFunctions.Hello(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -144,9 +152,9 @@ begin
   SE.Exec;
 end;
 
-procedure CalFunctionTestRun;
+procedure CallFunctionTestRun;
 begin
-  Writeln('--- CalFunctionTestRun ---');
+  Writeln('--- CallFunctionTestRun ---');
   SE.Source := CallFunction;
   SE.Exec; // Initialize global variables
   SE.ExecFuncOnly('test', [2]); // 2
@@ -191,6 +199,20 @@ begin
   end;
 end;
 
+procedure RttiTestRun;
+var
+  O: TRttiTest;
+  V: TSEValue;
+begin
+  Writeln('--- RttiTestRun ---');
+  O := TRttiTest.Create;
+  O.Name := 'Original Text';
+  GC.AllocPascalObject(@V, O, True);
+  SE.SetConst('obj', V);
+  SE.Source := RttiTest;
+  SE.Exec;
+end;
+
 procedure ResultTestRun;
 begin
   Writeln('--- ResultTestRun ---');
@@ -210,10 +232,11 @@ begin
   CustomFunctionTestRun;
   CustomFunctionWithSelfTestRun;
   ReturnAnotherNativeFunctionTestRun;
-  CalFunctionTestRun;
+  CallFunctionTestRun;
   YieldTestRun;
   FibTestRun;
   AssertTestRun;
+  RttiTestRun;
   ResultTestRun;
   SE.Free;
 end.
