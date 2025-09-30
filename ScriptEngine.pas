@@ -8194,6 +8194,11 @@ var
     IsTailed: Boolean = False;
     FuncRefIdent: TSEIdent;
     FuncRefToken: TSEToken;
+    AssignReturnFuncRefCount: Integer = 0;
+    AssignReturnFuncRefOpStart,
+    AssignReturnFuncRefOpEnd,
+    AssignReturnFuncRefStart,
+    AssignReturnFuncRefEnd: Integer;
 
     procedure Logic; forward;
 
@@ -8205,6 +8210,22 @@ var
         FuncRefToken.Kind := tkIdent;
         FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False);
       end;
+    end;
+
+    procedure AssignReturnFuncRef;
+    begin
+      if AssignReturnFuncRefCount > 0 then
+      begin
+        Self.Binary.DeleteRange(AssignReturnFuncRefStart, AssignReturnFuncRefEnd - AssignReturnFuncRefStart);
+        Self.OpcodeInfoList.DeleteRange(AssignReturnFuncRefOpStart, AssignReturnFuncRefOpEnd - AssignReturnFuncRefOpStart);
+      end;
+      AssignReturnFuncRefStart := Self.Binary.Count;
+      AssignReturnFuncRefOpStart := Self.OpcodeInfoList.Count;
+      EmitAssignVar(FuncRefIdent);
+      EmitPushVar(FuncRefIdent, True);
+      AssignReturnFuncRefEnd := Self.Binary.Count;
+      AssignReturnFuncRefOpEnd := Self.OpcodeInfoList.Count;
+      Inc(AssignReturnFuncRefCount);
     end;
 
     procedure EmitExpr(const Data: array of TSEValue); inline;
@@ -8416,8 +8437,7 @@ var
             ParseExpr;
             NextTokenExpected([tkSquareBracketClose]);
             AllocFuncRef;
-            EmitAssignVar(FuncRefIdent);
-            EmitPushVar(FuncRefIdent, True);
+            AssignReturnFuncRef;
             EmitExpr([Pointer(opPushArrayPop), SENull]);
             PeepholeArrayAssignOptimization;
             Tail;
@@ -8429,8 +8449,7 @@ var
             NextToken;
             Token := NextTokenExpected([tkIdent]);
             AllocFuncRef;
-            EmitAssignVar(FuncRefIdent);
-            EmitPushVar(FuncRefIdent, True);
+            AssignReturnFuncRef;
             EmitExpr([Pointer(opPushArrayPop), CreateConstStringValue(Token.Value)]);
             Tail;
           end;
@@ -8450,6 +8469,7 @@ var
       begin
         while PeekAtNextToken.Kind = tkBracketOpen do
         begin
+          AssignReturnFuncRefCount := 0;
           if FuncRefToken.Value <> '' then
             ParseFuncRefCall(@FuncRefIdent)
           else
@@ -8760,6 +8780,12 @@ var
   begin
     OpCountStart := Self.OpcodeInfoList.Count;
     Logic;
+    //
+    if AssignReturnFuncRefCount > 0 then
+    begin
+      Self.Binary.DeleteRange(AssignReturnFuncRefStart, AssignReturnFuncRefEnd - AssignReturnFuncRefStart);
+      Self.OpcodeInfoList.DeleteRange(AssignReturnFuncRefOpStart, AssignReturnFuncRefOpEnd - AssignReturnFuncRefOpStart);
+    end;
     // Handle ternary
     if PeekAtNextToken.Kind = tkQuestion then
     begin
@@ -9607,6 +9633,28 @@ var
   var
     Token, FuncRefToken: TSEToken;
     FuncRefIdent: TSEIdent;
+    AssignReturnFuncRefCount: Integer = 0;
+    AssignReturnFuncRefOpStart,
+    AssignReturnFuncRefOpEnd,
+    AssignReturnFuncRefStart,
+    AssignReturnFuncRefEnd: Integer;
+
+    procedure AssignReturnFuncRef;
+    begin
+      if AssignReturnFuncRefCount > 0 then
+      begin
+        Self.Binary.DeleteRange(AssignReturnFuncRefStart, AssignReturnFuncRefEnd - AssignReturnFuncRefStart);
+        Self.OpcodeInfoList.DeleteRange(AssignReturnFuncRefOpStart, AssignReturnFuncRefOpEnd - AssignReturnFuncRefOpStart);
+      end;
+      AssignReturnFuncRefStart := Self.Binary.Count;
+      AssignReturnFuncRefOpStart := Self.OpcodeInfoList.Count;
+      EmitAssignVar(FuncRefIdent);
+      EmitPushVar(FuncRefIdent, True);
+      AssignReturnFuncRefEnd := Self.Binary.Count;
+      AssignReturnFuncRefOpEnd := Self.OpcodeInfoList.Count;
+      Inc(AssignReturnFuncRefCount);
+    end;
+
   begin
     while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
     begin
@@ -9616,8 +9664,7 @@ var
         FuncRefToken.Kind := tkIdent;
         FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False);
       end;
-      EmitAssignVar(FuncRefIdent);
-      EmitPushVar(FuncRefIdent, True);
+      AssignReturnFuncRef;
       while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
       begin
         case PeekAtNextToken.Kind of
@@ -9626,8 +9673,7 @@ var
               NextToken;
               ParseExpr;
               NextTokenExpected([tkSquareBracketClose]);
-              EmitAssignVar(FuncRefIdent);
-              EmitPushVar(FuncRefIdent, True);
+              AssignReturnFuncRef;
               Emit([Pointer(opPushArrayPop), SENull]);
               PeepholeArrayAssignOptimization;
             end;
@@ -9635,16 +9681,21 @@ var
             begin
               NextToken;
               Token := NextTokenExpected([tkIdent]);
-              EmitAssignVar(FuncRefIdent);
-              EmitPushVar(FuncRefIdent, True);
+              AssignReturnFuncRef;
               Emit([Pointer(opPushArrayPop), CreateConstStringValue(Token.Value)]);
             end;
         end;
       end;
       if PeekAtNextToken.Kind = tkBracketOpen then
       begin
+        AssignReturnFuncRefCount := 0;
         ParseFuncRefCall(@FuncRefIdent);
       end;
+    end;
+    if AssignReturnFuncRefCount > 0 then
+    begin
+      Self.Binary.DeleteRange(AssignReturnFuncRefStart, AssignReturnFuncRefEnd - AssignReturnFuncRefStart);
+      Self.OpcodeInfoList.DeleteRange(AssignReturnFuncRefOpStart, AssignReturnFuncRefOpEnd - AssignReturnFuncRefOpStart);
     end;
     Emit([Pointer(opPopConst)]);
   end;
