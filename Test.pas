@@ -2,6 +2,7 @@ program Test;
 
 {$mode objfpc}
 {$H+}
+{$M+}
 
 uses
   SysUtils, ScriptEngine;
@@ -20,7 +21,7 @@ const
   YieldTest = 'i = 0 while i < 3 { i = i + 1 yield }';
   FibTest = 'fn fib(n) { if n < 2 result = n else result = fib(n-1) + fib(n-2) } writeln(fib(35))';
   AssertTest = 'assert(false, "Assert triggered")';
-  RttiTest = 'o = obj writeln(o.name) o.name = "REPLACED" writeln(o.name)';
+  RttiTest = 'o = obj writeln(o.Name) o.Name = "REPLACED" writeln(o.Name) // not working? invoke(o, "Display", "Hello")';
   ResultTest = 'result = 5';
 
 type
@@ -36,6 +37,7 @@ type
   private
     FName: String;
   published
+    procedure Display(S: String);
     property Name: String read FName write FName;
   end;
 
@@ -72,6 +74,11 @@ end;
 class function TCustomFunctions.ReturnMe(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 begin
   Exit('You called ReturnMe()!');
+end;
+
+procedure TRttiTest.Display(S: String);
+begin
+  Writeln(S, ', ', Self.Name);
 end;
 
 var

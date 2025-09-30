@@ -273,6 +273,7 @@ type
     procedure SetValue(I: TSEValue; const A: TSEValue); inline; overload;
     function GetProp(I: TSEValue): TSEValue;
     procedure SetProp(I: TSEValue; const A: TSEValue);
+    function Invoke(constref MethodName: String; const Args: PSEValue; const ArgCount: Integer): TSEValue;
     function ContainsKey(constref S: String): Boolean; inline; overload;
     procedure UnManaged; inline;
     procedure Managed; inline;
@@ -932,6 +933,8 @@ operator := (V: Boolean) R: TSEValue;
 operator := (V: TSEValueArray) R: TSEValue;
 operator := (V: Pointer) R: TSEValue;
 operator := (V: TSEValue) R: Integer;
+operator := (V: TSEValue) R: TValue;
+operator := (V: TValue) R: TSEValue;
 {$ifdef CPU64}
 operator := (V: TSEValue) R: Int64;
 {$endif}
@@ -1144,6 +1147,7 @@ type
     class function SEJSONStringify(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 
     class function SEPasObjectClassName(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SEInvoke(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
   end;
 
   TDynlibMap = specialize TSEDictionary<String, TLibHandle>;
@@ -1630,7 +1634,6 @@ var
   Ctx: TRttiContext;
   RttiType: TRttiType;
   Prop: TRttiProperty;
-  Value: TValue;
   PName: String;
 begin
   Obj := Self.VarPascalObject^.Value;
@@ -1638,41 +1641,16 @@ begin
   try
     case I.Kind of
       sevkString:
-        PName := UpCase(I.VarString^);
+        PName := I.VarString^;
       sevkConstString:
-        PName := UpCase(ConstStrings.Ptr(I.VarConstStringIndex)^);
+        PName := ConstStrings.Ptr(I.VarConstStringIndex)^;
     end;
     RttiType := Ctx.GetType(Obj.ClassType);
     for Prop in RttiType.GetProperties do
     begin
-      if UpCase(Prop.Name) = PName then
+      if Prop.Name = PName then
       begin
-        Value := Prop.GetValue(Obj);
-        case Prop.PropertyType.TypeKind of
-          tkSet,
-          tkInteger,
-          tkQWord,
-          tkInt64:
-            Result := Value.AsInt64;
-          tkFloat:
-            Result := TSEValue(Value.AsExtended);
-          tkBool:
-            Result := Value.AsBoolean;
-          tkLString,
-          tkAString,
-          tkWString,
-          tkSString:
-            Result := Value.AsString;
-          tkUChar,
-          tkWChar,
-          tkChar:
-            Result := TSEValue(Value.AsChar);
-          else
-          begin
-            WriteStr(PName, Prop.PropertyType.TypeKind);
-            raise Exception.Create('Property "' + Prop.Name + '" type "' + PName + '" not supported');
-          end;
-        end;
+        Result := Prop.GetValue(Obj);
         break;
       end;
     end;
@@ -1694,32 +1672,46 @@ begin
   try
     case I.Kind of
       sevkString:
-        PName := UpCase(I.VarString^);
+        PName := I.VarString^;
       sevkConstString:
-        PName := UpCase(ConstStrings.Ptr(I.VarConstStringIndex)^);
+        PName := ConstStrings.Ptr(I.VarConstStringIndex)^;
     end;
     RttiType := Ctx.GetType(Obj.ClassType);
     for Prop in RttiType.GetProperties do
     begin
-      if UpCase(Prop.Name) = PName then
+      if Prop.Name = PName then
       begin
-        case A.Kind of
-          sevkBoolean:
-            Prop.SetValue(Obj, Boolean(Round(A.VarNumber)));
-          sevkNumber:
-            Prop.SetValue(Obj, A.VarNumber);
-          sevkString:
-            Prop.SetValue(Obj, A.VarString^);
-          sevkPascalObject:
-            Prop.SetValue(Obj, A.VarPascalObject^.Value);
-          sevkBuffer:
-            Prop.SetValue(Obj, QWord(A.VarBuffer^.Ptr));
-          else
-            Prop.SetValue(Obj, QWord(A.VarPointer));
-        end;
+        Prop.SetValue(Obj, A);
         break;
       end;
     end;
+  finally
+    Ctx.Free;
+  end;
+end;
+
+function TSEValueHelper.Invoke(constref MethodName: String; const Args: PSEValue; const ArgCount: Integer): TSEValue;
+var
+  Obj: TObject;
+  MethodArgs: array of TValue;
+  Ctx: TRttiContext;
+  RttiType: TRttiType;
+  Method: TRttiMethod;
+  I: Integer;
+begin
+  Obj := Self.VarPascalObject^.Value;
+  Ctx := TRttiContext.Create;
+  try
+    RttiType := Ctx.GetType(Obj.ClassType);
+    Method := RttiType.GetMethod(MethodName);
+    if Method <> nil then
+    begin
+      SetLength(MethodArgs, ArgCount);
+      for I := 0 to ArgCount - 1 do
+        MethodArgs[I] := Args[I];
+      Result := Method.Invoke(Obj, MethodArgs);
+    end else
+      raise Exception.Create('Method "' + MethodName + '" not found!');
   finally
     Ctx.Free;
   end;
@@ -3296,6 +3288,13 @@ begin
   Result := TObject(Args[0].VarPascalObject^.Value).ClassName;
 end;
 
+class function TBuiltInFunction.SEInvoke(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+begin
+  SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
+  SEValidateType(@Args[1], sevkString, 2, {$I %CURRENTROUTINE%});
+  Result := Args[0].Invoke(Args[1], @Args[2], ArgCount - 2);
+end;
+
 function TSEStringList.Ptr(const P: Cardinal): PRawByteString; inline;
 begin
   Result := @FItems[P];
@@ -3729,6 +3728,53 @@ end;
 operator := (V: TSEValue) R: Pointer; inline;
 begin
   R := V.VarPointer;
+end;
+operator := (V: TSEValue) R: TValue;
+begin
+  case V.Kind of
+    sevkBoolean:
+      R := Boolean(Round(V.VarNumber));
+    sevkNumber:
+      R := V.VarNumber;
+    sevkString:
+      R := V.VarString^;
+    sevkPascalObject:
+      R := V.VarPascalObject^.Value;
+    sevkBuffer:
+      R := QWord(V.VarBuffer^.Ptr);
+    else
+      R := QWord(V.VarPointer);
+  end;
+end;
+operator := (V: TValue) R: TSEValue;
+var
+  PName: String;
+begin
+  case V.Kind of
+    tkSet,
+    tkInteger,
+    tkQWord,
+    tkInt64:
+      R := V.AsInt64;
+    tkFloat:
+      R := TSEValue(V.AsExtended);
+    tkBool:
+      R := V.AsBoolean;
+    tkLString,
+    tkAString,
+    tkWString,
+    tkSString:
+      R := V.AsString;
+    tkUChar,
+    tkWChar,
+    tkChar:
+      R := TSEValue(V.AsChar);
+    else
+    begin
+      WriteStr(PName, V.Kind);
+      raise Exception.Create('Type "' + PName + '" not supported');
+    end;
+  end;
 end;
 
 operator + (V1: TSEValue; V2: TSENumber) R: TSEValue; inline;
@@ -6810,6 +6856,7 @@ begin
     Self.RegisterFunc('json_stringify', @TBuiltInFunction(nil).SEJSONStringify, 1);
     {$endif}
     Self.RegisterFunc('pasobject_classname', @TBuiltInFunction(nil).SEPasObjectClassName, 1);
+    Self.RegisterFunc('invoke', @TBuiltInFunction(nil).SEInvoke, -1);
     Self.RegisterFunc('chr', @TBuiltInFunction(nil).SEChar, 1);
     Self.RegisterFunc('ord', @TBuiltInFunction(nil).SEOrd, 1);
 
