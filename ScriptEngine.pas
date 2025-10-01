@@ -6339,7 +6339,7 @@ labelStart:
               end;
             sevkPascalObject:
               TV.SetProp(C^, B^);
-            else
+            sevkMap:
               SEMapSet(TV, C^, B^);
           end;
           Inc(CodePtrLocal, 3);
@@ -6397,7 +6397,7 @@ labelStart:
               end;
             sevkPascalObject:
               TV.SetProp(C^, B^);
-            else
+            sevkMap:
               SEMapSet(TV, C^, B^);
           end;
           Inc(CodePtrLocal, 4);
