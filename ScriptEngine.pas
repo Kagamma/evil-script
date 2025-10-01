@@ -86,7 +86,6 @@ type
     opPushLocalVar,
     opPushVar2,
     opPushArrayPop,
-    opPushArrayPopString,
     opPopConst,
     opPopFrame,
     opAssignGlobalVar,
@@ -728,7 +727,6 @@ const
     3, // opPushLocalVar,
     5, // opPushVar2,
     2, // opPushArrayPop,
-    2, // opPushArrayPopString,
     1, // opPopConst,
     1, // opPopFrame,
     2, // opAssignGlobalVar,
@@ -5533,7 +5531,6 @@ var
 label
   labelStart, CallScript, CallNative, CallImport,
   labelPushConst,
-  labelPushConstString,
   labelPushGlobalVar,
   labelPushLocalVar,
   labelPushVar2,
@@ -5613,7 +5610,6 @@ var
     @labelPushLocalVar,
     @labelPushVar2,
     @labelPushArrayPop,
-    @labelPushArrayPopString,
     @labelPopConst,
     @labelPopFrame,
     @labelAssignGlobalVar,
@@ -6084,19 +6080,6 @@ labelStart:
               Push(B^.GetProp(A^));
             else
               Push(0);
-          end;
-          Inc(CodePtrLocal, 2);
-          DispatchGoto;
-        end;
-      {$ifndef SE_COMPUTED_GOTO}opPushArrayPopString:{$endif}
-        begin
-        labelPushArrayPopString:
-          B := Pop;
-          case B^.Kind of
-            sevkMap:
-              Push(SEMapGet(B^, ConstStrings.Ptr(Integer(BinaryLocal[CodePtrLocal + 1].VarPointer))^));
-            sevkPascalObject:
-              Push(B^.GetProp(ConstStrings.Ptr(Integer(BinaryLocal[CodePtrLocal + 1].VarPointer))^));
           end;
           Inc(CodePtrLocal, 2);
           DispatchGoto;
