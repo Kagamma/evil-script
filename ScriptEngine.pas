@@ -3767,6 +3767,8 @@ begin
     tkWChar,
     tkChar:
       R := TSEValue(V.AsChar);
+    tkObject:
+      GC.AllocPascalObject(@R, V.AsObject, False);
     else
     begin
       WriteStr(PName, V.Kind);
@@ -5531,11 +5533,11 @@ var
 label
   labelStart, CallScript, CallNative, CallImport,
   labelPushConst,
+  labelPushConstString,
   labelPushGlobalVar,
   labelPushLocalVar,
   labelPushVar2,
   labelPushArrayPop,
-  labelPushArrayPopString,
   labelPopConst,
   labelPopFrame,
   labelAssignGlobalVar,
