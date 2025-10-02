@@ -488,23 +488,6 @@ type
     function Ptr(const P: Cardinal): PSEFuncImportInfo;
   end;
 
-  TSESymbolKind = (
-    sesConst
-  );
-
-  TSESymbol = record
-    Name: String;
-    Kind: TSESymbolKind;
-    Binary: Integer;
-    Code: Integer;
-  end;
-  PSESymbol = ^TSESymbol;
-  TSESymbolListAncestor = specialize TList<TSESymbol>;
-  TSESymbolList = class(TSESymbolListAncestor)
-  public
-    function Ptr(const P: Cardinal): PSESymbol;
-  end;
-
   TSELineOfCode = record
     BinaryCount: Integer;
     BinaryPtr: Integer;
@@ -614,7 +597,6 @@ type
     TrapSize: Integer;
     Parent: TEvilC;
     Binaries: TSEBinariesManaged;
-    SymbolList: TSESymbolList;
 
     constructor Create;
     destructor Destroy; override;
@@ -634,7 +616,6 @@ type
     LineOfCodeList: TSELineOfCodeList;
     FuncScriptList: TSEFuncScriptList;
     FuncImportList: TSEFuncImportList;
-    SymbolList: TSESymbolList;
   end;
   TSECacheMapAncestor = specialize TSEDictionary<String, TSECache>;
   TSECacheMap = class(TSECacheMapAncestor)
@@ -3360,11 +3341,6 @@ begin
   Result := @FItems[P];
 end;
 
-function TSESymbolList.Ptr(const P: Cardinal): PSESymbol; inline;
-begin
-  Result := @FItems[P];
-end;
-
 // ----- Fast inline TSEValue operations -----
 
 procedure SEValueAdd(out R: TSEValue; constref V1, V2: TSEValue); inline; overload;
@@ -4924,8 +4900,6 @@ begin
   Dec(Result.TrapPtr);
   //
   Result.Binaries := Self.Binaries.Ref;
-  // TODO: Make sure these works correctly without crash
-  Result.SymbolList := Self.SymbolList;
 end;
 
 procedure TSEVM.ModifyGlobalVariable(const AName: String; const AValue: TSEValue);
@@ -5045,7 +5019,6 @@ begin
   Self.Binaries := Default(TSEBinariesManaged);
   Self.Binaries.Alloc(1);
   Self.Binaries.Value^.Data[0] := TSEBinary.Create;
-  Self.SymbolList := TSESymbolList.Create;
   Self.Global := Default(TSEValueArrayManaged);
 end;
 
@@ -5054,10 +5027,6 @@ begin
   Self.Binaries.Free;
   if VMList <> nil then
     VMList.Remove(Self);
-  if {$ifdef SE_THREADS}(Self.ThreadOwner = nil) and{$endif} (Self.CoroutineOwner = nil) then
-  begin
-    Self.SymbolList.Free;
-  end;
   Self.Global.Free;
   inherited;
 end;
@@ -7683,17 +7652,6 @@ var
           Exit(Result);
     end;
     Exit(nil);
-  end;
-
-  procedure AddSymbol(Kind: TSESymbolKind; Name: String; Code: Integer);
-  var
-    Symbol: TSESymbol;
-  begin
-    Symbol.Binary := Self.BinaryPos;
-    Symbol.Code := Code;
-    Symbol.Kind := Kind;
-    Symbol.Name := Name;
-    Self.VM.SymbolList.Add(Symbol);
   end;
 
   function PeekAtNextToken: TSEToken; inline;
@@ -10569,7 +10527,6 @@ begin
   Result.FuncScriptList := TSEFuncScriptList.Create;
   Result.FuncImportList := TSEFuncImportList.Create;
   Result.GlobalVarSymbols := TStringList.Create;
-  Result.SymbolList := TSESymbolList.Create;
   SetLength(Result.Binaries, Self.VM.Binaries.Value^.Size);
   for J := 0 to Self.VM.Binaries.Value^.Size - 1 do
   begin
@@ -10596,10 +10553,6 @@ begin
   begin
     Result.FuncImportList.Add(Self.FuncImportList[I]);
   end;
-  for I := 0 to Self.VM.SymbolList.Count - 1 do
-  begin
-    Result.SymbolList.Add(Self.VM.SymbolList[I]);
-  end;
   Result.GlobalVarSymbols.Assign(Self.GlobalVarSymbols);
   Result.GlobalVarCount := Self.GlobalVarCount;
 end;
@@ -10611,7 +10564,6 @@ var
   FuncScriptInfo: TSEFuncScriptInfo;
 begin
   Self.VM.BinaryClear;
-  Self.VM.SymbolList.Count := 0;
   Self.LineOfCodeList.Count := 0;
   Self.GlobalVarSymbols.Clear;
   for I := 0 to Cache.LineOfCodeList.Count - 1 do
@@ -10636,8 +10588,6 @@ begin
   end;
   for I := 0 to Cache.FuncImportList.Count - 1 do
     Self.FuncImportList.Add(Cache.FuncImportList[I]);
-  for I := 0 to Cache.SymbolList.Count - 1 do
-    Self.VM.SymbolList.Add(Cache.SymbolList[I]);
   Self.GlobalVarSymbols.Assign(Cache.GlobalVarSymbols);
   Self.GlobalVarCount := Cache.GlobalVarCount;
   Self.IsParsed := True;
@@ -10658,7 +10608,6 @@ begin
     Cache.FuncScriptList.Free;
     Cache.FuncImportList.Free;
     Cache.GlobalVarSymbols.Free;
-    Cache.SymbolList.Free;
     Self.Remove(AName);
   except
   end;
@@ -10679,7 +10628,6 @@ begin
     Cache.FuncScriptList.Free;
     Cache.FuncImportList.Free;
     Cache.GlobalVarSymbols.Free;
-    Cache.SymbolList.Free;
   end;
   inherited;
 end;
