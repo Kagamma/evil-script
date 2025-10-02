@@ -442,6 +442,7 @@ type
     Func: TSEFunc;
     ArgCount: Integer;
     Kind: TSEFuncNativeKind;
+    PossibleKinds: TSEValueKindSet;
   end;
   PSEFuncNativeInfo = ^TSEFuncNativeInfo;
 
@@ -451,6 +452,7 @@ type
     ArgCount: Integer;
     VarCount: Integer;
     VarSymbols: TStrings;
+    PossibleKinds: TSEValueKindSet;
   end;
   PSEFuncScriptInfo = ^TSEFuncScriptInfo;
 
@@ -460,6 +462,7 @@ type
     Args: TSEAtomKindArray;
     Return: TSEAtomKind;
     CallingConvention: TSECallingConvention;
+    PossibleKinds: TSEValueKindSet;
   end;
   PSEFuncImportInfo = ^TSEFuncImportInfo;
 
@@ -792,6 +795,7 @@ type
     Ln: Integer;
     Col: Integer;
     Name: String;
+    PossibleKinds: TSEValueKindSet;
   end;
   PSEIdent = ^TSEIdent;
 
@@ -869,9 +873,9 @@ type
     function ExecFunc(const Name: String; const Args: array of TSEValue): TSEValue; overload;
     function ExecFuncOnly(const AIndex: Integer; const Args: array of TSEValue): TSEValue; overload;
     function ExecFunc(const AIndex: Integer; const Args: array of TSEValue): TSEValue; overload;
-    procedure RegisterFunc(const Name: String; const Func: TSEFunc; const ArgCount: Integer);
-    procedure RegisterFuncWithSelf(const Name: String; const Func: TSEFuncWithSelf; const ArgCount: Integer);
-    function RegisterScriptFunc(const Name: String; const ArgCount: Integer): PSEFuncScriptInfo;
+    procedure RegisterFunc(const Name: String; const Func: TSEFunc; const ArgCount: Integer; const PossibleKinds: TSEValueKindSet = [sevkNumber, sevkString, sevkNull, sevkMap]);
+    procedure RegisterFuncWithSelf(const Name: String; const Func: TSEFuncWithSelf; const ArgCount: Integer; const PossibleKinds: TSEValueKindSet = [sevkNumber, sevkString, sevkNull, sevkMap]);
+    function RegisterScriptFunc(const Name: String; const ArgCount: Integer; const PossibleKinds: TSEValueKindSet = [sevkNumber, sevkString, sevkNull, sevkMap]): PSEFuncScriptInfo;
     procedure RegisterImportFunc(const Name, ActualName, LibName: String; const Args: TSEAtomKindArray; const Return: TSEAtomKind; const CC: TSECallingConvention = seccAuto);
     function Backup: TSECache;
     procedure Restore(const Cache: TSECache);
@@ -7775,6 +7779,7 @@ var
     Result.IsConst := IsConst;
     Result.ConstValue := SENull;
     Result.IsAssigned := False;
+    Result.PossibleKinds := [];
     if Result.Local > 0 then
     begin
       Result.Addr := Self.LocalVarCountList.Last;
@@ -7962,7 +7967,7 @@ var
       Result := Pointer(Self.FuncTraversal - Ident.Local);
   end;
 
-  procedure ParseFuncCall(const Name: String); forward;
+  function ParseFuncCall(const Name: String): TSEValueKindSet; forward;
   procedure ParseFuncRefCall(const ThisRefIdent: PSEIdent = nil); forward;
   procedure ParseFuncRefCallByName(const Name: String); forward;
   procedure ParseBlock(const IsCase: Boolean = False); forward;
@@ -8304,7 +8309,7 @@ var
     until not IsOptimized;
   end;
 
-  procedure ParseExpr(const IsParsedAtFuncCall: Boolean = False);
+  function ParseExpr(const IsParsedAtFuncCall: Boolean = False): TSEValueKindSet;
   type
     TProc = TSENestedProc;
   var
@@ -8318,6 +8323,7 @@ var
     AssignReturnFuncRefOpEnd,
     AssignReturnFuncRefStart,
     AssignReturnFuncRefEnd: Integer;
+    TmpKindSet: TSEValueKindSet;
 
     procedure Logic; forward;
 
@@ -8550,10 +8556,11 @@ var
       case PeekAtNextToken.Kind of
         tkSquareBracketOpen:
           begin
+            Result := Result + [sevkMap];
             PushConstCount := 0;
             IsTailed := True;
             NextToken;
-            ParseExpr;
+            TmpKindSet := ParseExpr;
             NextTokenExpected([tkSquareBracketClose]);
             AllocFuncRef;
             AssignReturnFuncRef;
@@ -8563,6 +8570,7 @@ var
           end;
         tkDot:
           begin
+            Result := Result + [sevkMap];
             PushConstCount := 0;
             IsTailed := True;
             NextToken;
@@ -8588,6 +8596,7 @@ var
       begin
         while PeekAtNextToken.Kind = tkBracketOpen do
         begin
+          Result := Result + [sevkFunction];
           AssignReturnFuncRefCount := 0;
           if FuncRefToken.Value <> '' then
             ParseFuncRefCall(@FuncRefIdent)
@@ -8618,6 +8627,7 @@ var
             NextToken;
             if PeekAtNextToken.Kind = tkFunctionDecl then
             begin
+              Result := Result + [sevkFunction];
               Factor;
               NextTokenExpected([tkBracketClose]);
               if PeekAtNextToken.Kind = tkBracketOpen then
@@ -8636,6 +8646,7 @@ var
           end;
         tkFunctionDecl:
           begin
+            Result := Result + [sevkFunction];
             PushConstCount := 0;
             IsTailed := True;
             NextToken;
@@ -8651,11 +8662,13 @@ var
           end;
         tkNumber:
           begin
+            Result := Result + [sevkNumber];
             NextToken;
             EmitExpr([Pointer(opPushConst), PointStrToFloat(Token.Value)]);
           end;
         tkString:
           begin
+            Result := Result + [sevkString];
             NextToken;
             EmitExpr([Pointer(opPushConst), Token.Value]);
           end;
@@ -8667,10 +8680,12 @@ var
                   NextToken;
                   if PeekAtNextToken.Kind = tkBracketOpen then // Likely function ref
                   begin
+                    Result := Result + [sevkFunction];
                     ParseFuncRefCallByName(Token.Value);
                   end else
                   begin
                     Ident := FindVar(Token.Value);
+                    Result := Result + Ident^.PossibleKinds;
                     Ident^.IsUsed := True;
                     if Ident^.IsConst and (Ident^.ConstValue.Kind <> sevkNull) then
                     begin
@@ -8680,11 +8695,12 @@ var
                       case PeekAtNextToken.Kind of
                         tkSquareBracketOpen:
                           begin
+                            Result := Result + [sevkMap];
                             PushConstCount := 0;
                             IsTailed := True;
                             NextToken;
                             EmitPushVar(Ident^, True);
-                            ParseExpr;
+                            TmpKindSet := ParseExpr;
                             Emit([Pointer(opPushArrayPop), SENull]);
                             PeepholeArrayAssignOptimization;
                             NextTokenExpected([tkSquareBracketClose]);
@@ -8693,6 +8709,7 @@ var
                           end;
                         tkDot:
                           begin
+                            Result := Result + [sevkMap];
                             PushConstCount := 0;
                             IsTailed := True;
                             NextToken;
@@ -8714,15 +8731,20 @@ var
                   Ind := Self.ConstLookup[Token.Value];
                   V := Self.ConstList[Ind];
                   if (not Self.OptimizeConstants) or (V.Kind in [sevkBuffer, sevkString, sevkMap, sevkPascalObject]) then
+                  begin
                     EmitExpr([Pointer(opPushConstFromConstList), Pointer(Ind)])
-                  else
-                    EmitExpr([Pointer(opPushConst), Self.ConstList[Ind]]);
+                  end else
+                  begin
+                    EmitExpr([Pointer(opPushConst), V]);
+                  end;
+                  Result := Result + [V.Kind];
                 end;
               tkFunction:
                 begin
                   NextToken;
                   if PeekAtNextToken.Kind <> tkBracketOpen then // Likely function ref
                   begin
+                    Result := Result + [sevkFunction];
                     P := FindFunc(Token.Value, FuncValue.VarFuncKind, Ind);
                     if P = nil then
                       Error(Format('Function "%s" not found', [Token.Value]), Token);
@@ -8732,10 +8754,12 @@ var
                     EmitExpr([Pointer(opPushConst), FuncValue]);
                   end else
                   begin
-                    ParseFuncCall(Token.Value);
+                    P := FindFunc(Token.Value, FuncValue.VarFuncKind, Ind);
+                    Result := Result + ParseFuncCall(Token.Value);
                   end;
                   if PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] then
                   begin
+                    Result := Result + [sevkMap];
                     FuncRefToken.Value := '___f' + Self.InternalIdent;
                     FuncRefToken.Kind := tkIdent;
                     FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False);
@@ -8906,6 +8930,7 @@ var
     JumpExpr2: Integer;
 
   begin
+    Result := [];
     OpCountStart := Self.OpcodeInfoList.Count;
     Logic;
     //
@@ -8919,11 +8944,11 @@ var
     begin
       NextToken;
       JumpExpr2 := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]);
-      ParseExpr;
+      Result := Result + ParseExpr;
       NextTokenExpected([tkColon]);
       JumpEnd := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
       Expr2Block := Self.Binary.Count;
-      ParseExpr;
+      Result := Result + ParseExpr;
       EndBlock := Self.Binary.Count;
       Patch(JumpExpr2 - 1, Pointer(Expr2Block) - (JumpExpr2 - 3));
       Patch(JumpEnd - 1, Pointer(EndBlock) - (JumpEnd - 2));
@@ -9041,7 +9066,7 @@ var
       ParseFuncRefCall;
   end;
 
-  procedure ParseFuncCall(const Name: String);
+  function ParseFuncCall(const Name: String): TSEValueKindSet;
   var
     FuncNativeInfo: PSEFuncNativeInfo = nil;
     FuncScriptInfo: PSEFuncScriptInfo = nil;
@@ -9054,17 +9079,24 @@ var
   begin
     FuncNativeInfo := FindFuncNative(Name, Ind);
     if FuncNativeInfo <> nil then
-      DefinedArgCount := FuncNativeInfo^.ArgCount
-    else
+    begin
+      DefinedArgCount := FuncNativeInfo^.ArgCount;
+      Result := FuncNativeInfo^.PossibleKinds;
+    end else
     begin
       FuncScriptInfo := FindFuncScript(Name, Ind);
       if FuncScriptInfo <> nil then
-        DefinedArgCount := FuncScriptInfo^.ArgCount
-      else
+      begin
+        DefinedArgCount := FuncScriptInfo^.ArgCount;
+        Result := FuncScriptInfo^.PossibleKinds;
+      end else
       begin
         FuncImportInfo := FindFuncImport(Name, Ind);
         if FuncImportInfo <> nil then
+        begin
           DefinedArgCount := Length(FuncImportInfo^.Args);
+          Result := FuncImportInfo^.PossibleKinds;
+        end;
       end;
     end;
     if FuncScriptInfo <> nil then // Allocate stack for result
@@ -9886,11 +9918,11 @@ var
                 Self.TokenList.Insert(J, Self.TokenList[I]);
                 Inc(J);
               end;
-              ParseExpr;
+              Ident^.PossibleKinds := Ident^.PossibleKinds + ParseExpr;
             end else
               EmitPushVar(Ident^);
           end;
-          ParseExpr;
+          Ident^.PossibleKinds := Ident^.PossibleKinds + ParseExpr;
           if Token.Kind = tkOpAssign then
           begin
             case Token.Value of
@@ -10444,7 +10476,7 @@ begin
   end;
 end;
 
-procedure TEvilC.RegisterFunc(const Name: String; const Func: TSEFunc; const ArgCount: Integer);
+procedure TEvilC.RegisterFunc(const Name: String; const Func: TSEFunc; const ArgCount: Integer; const PossibleKinds: TSEValueKindSet = [sevkNumber, sevkString, sevkNull, sevkMap]);
 var
   FuncNativeInfo: TSEFuncNativeInfo;
 begin
@@ -10452,10 +10484,11 @@ begin
   FuncNativeInfo.Func := Func;
   FuncNativeInfo.Name := Name;
   FuncNativeInfo.Kind := sefnkNormal;
+  FuncNativeInfo.PossibleKinds := PossibleKinds;
   Self.FuncNativeList.Add(FuncNativeInfo);
 end;
 
-procedure TEvilC.RegisterFuncWithSelf(const Name: String; const Func: TSEFuncWithSelf; const ArgCount: Integer);
+procedure TEvilC.RegisterFuncWithSelf(const Name: String; const Func: TSEFuncWithSelf; const ArgCount: Integer; const PossibleKinds: TSEValueKindSet = [sevkNumber, sevkString, sevkNull, sevkMap]);
 var
   FuncNativeInfo: TSEFuncNativeInfo;
 begin
@@ -10463,10 +10496,11 @@ begin
   FuncNativeInfo.Func := TSEFunc(Func);
   FuncNativeInfo.Name := Name;
   FuncNativeInfo.Kind := sefnkSelf;
+  FuncNativeInfo.PossibleKinds := PossibleKinds;
   Self.FuncNativeList.Add(FuncNativeInfo);
 end;
 
-function TEvilC.RegisterScriptFunc(const Name: String; const ArgCount: Integer): PSEFuncScriptInfo;
+function TEvilC.RegisterScriptFunc(const Name: String; const ArgCount: Integer; const PossibleKinds: TSEValueKindSet = [sevkNumber, sevkString, sevkNull, sevkMap]): PSEFuncScriptInfo;
 var
   FuncScriptInfo: TSEFuncScriptInfo;
 begin
@@ -10477,6 +10511,7 @@ begin
   FuncScriptInfo.BinaryPos := Self.VM.Binaries.Value^.Size - 1;
   FuncScriptInfo.Name := Name;
   FuncScriptInfo.VarSymbols := TStringList.Create;
+  FuncScriptInfo.PossibleKinds := PossibleKinds;
   Self.FuncScriptList.Add(FuncScriptInfo);
   Result := Self.FuncScriptList.Ptr(Self.FuncScriptList.Count - 1);
   Self.FuncCurrent := Self.FuncScriptList.Count - 1;
@@ -10510,6 +10545,7 @@ begin
   FuncImportInfo.Name := Name;
   FuncImportInfo.Func := nil;
   FuncImportInfo.CallingConvention := CC;
+  FuncImportInfo.PossibleKinds := [sevkNumber, sevkString, sevkNull, sevkMap];
   if Lib <> 0 then
   begin
     FuncImportInfo.Func := GetProcAddress(Lib, ActualName);
