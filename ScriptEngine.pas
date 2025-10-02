@@ -8323,7 +8323,6 @@ var
     AssignReturnFuncRefOpEnd,
     AssignReturnFuncRefStart,
     AssignReturnFuncRefEnd: Integer;
-    TmpKindSet: TSEValueKindSet;
 
     procedure Logic; forward;
 
@@ -8560,7 +8559,7 @@ var
             PushConstCount := 0;
             IsTailed := True;
             NextToken;
-            TmpKindSet := ParseExpr;
+            ParseExpr(False);
             NextTokenExpected([tkSquareBracketClose]);
             AllocFuncRef;
             AssignReturnFuncRef;
@@ -8700,7 +8699,7 @@ var
                             IsTailed := True;
                             NextToken;
                             EmitPushVar(Ident^, True);
-                            TmpKindSet := ParseExpr;
+                            ParseExpr(False);
                             Emit([Pointer(opPushArrayPop), SENull]);
                             PeepholeArrayAssignOptimization;
                             NextTokenExpected([tkSquareBracketClose]);
@@ -8754,7 +8753,6 @@ var
                     EmitExpr([Pointer(opPushConst), FuncValue]);
                   end else
                   begin
-                    P := FindFunc(Token.Value, FuncValue.VarFuncKind, Ind);
                     Result := Result + ParseFuncCall(Token.Value);
                   end;
                   if PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] then
@@ -8944,11 +8942,11 @@ var
     begin
       NextToken;
       JumpExpr2 := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]);
-      Result := Result + ParseExpr;
+      Result := Result + ParseExpr(False);
       NextTokenExpected([tkColon]);
       JumpEnd := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
       Expr2Block := Self.Binary.Count;
-      Result := Result + ParseExpr;
+      Result := Result + ParseExpr(False);
       EndBlock := Self.Binary.Count;
       Patch(JumpExpr2 - 1, Pointer(Expr2Block) - (JumpExpr2 - 3));
       Patch(JumpEnd - 1, Pointer(EndBlock) - (JumpEnd - 2));
@@ -9435,7 +9433,7 @@ var
       if IsComparison then
       begin
         OpCount := Self.OpcodeInfoList.Count;
-        ParseExpr;
+        ParseExpr(False);
         if (Self.OptimizePeephole) and
            ((Self.OpcodeInfoList.Count - OpCount) = 1) and
            (Self.OpcodeInfoList[OpCount].Op = opPushConst) and
@@ -9492,7 +9490,7 @@ var
       if IsComparison then
       begin
         OpCount := Self.OpcodeInfoList.Count;
-        ParseExpr;
+        ParseExpr(False);
         if (Self.OptimizePeephole) and
            ((Self.OpcodeInfoList.Count - OpCount) = 1) and
            (Self.OpcodeInfoList[OpCount].Op = opPushConst) and
@@ -9568,12 +9566,12 @@ var
       if Token.Kind = tkEqual then
       begin
 
-        ParseExpr;
+        ParseExpr(False);
         EmitAssignVar(VarIdent);
 
         Token := NextTokenExpected([tkTo, tkDownto]);
 
-        ParseExpr;
+        ParseExpr(False);
 
         if PeekAtNextToken.Kind = tkStep then
         begin
@@ -9621,7 +9619,7 @@ var
         Token.Value := VarHiddenArrayName;
         VarHiddenArrayIdent := CreateIdent(ikVariable, Token, True, False);
 
-        ParseExpr;
+        ParseExpr(False);
 
         EmitAssignVar(VarHiddenArrayIdent);
         Emit([Pointer(opPushConst), 0]);
@@ -9674,7 +9672,7 @@ var
     JumpBlock2,
     JumpEnd: Integer;
   begin
-    ParseExpr;
+    ParseExpr(False);
     JumpBlock1 := Emit([Pointer(opJumpEqual1), True, Pointer(0)]);
     JumpBlock2 := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
     StartBlock1 := Self.Binary.Count;
@@ -9709,7 +9707,7 @@ var
     Token.Value := '___s' + Self.InternalIdent;
     VarHiddenIdent := CreateIdent(ikVariable, Token, True, False);
 
-    ParseExpr;
+    ParseExpr(False);
     EmitAssignVar(VarHiddenIdent);
 
     NextTokenExpected([tkBegin]);
@@ -9723,7 +9721,7 @@ var
         Token := NextToken;
         if Token.Kind = tkCase then
         begin
-          ParseExpr;
+          ParseExpr(False);
           EmitPushVar(VarHiddenIdent);
           JumpBlock1 := Emit([Pointer(opJumpEqual), Pointer(0)]);
           JumpBlock2 := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
@@ -9774,12 +9772,12 @@ var
           Token := NextToken;
           Emit([Pointer(opPushConst), Token.Value]);
           NextToken;
-          ParseExpr;
+          ParseExpr(False);
           Inc(ArgCount, 2);
         end else
         begin
           Emit([Pointer(opPushConst), I]);
-          ParseExpr;
+          ParseExpr(False);
           Inc(ArgCount, 2);
           Inc(I);
         end;
@@ -9831,7 +9829,7 @@ var
           tkSquareBracketOpen:
             begin
               NextToken;
-              ParseExpr;
+              ParseExpr(False);
               NextTokenExpected([tkSquareBracketClose]);
               AssignReturnFuncRef;
               Emit([Pointer(opPushArrayPop), SENull]);
@@ -9888,7 +9886,7 @@ var
         tkSquareBracketOpen:
           begin
             NextToken;
-            ParseExpr;
+            ParseExpr(False);
             NextTokenExpected([tkSquareBracketClose]);
           end;
         tkDot:
@@ -9918,11 +9916,11 @@ var
                 Self.TokenList.Insert(J, Self.TokenList[I]);
                 Inc(J);
               end;
-              Ident^.PossibleKinds := Ident^.PossibleKinds + ParseExpr;
+              Ident^.PossibleKinds := Ident^.PossibleKinds + ParseExpr(False);
             end else
               EmitPushVar(Ident^);
           end;
-          Ident^.PossibleKinds := Ident^.PossibleKinds + ParseExpr;
+          Ident^.PossibleKinds := Ident^.PossibleKinds + ParseExpr(False);
           if Token.Kind = tkOpAssign then
           begin
             case Token.Value of
@@ -9997,7 +9995,7 @@ var
 
   procedure ParseThrow;
   begin
-    ParseExpr;
+    ParseExpr(False);
     Emit([Pointer(opThrow)]);
   end;
 
