@@ -1664,6 +1664,7 @@ var
   RttiType: TRttiType;
   Prop: TRttiProperty;
   PName: String;
+  V: TValue;
 begin
   Obj := Self.VarPascalObject^.Value;
   Ctx := TRttiContext.Create;
@@ -1679,7 +1680,34 @@ begin
     begin
       if Prop.Name = PName then
       begin
-        Prop.SetValue(Obj, A);
+        case Prop.PropertyType.TypeKind of
+          tkSet,
+          tkInteger,
+          tkQWord,
+          tkInt64:
+            V := Round(A.VarNumber);
+          tkFloat:
+            V := A.VarNumber;
+          tkBool:
+            V := Boolean(Round(A.VarNumber));
+          tkLString,
+          tkAString,
+          tkWString,
+          tkSString:
+            V := A.VarString^;
+          tkUChar,
+          tkWChar,
+          tkChar:
+            V := Char(Round(A.VarNumber));
+          tkObject:
+            V := A.VarPascalObject^.Value;
+          else
+          begin
+            WriteStr(PName, Prop.PropertyType.TypeKind);
+            raise Exception.Create('Type "' + PName + '" not supported');
+          end;
+        end;
+        Prop.SetValue(Obj, V);
         break;
       end;
     end;

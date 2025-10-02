@@ -4,7 +4,7 @@ program evil;
 {$H+}
 
 uses
-  SysUtils, Classes, ScriptEngine;
+  {$ifdef unix}cthreads, {$endif}SysUtils, Classes, ScriptEngine;
 
 type
   // Helper class to print stack trace, including global variables

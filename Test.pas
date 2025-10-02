@@ -5,7 +5,7 @@ program Test;
 {$M+}
 
 uses
-  SysUtils, ScriptEngine;
+  {$ifdef unix}cthreads, {$endif}SysUtils, ScriptEngine;
 
 const
   HelloWorld = 'writeln(''Hello, World!'')';
@@ -21,7 +21,7 @@ const
   YieldTest = 'i = 0 while i < 3 { i = i + 1 yield }';
   FibTest = 'fn fib(n) { if n < 2 result = n else result = fib(n-1) + fib(n-2) } writeln(fib(35))';
   AssertTest = 'assert(false, "Assert triggered")';
-  RttiTest = 'o = obj writeln(o.Name) o.Name = "REPLACED" writeln(o.Name) // not working? invoke(o, "Display", "Hello")';
+  RttiTest = 'o = obj writeln(o.Name, ",", o.Age) o.Name = "REPLACED" o.Age = 1500 writeln(o.Name, ",", o.Age) // not working? invoke(o, "Display", "Hello")';
   ResultTest = 'result = 5';
 
 type
@@ -36,9 +36,11 @@ type
   TRttiTest = class
   private
     FName: String;
+    FAge: Cardinal;
   published
     procedure Display(S: String);
     property Name: String read FName write FName;
+    property Age: Cardinal read FAge write FAge;
   end;
 
 class function TCustomFunctions.Hello(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -214,6 +216,7 @@ begin
   Writeln('--- RttiTestRun ---');
   O := TRttiTest.Create;
   O.Name := 'Original Text';
+  O.Age := 320;
   GC.AllocPascalObject(@V, O, True);
   SE.SetConst('obj', V);
   SE.Source := RttiTest;
