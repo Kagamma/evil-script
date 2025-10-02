@@ -152,7 +152,7 @@ type
     opPopTrap,
     opThrow
   );
-  TSEOpcodes = set of TSEOpcode;
+  TSEOpcodeSet = set of TSEOpcode;
   TSEOpcodeInfo = record
     Op: TSEOpcode;
     Pos: Integer;
@@ -180,6 +180,7 @@ type
     sevkPascalObject,
     sevkConstString
   );
+  TSEValueKindSet = set of TSEValueKind;
   PSECommonString = ^RawByteString;
   TSEBuffer = record
     Base: Pointer;
@@ -706,7 +707,7 @@ type
     tkCatch,
     tkThrow
   );
-TSETokenKinds = set of TSETokenKind;
+TSETokenKindSet = set of TSETokenKind;
 
 const
   TokenNames: array[TSETokenKind] of String = (
@@ -7748,7 +7749,7 @@ var
     end;
   end;
 
-  function TokenTypeString(const Kinds: TSETokenKinds): String; inline;
+  function TokenTypeString(const Kinds: TSETokenKindSet): String; inline;
   var
     Kind: TSETokenKind;
   begin
@@ -7757,25 +7758,23 @@ var
       Result := Result + '"' + TokenNames[Kind] + '", ';
   end;
 
-  function NextTokenExpected(const Expected: TSETokenKinds): TSEToken; inline;
+  function NextTokenExpected(const Expected: TSETokenKindSet): TSEToken; inline;
   var
     Kind: TSETokenKind;
   begin
     Result := NextToken;
-    for Kind in Expected do
-      if Kind = Result.Kind then
-        Exit;
+    if Result.Kind in Expected then
+      Exit;
     Error(Format('Expected %s but got %s', [TokenTypeString(Expected), TokenNames[Result.Kind]]), Result);
   end;
 
-  function PeekAtNextTokenExpected(const Expected: TSETokenKinds): TSEToken; inline;
+  function PeekAtNextTokenExpected(const Expected: TSETokenKindSet): TSEToken; inline;
   var
     Kind: TSETokenKind;
   begin
     Result := PeekAtNextToken;
-    for Kind in Expected do
-      if Kind = Result.Kind then
-        Exit;
+    if Result.Kind in Expected then
+      Exit;
     Error(Format('Expected %s but got "%s"', [TokenTypeString(Expected), TokenNames[Result.Kind]]), Result);
   end;
 
@@ -7790,15 +7789,14 @@ var
       Result := nil;
   end;
 
-  function PeekAtPrevOpExpected(const Ind: Integer; const Expected: TSEOpcodes): PSEOpcodeInfo; inline;
+  function PeekAtPrevOpExpected(const Ind: Integer; const Expected: TSEOpcodeSet): PSEOpcodeInfo; inline;
   var
     Op: TSEOpcode;
   begin
     Result := PeekAtPrevOp(Ind);
     if Result <> nil then
-      for Op in Expected do
-        if Op = Result^.Op then
-          Exit;
+      if Result^.Op in Expected then
+        Exit;
     Result := nil;
   end;
 
