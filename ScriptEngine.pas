@@ -8240,8 +8240,7 @@ var
     A, B: TSEValue;
     I: Integer;
     P, PP: Pointer;
-    OpInfoPrev1,
-    OpInfoPrev2: PSEOpcodeInfo;
+    OpInfoPrev1: PSEOpcodeInfo;
   begin
     Result := False;
     if not Self.OptimizePeephole then
@@ -8252,25 +8251,18 @@ var
       opOperatorMul,
       opOperatorDiv:
         begin
-          OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushGlobalVar, opPushLocalVar]);
-          OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar, opPushLocalVar]);
-          if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
+          OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushVar2]);
+          if OpInfoPrev1 <> nil then
           begin
-            if (OpInfoPrev1^.Binary <> Pointer(Self.Binary)) or (OpInfoPrev2^.Binary <> Pointer(Self.Binary)) then
+            if OpInfoPrev1^.Binary <> Pointer(Self.Binary) then
               Exit;
-            if OpInfoPrev1^.Op = opPushLocalVar then
-              PP:= Self.Binary[OpInfoPrev1^.Pos + 2].VarPointer
-            else
-              PP := Pointer(SE_REG_GLOBAL);
-            if OpInfoPrev2^.Op = opPushLocalVar then
-              P := Self.Binary[OpInfoPrev2^.Pos + 2].VarPointer
-            else
-              P := Pointer(SE_REG_GLOBAL);
             B := Self.Binary[OpInfoPrev1^.Pos + 1];
-            A := Self.Binary[OpInfoPrev2^.Pos + 1];
+            A := Self.Binary[OpInfoPrev1^.Pos + 2];
+            PP:= Self.Binary[OpInfoPrev1^.Pos + 3];
+            P := Self.Binary[OpInfoPrev1^.Pos + 4];
             Op := OpToOp2(Op);
-            Self.Binary.DeleteRange(Self.Binary.Count - (OpInfoPrev1^.Size + OpInfoPrev2^.Size), OpInfoPrev1^.Size + OpInfoPrev2^.Size);
-            Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 2);
+            Self.Binary.DeleteRange(Self.Binary.Count - OpInfoPrev1^.Size, OpInfoPrev1^.Size);
+            Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 1, 1);
             Emit([Pointer(Integer(Op)), A.VarPointer, B.VarPointer, Pointer(P), Pointer(PP)]);
             Result := True;
           end;
