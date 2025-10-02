@@ -122,7 +122,6 @@ type
     opOperatorMul,
     opOperatorDiv,
     opOperatorMod,
-    opOperatorPow,
     opOperatorNegative,
     opOperatorLesser,
     opOperatorLesserOrEqual,
@@ -764,7 +763,6 @@ const
     1, // opOperatorMul,
     1, // opOperatorDiv,
     1, // opOperatorMod,
-    1, // opOperatorPow,
     1, // opOperatorNegative,
     1, // opOperatorLesser,
     1, // opOperatorLesserOrEqual,
@@ -5603,7 +5601,6 @@ label
   labelOperatorMul,
   labelOperatorDiv,
   labelOperatorMod,
-  labelOperatorPow,
   labelOperatorNegative,
   labelOperatorLesser,
   labelOperatorLesserOrEqual,
@@ -5677,7 +5674,6 @@ var
     @labelOperatorMul,
     @labelOperatorDiv,
     @labelOperatorMod,
-    @labelOperatorPow,
     @labelOperatorNegative,
     @labelOperatorLesser,
     @labelOperatorLesserOrEqual,
@@ -6441,15 +6437,6 @@ labelStart:
           Self.CodePtr := CodePtrLocal;
           Self.BinaryPtr := BinaryPtrLocal;
           Exit;
-        end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorPow:{$endif}
-        begin
-        labelOperatorPow:
-          B := Pop;
-          A := Pop;
-          Push(Power(A^.VarNumber, B^.VarNumber));
-          Inc(CodePtrLocal);
-          DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opHlt:{$endif}
         begin
@@ -8839,6 +8826,8 @@ var
     procedure Pow;
     var
       Token: TSEToken;
+      FuncInfo: PSEFuncNativeInfo;
+      FuncIndex: Integer;
     begin
       SignedFactor;
       while True do
@@ -8846,7 +8835,14 @@ var
         Token := PeekAtNextToken;
         case Token.Kind of
           tkPow:
-            BinaryOp(opOperatorPow, @SignedFactor);
+            begin
+              // BinaryOp(opOperatorPow, @SignedFactor);
+              NextToken;
+              PeekAtNextTokenExpected([tkBracketOpen, tkSquareBracketOpen, tkDot, tkNumber, tkString, tkNegative, tkIdent]);
+              SignedFactor;
+              FuncInfo := FindFuncNative('pow', FuncIndex);
+              Emit([Pointer(opCallNative), Pointer(FuncIndex), Pointer(2), Pointer(0)])
+            end;
           else
             Exit;
         end;
