@@ -5521,7 +5521,7 @@ var
 {$endif}
 
 label
-  labelStart, CallScript, CallNative, CallImport,
+  labelStart,
   labelPushConst,
   labelPushConstString,
   labelPushGlobalVar,
@@ -6114,12 +6114,12 @@ labelStart:
               begin
                 if DeepCount > 1 then
                   (Self.StackPtr - 1)^ := TV2;
-                goto CallScript;
+                goto labelCallScript;
               end;
             sefkImport:
               begin
                 Pop; // import has no this
-                goto CallImport;
+                goto labelCallImport;
               end;
             sefkNative:
               begin
@@ -6127,14 +6127,13 @@ labelStart:
                   (Self.StackPtr - 1)^ := TV2;
                 This := Pop^;
                 Dec(BinaryLocal[CodePtrLocal + 2].VarPointer); // ArgCount contains this, so we minus it by 1
-                goto CallNative;
+                goto labelCallNative;
               end;
           end;
         end;
       {$ifndef SE_COMPUTED_GOTO}opCallNative:{$endif}
         begin
         labelCallNative:
-        CallNative:
           GC.CheckForGCFast;
           FuncNativeInfo := Self.Parent.FuncNativeList.Ptr(Integer(BinaryLocal[CodePtrLocal + 1].VarPointer));
           ArgCount := Integer(BinaryLocal[CodePtrLocal + 2].VarPointer);
@@ -6154,7 +6153,6 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opCallScript:{$endif}
         begin
         labelCallScript:
-        CallScript:
           ArgCount := Integer(BinaryLocal[CodePtrLocal + 2].VarPointer);
           FuncScriptInfo := Self.Parent.FuncScriptList.Ptr(Integer(BinaryLocal[CodePtrLocal + 1].VarPointer));
           Inc(Self.FramePtr);
@@ -6384,7 +6382,6 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opCallImport:{$endif}
         begin
         labelCallImport:
-        CallImport:
           CallImportFunc;
           DispatchGoto;
         end;
