@@ -6004,6 +6004,8 @@ labelStart:
               Push(SEMapGet(B^, A^));
             sevkPascalObject:
               Push(B^.GetProp(A^));
+            else
+              Push(0);
           end;
           Inc(CodePtrLocal, 2);
           DispatchGoto;
