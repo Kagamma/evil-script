@@ -112,11 +112,6 @@ type
     opOperatorMul1,
     opOperatorDiv1,
 
-    opOperatorAdd2,
-    opOperatorSub2,
-    opOperatorMul2,
-    opOperatorDiv2,
-
     opOperatorAdd,
     opOperatorSub,
     opOperatorMul,
@@ -736,11 +731,6 @@ const
     3, // opOperatorSub1,
     3, // opOperatorMul1,
     3, // opOperatorDiv1,
-
-    5, // opOperatorAdd2,
-    5, // opOperatorSub2,
-    5, // opOperatorMul2,
-    5, // opOperatorDiv2,
 
     1, // opOperatorAdd,
     1, // opOperatorSub,
@@ -5564,11 +5554,6 @@ label
   labelOperatorMul1,
   labelOperatorDiv1,
 
-  labelOperatorAdd2,
-  labelOperatorSub2,
-  labelOperatorMul2,
-  labelOperatorDiv2,
-
   labelOperatorAdd,
   labelOperatorSub,
   labelOperatorMul,
@@ -5636,11 +5621,6 @@ var
     @labelOperatorSub1,
     @labelOperatorMul1,
     @labelOperatorDiv1,
-
-    @labelOperatorAdd2,
-    @labelOperatorSub2,
-    @labelOperatorMul2,
-    @labelOperatorDiv2,
 
     @labelOperatorAdd,
     @labelOperatorSub,
@@ -5967,60 +5947,6 @@ labelStart:
           SEValueDiv(Self.StackPtr^, A^, B^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 3);
-          DispatchGoto;
-        end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorAdd2:{$endif}
-        begin
-        labelOperatorAdd2:
-          P  := BinaryLocal[CodePtrLocal + 3].VarPointer;
-          PP := BinaryLocal[CodePtrLocal + 4].VarPointer;
-          A := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
-          B := GetVariable(BinaryLocal[CodePtrLocal + 2], PP);
-          if A^.Kind = sevkNumber then
-            Self.StackPtr^.VarNumber := A^.VarNumber + B^.VarNumber
-          else
-            SEValueAdd(Self.StackPtr^, A^, B^);
-          Inc(Self.StackPtr);
-          Inc(CodePtrLocal, 5);
-          DispatchGoto;
-        end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorSub2:{$endif}
-        begin
-        labelOperatorSub2:
-          P  := BinaryLocal[CodePtrLocal + 3].VarPointer;
-          PP := BinaryLocal[CodePtrLocal + 4].VarPointer;
-          A := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
-          B := GetVariable(BinaryLocal[CodePtrLocal + 2], PP);
-          if A^.Kind = sevkNumber then
-            Self.StackPtr^.VarNumber := A^.VarNumber - B^.VarNumber
-          else
-            SEValueSub(Self.StackPtr^, A^, B^);
-          Inc(Self.StackPtr);
-          Inc(CodePtrLocal, 5);
-          DispatchGoto;
-        end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorMul2:{$endif}
-        begin
-        labelOperatorMul2:
-          P  := BinaryLocal[CodePtrLocal + 3].VarPointer;
-          PP := BinaryLocal[CodePtrLocal + 4].VarPointer;
-          A := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
-          B := GetVariable(BinaryLocal[CodePtrLocal + 2], PP);
-          SEValueMul(Self.StackPtr^, A^, B^);
-          Inc(Self.StackPtr);
-          Inc(CodePtrLocal, 5);
-          DispatchGoto;
-        end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorDiv2:{$endif}
-        begin
-        labelOperatorDiv2:
-          P  := BinaryLocal[CodePtrLocal + 3].VarPointer;
-          PP := BinaryLocal[CodePtrLocal + 4].VarPointer;
-          A := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
-          B := GetVariable(BinaryLocal[CodePtrLocal + 2], PP);
-          SEValueDiv(Self.StackPtr^, A^, B^);
-          Inc(Self.StackPtr);
-          Inc(CodePtrLocal, 5);
           DispatchGoto;
         end;
 
@@ -7988,20 +7914,6 @@ var
     end;
   end;
 
-  function OpToOp2(const Op: TSEOpcode): TSEOpcode; inline;
-  begin
-    case Op of
-      opOperatorAdd:
-        Result := opOperatorAdd2;
-      opOperatorSub:
-        Result := opOperatorSub2;
-      opOperatorMul:
-        Result := opOperatorMul2;
-      opOperatorDiv:
-        Result := opOperatorDiv2;
-    end;
-  end;
-
   function PeepholeArrayAssignOptimization: Boolean;
   var
     A: TSEValue;
@@ -8095,7 +8007,6 @@ var
             opPushGlobalVar, opPushLocalVar, opPushArrayPop,
             opOperatorAdd0, opOperatorMul0, opOperatorDiv0,
             opOperatorAdd1, opOperatorSub1, opOperatorMul1, opOperatorDiv1,
-            opOperatorAdd2, opOperatorSub2, opOperatorMul2, opOperatorDiv2,
             opCallScript, opCallNative, opCallImport
           ]);
           if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
@@ -8140,7 +8051,6 @@ var
             opPushGlobalVar, opPushLocalVar, opPushArrayPop,
             opOperatorAdd0, opOperatorMul0, opOperatorDiv0,
             opOperatorAdd1, opOperatorSub1, opOperatorMul1, opOperatorDiv1,
-            opOperatorAdd2, opOperatorSub2, opOperatorMul2, opOperatorDiv2,
             opCallScript, opCallNative, opCallImport
           ]);
           if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
@@ -8179,7 +8089,6 @@ var
             opPushGlobalVar, opPushLocalVar,
             opOperatorAdd0, opOperatorMul0, opOperatorDiv0,
             opOperatorAdd1, opOperatorSub1, opOperatorMul1, opOperatorDiv1,
-            opOperatorAdd2, opOperatorSub2, opOperatorMul2, opOperatorDiv2,
             opPushArrayPop, opCallScript, opCallNative, opCallImport
           ]);
           if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
@@ -8235,41 +8144,6 @@ var
     end;
   end;
 
-  function PeepholeOp2Optimization(Op: TSEOpcode): Boolean;
-  var
-    A, B: TSEValue;
-    I: Integer;
-    P, PP: Pointer;
-    OpInfoPrev1: PSEOpcodeInfo;
-  begin
-    Result := False;
-    if not Self.OptimizePeephole then
-      Exit;
-    case Op of
-      opOperatorAdd,
-      opOperatorSub,
-      opOperatorMul,
-      opOperatorDiv:
-        begin
-          OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushVar2]);
-          if OpInfoPrev1 <> nil then
-          begin
-            if OpInfoPrev1^.Binary <> Pointer(Self.Binary) then
-              Exit;
-            B := Self.Binary[OpInfoPrev1^.Pos + 1];
-            A := Self.Binary[OpInfoPrev1^.Pos + 2];
-            PP:= Self.Binary[OpInfoPrev1^.Pos + 3];
-            P := Self.Binary[OpInfoPrev1^.Pos + 4];
-            Op := OpToOp2(Op);
-            Self.Binary.DeleteRange(Self.Binary.Count - OpInfoPrev1^.Size, OpInfoPrev1^.Size);
-            Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 1, 1);
-            Emit([Pointer(Integer(Op)), A.VarPointer, B.VarPointer, Pointer(P), Pointer(PP)]);
-            Result := True;
-          end;
-        end;
-    end;
-  end;
-
   function PeepholeOpXOptimization(Op: TSEOpcode): Boolean;
   var
     IsOptimized: Boolean;
@@ -8278,13 +8152,6 @@ var
     repeat
       IsOptimized := False;
       IsOptimized := PeepholeOp0Optimization(Op);
-      if IsOptimized then
-      begin
-        Result := True;
-        Op := PeekAtPrevOp(0)^.Op;
-        continue;
-      end;
-      IsOptimized := PeepholeOp2Optimization(Op);
       if IsOptimized then
       begin
         Result := True;
