@@ -105,7 +105,7 @@ begin
 '  <Token CharsStart=''"'' End=''"'' Attribute="String" Escape="\" Multiline="true" ></Token>' +
 '  <Token CharsStart="''" End="''" Attribute="String" Escape="\" Multiline="true" ></Token>' +
 '  <Identifiers CharsStart="_a..z" Content="0..9a..z">' +
-'    <Keyword>step local const using if else for while do yield break continue return in to downto fn import switch case default try catch throw stdcall cdecl</Keyword>' +
+'    <Keyword>var step local const using if else for while do yield break continue return in to downto fn import switch case default try catch throw stdcall cdecl</Keyword>' +
 '    <Special>null true false result self</Special>' +
 '  </Identifiers>' +
 
