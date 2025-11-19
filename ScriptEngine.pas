@@ -9941,7 +9941,10 @@ var
       end else
       begin
         NextToken;
-        CreateIdent(ikVariable, Token, False, False);
+        if IdentifyIdent(Token.Value, IsLocal) = tkUnknown then
+          CreateIdent(ikVariable, Token, False, False)
+        else
+          Error(Format('Duplicate variable declaration "%s"', [Token.Value]), Token);
       end;
       if PeekAtNextToken.Kind = tkComma then
       begin
