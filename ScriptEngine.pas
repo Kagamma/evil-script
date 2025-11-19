@@ -681,6 +681,7 @@ type
     tkAtom,
     tkImport,
     tkDo,
+    tkVar,
     tkTry,
     tkCatch,
     tkThrow
@@ -694,7 +695,7 @@ const
     ',', 'if', 'switch', 'case', 'default', 'identity', 'function', 'fn', 'variable', 'const', 'local',
     'unknown', 'else', 'while', 'break', 'continue', 'yield',
     '[', ']', 'and', 'or', 'xor', 'not', 'for', 'in', 'to', 'downto', 'step', 'return',
-    'atom', 'import', 'do', 'try', 'catch', 'throw'
+    'atom', 'import', 'do', 'var', 'try', 'catch', 'throw'
   );
   ValueKindNames: array[TSEValueKind] of String = (
     'null', 'number', 'string', 'map', 'buffer', 'pointer', 'boolean', 'function', 'pasobject', 'packedstring'
@@ -1008,6 +1009,7 @@ type
     class function SERandom(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SERnd(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SERound(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SERoundTo(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEFloor(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SECeil(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SETrunc(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -2176,6 +2178,11 @@ end;
 class function TBuiltInFunction.SERound(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
 begin
   Exit(Round(Args[0].VarNumber));
+end;
+
+class function TBuiltInFunction.SERoundTo(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+begin
+  Exit(RoundTo(Args[0].VarNumber, Round(Args[1].VarNumber)));
 end;
 
 class function TBuiltInFunction.SEFloor(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -6005,7 +6012,7 @@ labelStart:
             sevkPascalObject:
               Push(B^.GetProp(A^));
             else
-              Push(0);
+              Push(SENull);
           end;
           Inc(CodePtrLocal, 2);
           DispatchGoto;
@@ -6716,6 +6723,7 @@ begin
     Self.RegisterFunc('random', @TBuiltInFunction(nil).SERandom, 1);
     Self.RegisterFunc('rnd', @TBuiltInFunction(nil).SERnd, 0);
     Self.RegisterFunc('round', @TBuiltInFunction(nil).SERound, 1);
+    Self.RegisterFunc('round_to', @TBuiltInFunction(nil).SERoundTo, 2);
     Self.RegisterFunc('floor', @TBuiltInFunction(nil).SEFloor, 1);
     Self.RegisterFunc('ceil', @TBuiltInFunction(nil).SECeil, 1);
     Self.RegisterFunc('trunc', @TBuiltInFunction(nil).SETrunc, 1);
@@ -7392,6 +7400,8 @@ begin
               Token.Kind := tkTo;
             'do':
               Token.Kind := tkDo;
+            'var':
+              Token.Kind := tkVar;
             'downto':
               Token.Kind := tkDownto;
             'step':
@@ -9911,6 +9921,36 @@ var
     end;
   end;
 
+  procedure ParseVar;
+  var
+    IsConst: Boolean = False;
+    IsLocal: Boolean;
+  begin
+    repeat
+      IsLocal := False;
+      Token := PeekAtNextTokenExpected([tkIdent, tkLocal]);
+      if Token.Kind = tkLocal then
+      begin
+        NextToken;
+        IsLocal := True;
+        Token := PeekAtNextTokenExpected([tkIdent]);
+      end;
+      if PeekAtNextNextToken.Kind = tkEqual then
+      begin
+        ParseIdent(Token, False, IsLocal);
+      end else
+      begin
+        NextToken;
+        CreateIdent(ikVariable, Token, False, False);
+      end;
+      if PeekAtNextToken.Kind = tkComma then
+      begin
+        NextToken;
+      end else
+        break;
+    until False;
+  end;
+
   procedure ParseBlock(const IsCase: Boolean = False);
   var
     IsConst: Boolean = False;
@@ -9938,6 +9978,11 @@ var
           end;
           Token := PeekAtNextTokenExpected([tkIdent]);
           ParseIdent(Token, IsConst, True);
+        end;
+      tkVar:
+        begin
+          NextToken;
+          ParseVar;
         end;
       tkIf:
         begin

@@ -131,8 +131,8 @@ Evil script does not support logic operators, thus it does not distinguish betwe
 ### Variable declarations
 
 ```
-a = 5
-// Assign 5 to a
+var a = 5
+// Assign 5 to a. Note that you can omit `var`, so the statement can simply be `a = 5`
 
 a += 2 * 5
 // a = a + (2 * 5)
@@ -175,6 +175,9 @@ d[1] = 'another string'
 
 d['a'] = 5
 // 'd' is no longer a valid array
+
+var a, b, c, d = 5, e, f = 34
+// Declares a mix of assigned and unassigned variables.
 ```
 
 - Strings are copy-on-write, while maps are passed by reference.
