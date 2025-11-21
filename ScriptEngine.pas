@@ -9520,6 +9520,7 @@ var
     if PeekAtNextToken.Kind = tkElse then
     begin
       JumpEnd := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
+      StartBlock2 := Self.Binary.Count;
       NextToken;
       ParseBlock;
     end;
