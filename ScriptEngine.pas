@@ -92,14 +92,11 @@ type
     opAssignGlobalArray,
     opAssignLocalVar,
     opAssignLocalArray,
-    opJumpEqual,
-    opJumpEqual1,
-    opJumpUnconditional,
-    opJumpEqualOrGreater2,
-    opJumpEqualOrLesser2,
-
+    opJumpEqualRel,
     opJumpEqual1Rel,
     opJumpUnconditionalRel,
+    opJumpEqualOrGreater2Rel,
+    opJumpEqualOrLesser2Rel,
 
     opOperatorInc,
 
@@ -713,14 +710,11 @@ const
     3, // opAssignGlobalArray,
     3, // opAssignLocalVar,
     4, // opAssignLocalArray,
-    2, // opJumpEqual,
-    3, // opJumpEqual1,
-    2, // opJumpUnconditional,
-    6, // opJumpEqualOrGreater2,
-    6, // opJumpEqualOrLesser2,
-
+    2, // opJumpEqualRel,
     3, // opJumpEqual1Rel,
     2, // opJumpUnconditionalRel,
+    6, // opJumpEqualOrGreater2Rel,
+    6, // opJumpEqualOrLesser2Rel,
 
     4, // opOperatorInc,
 
@@ -5541,14 +5535,11 @@ label
   labelAssignGlobalArray,
   labelAssignLocalVar,
   labelAssignLocalArray,
-  labelJumpEqual,
-  labelJumpEqual1,
-  labelJumpUnconditional,
-  labelJumpEqualOrGreater2,
-  labelJumpEqualOrLesser2,
-
+  labelJumpEqualRel,
   labelJumpEqual1Rel,
   labelJumpUnconditionalRel,
+  labelJumpEqualOrGreater2Rel,
+  labelJumpEqualOrLesser2Rel,
 
   labelOperatorInc,
 
@@ -5609,14 +5600,11 @@ var
     @labelAssignGlobalArray,
     @labelAssignLocalVar,
     @labelAssignLocalArray,
-    @labelJumpEqual,
-    @labelJumpEqual1,
-    @labelJumpUnconditional,
-    @labelJumpEqualOrGreater2,
-    @labelJumpEqualOrLesser2,
-
+    @labelJumpEqualRel,
     @labelJumpEqual1Rel,
     @labelJumpUnconditionalRel,
+    @labelJumpEqualOrGreater2Rel,
+    @labelJumpEqualOrLesser2Rel,
 
     @labelOperatorInc,
 
@@ -6024,53 +6012,15 @@ labelStart:
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opJumpEqual:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opJumpEqualRel:{$endif}
         begin
-        labelJumpEqual:
+        labelJumpEqualRel:
           B := Pop;
           A := Pop;
           if SEValueEqual(A^, B^) then
-            CodePtrLocal := Integer(BinaryLocal[CodePtrLocal + 1].VarPointer)
+            CodePtrLocal := CodePtrLocal + Integer(BinaryLocal[CodePtrLocal + 1].VarPointer)
           else
             Inc(CodePtrLocal, 2);
-          DispatchGoto;
-        end;
-      {$ifndef SE_COMPUTED_GOTO}opJumpEqual1:{$endif}
-        begin
-        labelJumpEqual1:
-          A := Pop;
-          if SEValueEqual(A^, BinaryLocal[CodePtrLocal + 1]) then
-            CodePtrLocal := Integer(BinaryLocal[CodePtrLocal + 2].VarPointer)
-          else
-            Inc(CodePtrLocal, 3);
-          DispatchGoto;
-        end;
-      {$ifndef SE_COMPUTED_GOTO}opJumpUnconditional:{$endif}
-        begin
-        labelJumpUnconditional:
-          CodePtrLocal := Integer(BinaryLocal[CodePtrLocal + 1].VarPointer);
-          DispatchGoto;
-        end;
-      {$ifndef SE_COMPUTED_GOTO}opJumpEqualOrGreater2:{$endif}
-        begin
-        labelJumpEqualOrGreater2:
-          B := GetVariable(BinaryLocal[CodePtrLocal + 3].VarPointer, BinaryLocal[CodePtrLocal + 4].VarPointer);
-          A := GetVariable(BinaryLocal[CodePtrLocal + 1].VarPointer, BinaryLocal[CodePtrLocal + 2].VarPointer);
-          if SEValueGreaterOrEqual(A^, B^) then
-            CodePtrLocal := Integer(BinaryLocal[CodePtrLocal + 5].VarPointer)
-          else
-            Inc(CodePtrLocal, 6);
-          DispatchGoto;
-        end;
-      {$ifndef SE_COMPUTED_GOTO}opJumpEqualOrLesser2:{$endif}
-        begin
-        labelJumpEqualOrLesser2:
-          B := GetVariable(BinaryLocal[CodePtrLocal + 3].VarPointer, BinaryLocal[CodePtrLocal + 4].VarPointer);
-          A := GetVariable(BinaryLocal[CodePtrLocal + 1].VarPointer, BinaryLocal[CodePtrLocal + 2].VarPointer);
-          if SEValueLesserOrEqual(A^, B^) then
-            CodePtrLocal := Integer(BinaryLocal[CodePtrLocal + 5].VarPointer)
-          else
-            Inc(CodePtrLocal, 6);
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opJumpEqual1Rel:{$endif}
@@ -6087,6 +6037,28 @@ labelStart:
         begin
         labelJumpUnconditionalRel:
           CodePtrLocal := CodePtrLocal + Integer(BinaryLocal[CodePtrLocal + 1].VarPointer);
+          DispatchGoto;
+        end;
+      {$ifndef SE_COMPUTED_GOTO}opJumpEqualOrGreater2Rel:{$endif}
+        begin
+        labelJumpEqualOrGreater2Rel:
+          B := GetVariable(BinaryLocal[CodePtrLocal + 3].VarPointer, BinaryLocal[CodePtrLocal + 4].VarPointer);
+          A := GetVariable(BinaryLocal[CodePtrLocal + 1].VarPointer, BinaryLocal[CodePtrLocal + 2].VarPointer);
+          if SEValueGreaterOrEqual(A^, B^) then
+            CodePtrLocal := CodePtrLocal + Integer(BinaryLocal[CodePtrLocal + 5].VarPointer)
+          else
+            Inc(CodePtrLocal, 6);
+          DispatchGoto;
+        end;
+      {$ifndef SE_COMPUTED_GOTO}opJumpEqualOrLesser2Rel:{$endif}
+        begin
+        labelJumpEqualOrLesser2Rel:
+          B := GetVariable(BinaryLocal[CodePtrLocal + 3].VarPointer, BinaryLocal[CodePtrLocal + 4].VarPointer);
+          A := GetVariable(BinaryLocal[CodePtrLocal + 1].VarPointer, BinaryLocal[CodePtrLocal + 2].VarPointer);
+          if SEValueLesserOrEqual(A^, B^) then
+            CodePtrLocal := CodePtrLocal + Integer(BinaryLocal[CodePtrLocal + 5].VarPointer)
+          else
+            Inc(CodePtrLocal, 6);
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opCallRef:{$endif}
@@ -9076,7 +9048,7 @@ var
 
       ReturnList := ReturnStack.Pop;
       for I := 0 to ReturnList.Count - 1 do
-        Patch(Integer(ReturnList[I]), Pointer(Self.Binary.Count));
+        Patch(Integer(ReturnList[I]), Pointer(Self.Binary.Count) - (Integer(ReturnList[I]) - 2));
       Emit([Pointer(opPopFrame)]);
 
       // The pointer may be changed due to reallocation, need to query for it again
@@ -9310,21 +9282,21 @@ var
           IsComparison := False;
         end else
         begin
-          JumpEnd := Emit([Pointer(opJumpEqual1), False, Pointer(0)]);
+          JumpEnd := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]);
         end;
       end;
       ParseBlock;
-      JumpBlock := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
+      JumpBlock := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
       EndBlock := Self.Binary.Count;
       ContinueList := ContinueStack.Pop;
       BreakList := BreakStack.Pop;
       for I := 0 to ContinueList.Count - 1 do
-        Patch(Integer(ContinueList[I]), Pointer(StartBlock));
+        Patch(Integer(ContinueList[I]), Pointer(StartBlock) - (Integer(ContinueList[I]) - 1));
       for I := 0 to BreakList.Count - 1 do
-        Patch(Integer(BreakList[I]), Pointer(EndBlock));
-      Patch(JumpBlock - 1, Pointer(StartBlock));
+        Patch(Integer(BreakList[I]), Pointer(EndBlock) - (Integer(BreakList[I]) - 1));
+      Patch(JumpBlock - 1, Pointer(StartBlock) - (JumpBlock - 2));
       if IsComparison then
-        Patch(JumpEnd - 1, Pointer(EndBlock));
+        Patch(JumpEnd - 1, Pointer(EndBlock) - (JumpEnd - 3));
     finally
       ContinueList.Free;
       BreakList.Free;
@@ -9367,20 +9339,20 @@ var
           IsComparison := False;
         end else
         begin
-          JumpEnd := Emit([Pointer(opJumpEqual1), False, Pointer(0)]);
+          JumpEnd := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]);
         end;
       end;
-      JumpBlock := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
+      JumpBlock := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
       EndBlock := Self.Binary.Count;
       ContinueList := ContinueStack.Pop;
       BreakList := BreakStack.Pop;
       for I := 0 to ContinueList.Count - 1 do
-        Patch(Integer(ContinueList[I]), Pointer(ContinueBlock));
+        Patch(Integer(ContinueList[I]), Pointer(ContinueBlock) - (Integer(ContinueList[I]) - 1));
       for I := 0 to BreakList.Count - 1 do
-        Patch(Integer(BreakList[I]), Pointer(EndBlock));
-      Patch(JumpBlock - 1, Pointer(StartBlock));
+        Patch(Integer(BreakList[I]), Pointer(EndBlock) - (Integer(BreakList[I]) - 1));
+      Patch(JumpBlock - 1, Pointer(StartBlock) - (JumpBlock - 2));
       if IsComparison then
-        Patch(JumpEnd - 1, Pointer(EndBlock));
+        Patch(JumpEnd - 1, Pointer(EndBlock) - (JumpEnd - 3));
     finally
       ContinueList.Free;
       BreakList.Free;
@@ -9457,18 +9429,18 @@ var
         //EmitPushVar(VarHiddenTargetIdent);
         if Token.Kind = tkTo then
         begin
-          JumpEnd := Emit([Pointer(opJumpEqualOrGreater2), Pointer(VarIdent.Addr), GetIdentLocalValue(VarIdent), Pointer(VarHiddenTargetIdent.Addr), GetIdentLocalValue(VarHiddenTargetIdent), Pointer(0)]);
+          JumpEnd := Emit([Pointer(opJumpEqualOrGreater2Rel), Pointer(VarIdent.Addr), GetIdentLocalValue(VarIdent), Pointer(VarHiddenTargetIdent.Addr), GetIdentLocalValue(VarHiddenTargetIdent), Pointer(0)]);
         end else
         if Token.Kind = tkDownto then
         begin
-          JumpEnd := Emit([Pointer(opJumpEqualOrLesser2), Pointer(VarIdent.Addr), GetIdentLocalValue(VarIdent), Pointer(VarHiddenTargetIdent.Addr), GetIdentLocalValue(VarHiddenTargetIdent), Pointer(0)]);
+          JumpEnd := Emit([Pointer(opJumpEqualOrLesser2Rel), Pointer(VarIdent.Addr), GetIdentLocalValue(VarIdent), Pointer(VarHiddenTargetIdent.Addr), GetIdentLocalValue(VarHiddenTargetIdent), Pointer(0)]);
         end;
 
         ParseBlock;
 
         ContinueBlock := Self.Binary.Count;
         Emit([Pointer(opOperatorInc), Pointer(VarIdent.Addr), GetVarFrame(VarIdent), Step]);
-        JumpBlock := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
+        JumpBlock := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
         EndBLock := JumpBlock;
       end else
       begin
@@ -9499,7 +9471,7 @@ var
         StartBlock := Self.Binary.Count;
         //EmitPushVar(VarHiddenTargetIdent);
         //EmitPushVar(VarHiddenCountIdent);
-        JumpEnd := Emit([Pointer(opJumpEqualOrLesser2), Pointer(VarHiddenTargetIdent.Addr), GetIdentLocalValue(VarHiddenTargetIdent), Pointer(VarHiddenCountIdent.Addr), GetIdentLocalValue(VarHiddenCountIdent), Pointer(0)]);
+        JumpEnd := Emit([Pointer(opJumpEqualOrLesser2Rel), Pointer(VarHiddenTargetIdent.Addr), GetIdentLocalValue(VarHiddenTargetIdent), Pointer(VarHiddenCountIdent.Addr), GetIdentLocalValue(VarHiddenCountIdent), Pointer(0)]);
 
         EmitPushVar(VarHiddenArrayIdent);
         EmitPushVar(VarHiddenCountIdent);
@@ -9511,18 +9483,18 @@ var
 
         ContinueBlock := Self.Binary.Count;
         Emit([Pointer(opOperatorInc), Pointer(VarHiddenCountIdent.Addr), GetVarFrame(VarHiddenCountIdent), 1]);
-        JumpBlock := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
+        JumpBlock := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
         EndBLock := JumpBlock;
       end;
 
       ContinueList := ContinueStack.Pop;
       BreakList := BreakStack.Pop;
       for I := 0 to ContinueList.Count - 1 do
-        Patch(Integer(ContinueList[I]), Pointer(ContinueBlock));
+        Patch(Integer(ContinueList[I]), Pointer(ContinueBlock) - (Integer(ContinueList[I]) - 1));
       for I := 0 to BreakList.Count - 1 do
-        Patch(Integer(BreakList[I]), Pointer(EndBlock));
-      Patch(JumpBlock - 1, Pointer(StartBlock));
-      Patch(JumpEnd - 1, Pointer(EndBlock));
+        Patch(Integer(BreakList[I]), Pointer(EndBlock) - (Integer(BreakList[I]) - 1));
+      Patch(JumpBlock - 1, Pointer(StartBlock) - (JumpBlock - 2));
+      Patch(JumpEnd - 1, Pointer(EndBlock) - (JumpEnd - 6));
     finally
       ContinueList.Free;
       BreakList.Free;
@@ -9539,21 +9511,23 @@ var
     JumpEnd: Integer;
   begin
     ParseExpr(False);
-    JumpBlock1 := Emit([Pointer(opJumpEqual1), True, Pointer(0)]);
-    JumpBlock2 := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
+    JumpBlock1 := Emit([Pointer(opJumpEqual1Rel), True, Pointer(0)]);
+    JumpBlock2 := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
     StartBlock1 := Self.Binary.Count;
     ParseBlock;
-    JumpEnd := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
     StartBlock2 := Self.Binary.Count;
+    JumpEnd := -1;
     if PeekAtNextToken.Kind = tkElse then
     begin
+      JumpEnd := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
       NextToken;
       ParseBlock;
     end;
     EndBlock2 := Self.Binary.Count;
-    Patch(JumpBlock1 - 1, Pointer(StartBlock1));
-    Patch(JumpBlock2 - 1, Pointer(StartBlock2));
-    Patch(JumpEnd - 1, Pointer(EndBlock2));
+    Patch(JumpBlock1 - 1, Pointer(StartBlock1) - (JumpBlock1 - 3));
+    Patch(JumpBlock2 - 1, Pointer(StartBlock2) - (JumpBlock2 - 2));
+    if JumpEnd >= 0 then
+      Patch(JumpEnd - 1, Pointer(EndBlock2) - (JumpEnd - 2));
   end;
 
   procedure ParseSwitch;
@@ -9589,23 +9563,23 @@ var
         begin
           ParseExpr(False);
           EmitPushVar(VarHiddenIdent);
-          JumpBlock1 := Emit([Pointer(opJumpEqual), Pointer(0)]);
-          JumpBlock2 := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
+          JumpBlock1 := Emit([Pointer(opJumpEqualRel), Pointer(0)]);
+          JumpBlock2 := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
         end;
         StartCaseBlock := Self.Binary.Count;
         if JumpNextBlock <> -1 then
         begin
-          Patch(JumpNextBlock - 1, Pointer(StartCaseBlock));
+          Patch(JumpNextBlock - 1, Pointer(StartCaseBlock) - (JumpNextBlock - 2));
           JumpNextBlock := -1;
         end;
         PeekAtNextTokenExpected([tkColon]);
         ParseBlock(True);
         if Token.Kind = tkCase then
         begin
-          JumpNextBlock := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
+          JumpNextBlock := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
           EndCaseBlock := Self.Binary.Count;
-          Patch(JumpBlock1 - 1, Pointer(StartCaseBlock));
-          Patch(JumpBlock2 - 1, Pointer(EndCaseBlock));
+          Patch(JumpBlock1 - 1, Pointer(StartCaseBlock) - (JumpBlock1 - 2));
+          Patch(JumpBlock2 - 1, Pointer(EndCaseBlock) - (JumpBlock2 - 2));
         end else
           Break;
       end;
@@ -9615,7 +9589,7 @@ var
       BreakList := BreakStack.Pop;
 
       for I := 0 to BreakList.Count - 1 do
-        Patch(Integer(BreakList[I]), Pointer(EndBlock));
+        Patch(Integer(BreakList[I]), Pointer(EndBlock) - (Integer(BreakList[I]) - 1));
     finally
       BreakList.Free;
     end;
@@ -9836,7 +9810,7 @@ var
     JumpCatchBlock := Emit([Pointer(opPushTrap), Pointer(0)]);
     ParseBlock;
     Emit([Pointer(opPopTrap)]);
-    JumpFinallyBlock := Emit([Pointer(opJumpUnconditional), Pointer(0)]);
+    JumpFinallyBlock := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
 
     Self.ScopeStack.Push(Self.VarList.Count);
     CatchBlock := Self.Binary.Count;
@@ -9854,7 +9828,7 @@ var
     ParseBlock;
 
     Patch(JumpCatchBlock - 1, Pointer(CatchBlock));
-    Patch(JumpFinallyBlock - 1, Pointer(Self.Binary.Count));
+    Patch(JumpFinallyBlock - 1, Pointer(Self.Binary.Count) - (JumpFinallyBlock - 2));
     I := Self.ScopeStack.Pop;
     Self.VarList.DeleteRange(I, Self.VarList.Count - I);
   end;
@@ -10018,7 +9992,7 @@ var
           if BreakStack.Count = 0 then
             Error('Not in loop but "break" found', Token);
           List := BreakStack.Peek;
-          List.Add(Pointer(Emit([Pointer(opJumpUnconditional), Pointer(0)]) - 1));
+          List.Add(Pointer(Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]) - 1));
         end;
       tkContinue:
         begin
@@ -10026,7 +10000,7 @@ var
           if ContinueStack.Count = 0 then
             Error('Not in loop but "continue" found', Token);
           List := ContinueStack.Peek;
-          List.Add(Pointer(Emit([Pointer(opJumpUnconditional), Pointer(0)]) - 1));
+          List.Add(Pointer(Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]) - 1));
         end;
       tkReturn:
         begin
@@ -10597,11 +10571,10 @@ initialization
     Pointer(opPushLocalVar), Pointer(0), Pointer(0),
     Pointer(opPushConst), false,
     Pointer(opOperatorEqual),
-    Pointer(opJumpEqual1), true, Pointer(11),
-    Pointer(opJumpUnconditional), Pointer(17),
+    Pointer(opJumpEqual1Rel), true, Pointer(5),
+    Pointer(opJumpUnconditionalRel), Pointer(8),
     Pointer(opPushLocalVar), Pointer(1), Pointer(0),
     Pointer(opThrow),
-    Pointer(opJumpUnconditional), Pointer(17),
     Pointer(opPopFrame)
   ];
   FunctionThrow := [
