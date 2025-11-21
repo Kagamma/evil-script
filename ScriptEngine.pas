@@ -10117,6 +10117,17 @@ var
   end;
 
 begin
+  // Implement assert function
+  Self.RegisterScriptFunc('assert', 2);
+  if not Self.OptimizeAsserts then
+  begin
+    Self.Binary := Self.VM.Binaries.Value^.Data[1];
+    Self.Binary.AddRange(FunctionAssert);
+  end;
+  // Implement ___throw function
+  Self.RegisterScriptFunc('___throw', 1);
+  Self.Binary := Self.VM.Binaries.Value^.Data[2];
+  Self.Binary.AddRange(FunctionThrow);
   ContinueStack := TSEListStack.Create;
   BreakStack := TSEListStack.Create;
   ReturnStack := TSEListStack.Create;
@@ -10180,15 +10191,6 @@ begin
   ErrorCol := -1;
   Self.FuncTraversal := 0;
   Self.FuncCurrent := -1;
-
-  // Implement assert function
-  Self.RegisterScriptFunc('assert', 2);
-  Self.Binary := Self.VM.Binaries.Value^.Data[1];
-  Self.Binary.AddRange(FunctionAssert);
-  // Implement ___throw function
-  Self.RegisterScriptFunc('___throw', 1);
-  Self.Binary := Self.VM.Binaries.Value^.Data[2];
-  Self.Binary.AddRange(FunctionThrow);
 end;
 
 function TEvilC.Exec: TSEValue;
@@ -10573,7 +10575,7 @@ initialization
     Pointer(opPushConst), false,
     Pointer(opOperatorEqual),
     Pointer(opJumpEqual1Rel), true, Pointer(5),
-    Pointer(opJumpUnconditionalRel), Pointer(8),
+    Pointer(opJumpUnconditionalRel), Pointer(6),
     Pointer(opPushLocalVar), Pointer(1), Pointer(0),
     Pointer(opThrow),
     Pointer(opPopFrame)
