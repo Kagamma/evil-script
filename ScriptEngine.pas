@@ -430,31 +430,31 @@ type
   TSEFuncWithSelf = function(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: TSEValue): TSEValue of object;
 
   TSEFuncNativeInfo = record
+    PossibleKinds: TSEValueKindSet;
     Name: String;
     Func: TSEFunc;
     ArgCount: Integer;
     Kind: TSEFuncNativeKind;
-    PossibleKinds: TSEValueKindSet;
   end;
   PSEFuncNativeInfo = ^TSEFuncNativeInfo;
 
   TSEFuncScriptInfo = record
+    PossibleKinds: TSEValueKindSet;
     Name: String;
     BinaryPos: Integer;
     ArgCount: Integer;
     VarCount: Integer;
     VarSymbols: TStrings;
-    PossibleKinds: TSEValueKindSet;
   end;
   PSEFuncScriptInfo = ^TSEFuncScriptInfo;
 
   TSEFuncImportInfo = record
+    PossibleKinds: TSEValueKindSet;
     Name: String;
     Func: Pointer;
     Args: TSEAtomKindArray;
     Return: TSEAtomKind;
     CallingConvention: TSECallingConvention;
-    PossibleKinds: TSEValueKindSet;
   end;
   PSEFuncImportInfo = ^TSEFuncImportInfo;
 
@@ -769,6 +769,7 @@ type
   );
 
   TSEIdent = record
+    PossibleKinds: TSEValueKindSet;
     Kind: TSEIdentKind;
     Addr: Integer;
     IsUsed: Boolean;
@@ -780,7 +781,6 @@ type
     Ln: Integer;
     Col: Integer;
     Name: String;
-    PossibleKinds: TSEValueKindSet;
   end;
   PSEIdent = ^TSEIdent;
 
@@ -858,9 +858,9 @@ type
     function ExecFunc(const Name: String; const Args: array of TSEValue): TSEValue; overload;
     function ExecFuncOnly(const AIndex: Integer; const Args: array of TSEValue): TSEValue; overload;
     function ExecFunc(const AIndex: Integer; const Args: array of TSEValue): TSEValue; overload;
-    procedure RegisterFunc(const Name: String; const Func: TSEFunc; const ArgCount: Integer; const PossibleKinds: TSEValueKindSet = [sevkNumber, sevkString, sevkNull, sevkMap]);
-    procedure RegisterFuncWithSelf(const Name: String; const Func: TSEFuncWithSelf; const ArgCount: Integer; const PossibleKinds: TSEValueKindSet = [sevkNumber, sevkString, sevkNull, sevkMap]);
-    function RegisterScriptFunc(const Name: String; const ArgCount: Integer; const PossibleKinds: TSEValueKindSet = [sevkNumber, sevkString, sevkNull, sevkMap]): PSEFuncScriptInfo;
+    procedure RegisterFunc(const Name: String; const Func: TSEFunc; const ArgCount: Integer);
+    procedure RegisterFuncWithSelf(const Name: String; const Func: TSEFuncWithSelf; const ArgCount: Integer);
+    function RegisterScriptFunc(const Name: String; const ArgCount: Integer): PSEFuncScriptInfo;
     procedure RegisterImportFunc(const Name, ActualName, LibName: String; const Args: TSEAtomKindArray; const Return: TSEAtomKind; const CC: TSECallingConvention = seccAuto);
     function Backup: TSECache;
     procedure Restore(const Cache: TSECache);
@@ -10355,7 +10355,7 @@ begin
   end;
 end;
 
-procedure TEvilC.RegisterFunc(const Name: String; const Func: TSEFunc; const ArgCount: Integer; const PossibleKinds: TSEValueKindSet = [sevkNumber, sevkString, sevkNull, sevkMap]);
+procedure TEvilC.RegisterFunc(const Name: String; const Func: TSEFunc; const ArgCount: Integer);
 var
   FuncNativeInfo: TSEFuncNativeInfo;
 begin
@@ -10363,11 +10363,11 @@ begin
   FuncNativeInfo.Func := Func;
   FuncNativeInfo.Name := Name;
   FuncNativeInfo.Kind := sefnkNormal;
-  FuncNativeInfo.PossibleKinds := PossibleKinds;
+  FuncNativeInfo.PossibleKinds := [sevkNumber, sevkString, sevkNull, sevkMap];
   Self.FuncNativeList.Add(FuncNativeInfo);
 end;
 
-procedure TEvilC.RegisterFuncWithSelf(const Name: String; const Func: TSEFuncWithSelf; const ArgCount: Integer; const PossibleKinds: TSEValueKindSet = [sevkNumber, sevkString, sevkNull, sevkMap]);
+procedure TEvilC.RegisterFuncWithSelf(const Name: String; const Func: TSEFuncWithSelf; const ArgCount: Integer);
 var
   FuncNativeInfo: TSEFuncNativeInfo;
 begin
@@ -10375,11 +10375,11 @@ begin
   FuncNativeInfo.Func := TSEFunc(Func);
   FuncNativeInfo.Name := Name;
   FuncNativeInfo.Kind := sefnkSelf;
-  FuncNativeInfo.PossibleKinds := PossibleKinds;
+  FuncNativeInfo.PossibleKinds := [sevkNumber, sevkString, sevkNull, sevkMap];
   Self.FuncNativeList.Add(FuncNativeInfo);
 end;
 
-function TEvilC.RegisterScriptFunc(const Name: String; const ArgCount: Integer; const PossibleKinds: TSEValueKindSet = [sevkNumber, sevkString, sevkNull, sevkMap]): PSEFuncScriptInfo;
+function TEvilC.RegisterScriptFunc(const Name: String; const ArgCount: Integer): PSEFuncScriptInfo;
 var
   FuncScriptInfo: TSEFuncScriptInfo;
 begin
@@ -10390,7 +10390,7 @@ begin
   FuncScriptInfo.BinaryPos := Self.VM.Binaries.Value^.Size - 1;
   FuncScriptInfo.Name := Name;
   FuncScriptInfo.VarSymbols := TStringList.Create;
-  FuncScriptInfo.PossibleKinds := PossibleKinds;
+  FuncScriptInfo.PossibleKinds := [sevkNumber, sevkString, sevkNull, sevkMap];
   Self.FuncScriptList.Add(FuncScriptInfo);
   Result := Self.FuncScriptList.Ptr(Self.FuncScriptList.Count - 1);
   Self.FuncCurrent := Self.FuncScriptList.Count - 1;
