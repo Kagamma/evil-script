@@ -686,7 +686,7 @@ type
 TSETokenKindSet = set of TSETokenKind;
 
 const
-  TokenNames: array[TSETokenKind] of String = (
+  TokenNames: array[TSETokenKind] of RawByteString = (
     'EOF', '.', '+', '-', '*', 'div', 'mod', '^', '<<', '>>', 'operator assign', '=', '!=', '<',
     '>', '<=', '>=', '{', '}', ':', '?', '(', ')', 'neg', 'number', 'string',
     ',', 'if', 'switch', 'case', 'default', 'identity', 'function', 'fn', 'variable', 'const', 'local',
@@ -694,7 +694,7 @@ const
     '[', ']', 'and', 'or', 'xor', 'not', 'for', 'in', 'to', 'downto', 'step', 'return',
     'atom', 'import', 'do', 'var', 'try', 'catch', 'throw'
   );
-  ValueKindNames: array[TSEValueKind] of String = (
+  ValueKindNames: array[TSEValueKind] of RawByteString = (
     'null', 'number', 'string', 'map', 'buffer', 'pointer', 'boolean', 'function', 'pasobject', 'packedstring'
   );
   OpcodeSizes: array[TSEOpcode] of Byte = (
@@ -8952,11 +8952,15 @@ var
     if DefinedArgCount < 0 then
     begin
       NextTokenExpected([tkBracketOpen]);
-      repeat
-        ParseExpr(True);
-        Token := NextTokenExpected([tkComma, tkBracketClose]);
-        Inc(ArgCount);
-      until Token.Kind = tkBracketClose;
+      if PeekAtNextToken.Kind <> tkBracketClose then
+      begin
+        repeat
+          ParseExpr(True);
+          Token := NextTokenExpected([tkComma, tkBracketClose]);
+          Inc(ArgCount);
+        until Token.Kind = tkBracketClose;
+      end else
+        NextToken;
     end else
     begin
       NextTokenExpected([tkBracketOpen]);
