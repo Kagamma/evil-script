@@ -64,19 +64,22 @@ fn draw_cube(c) {
 }
 
 fn calc() {
+  sx = sin(xa) cx = cos(xa)
+  sy = sin(ya) cy = cos(ya)
+  sz = sin(za) cz = cos(za)
   for p = 0 to 7 {
-    yt = vertices[p * 3 + 1] * cos(xa) - vertices[p * 3 + 2] * sin(xa)
-    zt = vertices[p * 3 + 1] * sin(xa) + vertices[p * 3 + 2] * cos(xa)
+    yt = vertices[p * 3 + 1] * cx - vertices[p * 3 + 2] * sx
+    zt = vertices[p * 3 + 1] * sx + vertices[p * 3 + 2] * cx
     vertices[p * 3 + 1] = yt
     vertices[p * 3 + 2] = zt
 
-    xt = vertices[p * 3] * cos(ya) - vertices[p * 3 + 2] * sin(ya)
-    zt = vertices[p * 3] * sin(ya) + vertices[p * 3 + 2] * cos(ya)
+    xt = vertices[p * 3] * cy - vertices[p * 3 + 2] * sy
+    zt = vertices[p * 3] * sy + vertices[p * 3 + 2] * cy
     vertices[p * 3] = xt
     vertices[p * 3 + 2] = zt
 
-    xt = vertices[p * 3] * cos(za) - vertices[p * 3 + 1] * sin(za)
-    yt = vertices[p * 3] * sin(za) + vertices[p * 3 + 1] * cos(za)
+    xt = vertices[p * 3] * cz - vertices[p * 3 + 1] * sz
+    yt = vertices[p * 3] * sz + vertices[p * 3 + 1] * cz
     vertices[p * 3] = xt
     vertices[p * 3 + 1] = yt
   }

@@ -1036,6 +1036,7 @@ type
     class function SEPow(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SESleep(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEStringGrep(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function SEStringResize(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEStringSplit(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEStringFind(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
     class function SEStringInsert(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -2453,6 +2454,12 @@ begin
         else
           Result := Result + #10 + V;
       end;
+end;
+
+class function TBuiltInFunction.SEStringResize(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+begin
+  Result := Args[0];
+  SetLength(Result.VarString^, Round(Args[0].VarNumber));
 end;
 
 class function TBuiltInFunction.SEStringSplit(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -6659,6 +6666,7 @@ begin
     Self.RegisterFunc('pow', @TBuiltInFunction(nil).SEPow, 2);
     Self.RegisterFunc('sleep', @TBuiltInFunction(nil).SESleep, 1);
     Self.RegisterFunc('string_grep', @TBuiltInFunction(nil).SEStringGrep, 2);
+    Self.RegisterFunc('string_resize', @TBuiltInFunction(nil).SEStringResize, 2);
     Self.RegisterFunc('string_format', @TBuiltInFunction(nil).SEStringFormat, 2);
     Self.RegisterFunc('string_split', @TBuiltInFunction(nil).SEStringSplit, 2);
     Self.RegisterFunc('string_find', @TBuiltInFunction(nil).SEStringFind, 2);
