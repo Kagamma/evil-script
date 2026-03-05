@@ -568,6 +568,7 @@ type
   TSEVM = class
   public
     Name: String;
+    Owner: TSEVM;
     {$ifdef SE_THREADS}
     ThreadOwner: TSEVMThread;
     {$endif}
@@ -2040,7 +2041,7 @@ class function TBuiltInFunction.SEStringToBuffer(const VM: TSEVM; const Args: PS
 begin
   SEValidateType(@Args[0], sevkString, 1, {$I %CURRENTROUTINE%});
   GC.AllocBuffer(@Result, Length(Args[0].VarString^));
-  Move(Args[0].VarString^[1], PByte(Result.VarBuffer^.Ptr)[1], Length(Args[0].VarString^));
+  Move(Args[0].VarString^[1], PByte(Result.VarBuffer^.Ptr)[0], Length(Args[0].VarString^));
 end;
 
 class function TBuiltInFunction.SEBufferToString(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
@@ -4228,7 +4229,7 @@ begin
     if GC.Phase = segcpMark then
     begin
       {$ifdef SE_LOG}
-      Writeln('[GC] ', Self.Phase);
+      Writeln('[GC] ', GC.Phase);
       {$endif}
       for I := 0 to GC.ReachableValueList.Count - 1 do
         GC.Mark(GC.ReachableValueList.Ptr(I));
@@ -4608,9 +4609,12 @@ var
           Self.FReachableValueList.Add(P^);
           Inc(P);
         end;
-        for J := 0 to VM.Parent.ConstList.Count - 1 do
+        if VM.Owner = nil then
         begin
-          Self.FReachableValueList.Add(VM.Parent.ConstList[J]);
+          for J := 0 to VM.Parent.ConstList.Count - 1 do
+          begin
+            Self.FReachableValueList.Add(VM.Parent.ConstList[J]);
+          end;
         end;
       end;
       Self.FReachableValueList.Add(ScriptVarMap);
@@ -4634,10 +4638,13 @@ var
           Self.Mark(P);
           Inc(P);
         end;
-        for J := 0 to VM.Parent.ConstList.Count - 1 do
+        if VM.Owner = nil then
         begin
-          V := VM.Parent.ConstList[J];
-          Self.Mark(@V)
+          for J := 0 to VM.Parent.ConstList.Count - 1 do
+          begin
+            V := VM.Parent.ConstList[J];
+            Self.Mark(@V)
+          end;
         end;
       end;
       Mark(@ScriptVarMap);
@@ -4669,7 +4676,7 @@ begin
         Self.FPhase := segcpInitial;
         SuspendThreads;
         {$ifdef SE_LOG}
-        Writeln('[GC] ', GC.Phase);
+        Writeln('[GC] ', Self.FPhase);
         {$endif}
         Inc(Self.FRunCount);
         {$ifdef SE_LOG}
@@ -4711,7 +4718,7 @@ begin
         Writeln('[GC] Number of objects after cleaning: ', Self.FObjects);
         Writeln('[GC] Number of old objects after cleaning: ', Self.FObjectsOld);
         Writeln('[GC] Number of objects in object pool: ', Self.FNodeAvailStack.Count);
-        Writeln('[GC] Time: ', GetTickCount64 - T, 'ms');
+        Writeln('[GC] Time: ', GetTickCount64 - Self.FTicks, 'ms');
         {$endif}
       end;
     except
@@ -4886,6 +4893,9 @@ var
   I: Integer;
 begin
   Result := TSEVM.Create;
+  Result.Binaries.Free;
+
+  Result.Owner := Self;
   Result.StackSize := AStackSize;
   Result.Parent := Self.Parent;
   Result.IsPaused := False;
@@ -4954,6 +4964,7 @@ end;
 
 function TSEValueArrayManaged.Ref: TSEValueArrayManaged;
 begin
+  Assert(Self.Value <> nil, 'Self.Value = nil');
   Inc(Self.Value^.RefCount);
   Result := Self;
 end;
@@ -4986,6 +4997,7 @@ end;
 
 function TSEBinariesManaged.Ref: TSEBinariesManaged;
 begin
+  Assert(Self.Value <> nil, 'Self.Value = nil');
   Inc(Self.Value^.RefCount);
   Result := Self;
 end;
@@ -5025,10 +5037,23 @@ begin
 end;
 
 destructor TSEVM.Destroy;
+var
+  I: Integer;
 begin
   Self.Binaries.Free;
   if VMList <> nil then
+  begin
     VMList.Remove(Self);
+    for I := VMList.Count - 1 downto 0 do
+      if VMList[I].Owner = Self then
+      begin
+        if VMList[I].CoroutineOwner <> nil then
+        begin
+          VMList[I].CoroutineOwner.VM := nil;
+          VMList[I].Free;
+        end;
+      end;
+  end;
   Self.Global.Free;
   inherited;
 end;
@@ -6487,12 +6512,12 @@ begin
     Self.VM.Parent.VMThreadList.Remove(Self);
     Self.Terminate;
     Self.IsDone := True;
+    Self.VM.Free;
   end;
 end;
 
 destructor TSEVMThread.Destroy;
 begin
-  Self.VM.Free;
   inherited;
 end;
 {$endif}
@@ -6517,6 +6542,8 @@ end;
 
 function TSEVMCoroutine.Execute: TSEValue;
 begin
+  if Self.VM = nil then
+    Exit;
   if not Self.IsTerminated then
   begin
     try
@@ -6540,6 +6567,8 @@ procedure TSEVMCoroutine.Reset(const Fn: TSEValue; const Args: PSEValue; const A
 var
   I: Integer;
 begin
+  if Self.VM = nil then
+    Exit;
   Self.VM.StackPtr := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
   for I := 0 to ArgCount - 1 do
   begin
@@ -6556,7 +6585,8 @@ end;
 
 destructor TSEVMCoroutine.Destroy;
 begin
-  Self.VM.Free;
+  if Self.VM <> nil then
+    Self.VM.Free;
   inherited;
 end;
 
@@ -10629,4 +10659,6 @@ finalization
   ConstStrings.Free;
 
 end.
+
+
 
