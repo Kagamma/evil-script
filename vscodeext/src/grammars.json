@@ -15,7 +15,7 @@
 				},
 				{
 					"name": "variable.language",
-					"match": "\\b(const|local)\\b"
+					"match": "\\b(const|local|var)\\b"
 				},
 				{
 					"name": "comment.line",
