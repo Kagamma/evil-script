@@ -4602,15 +4602,15 @@ var
           Self.FReachableValueList.Add(P^);
           Inc(P);
         end;
-        P := @VM.Global.Value^.Data[0];
-        P2 := @VM.Global.Value^.Data[VM.Global.Value^.Size - 1];
-        while P <= P2 do
-        begin
-          Self.FReachableValueList.Add(P^);
-          Inc(P);
-        end;
         if VM.Owner = nil then
         begin
+          P := @VM.Global.Value^.Data[0];
+          P2 := @VM.Global.Value^.Data[VM.Global.Value^.Size - 1];
+          while P <= P2 do
+          begin
+            Self.FReachableValueList.Add(P^);
+            Inc(P);
+          end;
           for J := 0 to VM.Parent.ConstList.Count - 1 do
           begin
             Self.FReachableValueList.Add(VM.Parent.ConstList[J]);
@@ -10659,6 +10659,4 @@ finalization
   ConstStrings.Free;
 
 end.
-
-
 
