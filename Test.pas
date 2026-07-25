@@ -27,10 +27,10 @@ const
 type
   TCustomFunctions = class
   public
-    class function Hello(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-    class function Add(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: TSEValue): TSEValue;
-    class function ReturnAnotherNativeFunction(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
-    class function ReturnMe(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function Hello(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+    class function Add(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+    class function ReturnAnotherNativeFunction(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+    class function ReturnMe(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
   end;
 
   TRttiTest = class
@@ -43,22 +43,22 @@ type
     property Age: Cardinal read FAge write FAge;
   end;
 
-class function TCustomFunctions.Hello(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+class function TCustomFunctions.Hello(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   Exit('Hello, ' + Args[0]);
 end;
 
-class function TCustomFunctions.Add(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: TSEValue): TSEValue;
+class function TCustomFunctions.Add(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 var
   V: TSEValue;
 begin
-  V := This.GetValue('value'); // Get data from "value" property
+  V := This^.GetValue('value'); // Get data from "value" property
   V := V + Args[0];
-  This.SetValue('value', V); // Set new data to "value" property
-  Exit(This);
+  This^.SetValue('value', V); // Set new data to "value" property
+  Exit(This^);
 end;
 
-class function TCustomFunctions.ReturnAnotherNativeFunction(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+class function TCustomFunctions.ReturnAnotherNativeFunction(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 var
   Ind: Integer;
 begin
@@ -73,7 +73,7 @@ begin
   end;
 end;
 
-class function TCustomFunctions.ReturnMe(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+class function TCustomFunctions.ReturnMe(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   Exit('You called ReturnMe()!');
 end;
@@ -147,7 +147,7 @@ end;
 procedure CustomFunctionWithSelfTestRun;
 begin
   Writeln('--- CustomFunctionWithSelfTestRun ---');
-  SE.RegisterFuncWithSelf('add', @TCustomFunctions(nil).Add, 1);
+  SE.RegisterFunc('add', @TCustomFunctions(nil).Add, 1);
   SE.Source := CustomFunctionWithSelfTest;
   SE.Exec;
 end;
