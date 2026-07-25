@@ -1,0 +1,247 @@
+// Astar algorithm - Backported from the game I am working on
+// See https://forum.castle-engine.io/t/bb001-must-be-at-least-15-characters/2012
+
+// The language does not support structs, so this is how we speed things up a bit...
+const X = 0
+const Y = 1
+const G = 2
+const H = 3
+const F = 4
+const PREV = 5
+
+var map = [
+  size: 10,
+  data: [
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 1, 0, 0, 0, 0, 0, 0, 0],
+    [0, 1, 1, 0, 0, 1, 1, 1, 0, 0],
+    [0, 0, 1, 0, 0, 0, 0, 0, 1, 0],
+    [0, 0, 0, 1, 1, 0, 0, 0, 1, 0],
+    [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [0, 0, 1, 1, 1, 1, 1, 0, 1, 0],
+    [0, 0, 0, 1, 0, 0, 0, 1, 0, 0],
+    [0, 0, 0, 1, 0, 0, 0, 0, 0, 0],
+  ]
+]
+
+fn array_create(l) {
+  result = []
+  array_resize(result, l)
+}
+
+fn array2d_create(w, h) {
+  result = []
+  array_resize(result, w)
+  for i = 0 to w - 1 {
+    ay = []
+    array_resize(ay, h)
+    result[i] = ay
+  }
+}
+
+fn array_push(a, v) {
+  a[length(a)] = v
+}
+
+fn astar_is_path(path, x, y) {
+  if !path
+    return (false)
+  for i = 0 to length(path) - 1 {
+    if (path[i][0] = x) && (path[i][1] = y) {
+      result = true
+      return
+    }
+  }
+  result = false
+}
+
+fn astar_heuristic(start, goal) {
+  result = abs(start[0] - goal[0]) + abs(start[1] - goal[1])
+}
+
+fn astar_valid(flo, current, neighbor, goal) {
+  result = true
+  local cell = flo[neighbor[1]][neighbor[0]]
+  if cell != 0 {
+    return (false)
+  }
+}
+
+fn astar_valid3(flo, current, neighbor1, neighbor2, neighbor, goal) {
+  result = false
+  local ok = astar_valid(flo, current, neighbor1, goal) && astar_valid(flo, current, neighbor2, goal)
+  if ok {
+    result = astar_valid(flo, current, neighbor, goal)
+  }
+}
+
+fn astar_find_lowest_f(list, count) {
+  local min_f = 0xffffffff
+  result = 0
+  for i = 0 to count - 1 {
+    if list[i][F] < min_f {
+      min_f = list[i][F]
+      result = i
+    }
+  }
+}
+
+fn astar_reconstruct_path(start, current) {
+  // Reconstruct path
+  local path_len = 0
+  result = []
+  while current[PREV] {
+    result[path_len] = [current[X], current[Y]]
+    path_len += 1
+    current = current[PREV]
+  }
+  result[path_len] = start
+}
+
+fn astar_find(map, start, goal) {
+  //
+  local size = map.size
+  local flo = map.data
+  if !astar_valid(flo, start, start, goal) {
+    return ([start])
+  }
+  local open_list     = array_create(size * size)
+  local neighbor_list = array2d_create(size, size)
+  local closed_list   = array2d_create(size, size)
+  local neighbors = [[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]
+  // Add start node
+  local h = astar_heuristic(start, goal)
+  open_list[0] = [
+    start[0],   // X
+    start[1],   // Y
+    0,       // G - cost from start
+    h,       // H - heuristic
+    h,       // F - total cost
+    null,    // PREV
+  ]
+  local open_count = 1
+  local current = null
+  local total_count = 0
+  local total_limit = 1000
+
+  while open_count > 0 {
+    // Get node with lowest f score
+    local i = astar_find_lowest_f(open_list, open_count)
+    current = open_list[i]
+
+    // Mark this pos in closed list
+    closed_list[current[X]][current[Y]] = true
+    local ol1 = open_list[i]
+    local ol2 = open_list[open_count - 1]
+    neighbor_list[ol1[X]][ol1[Y]] = neighbor_list[ol2[X]][ol2[Y]]
+    neighbor_list[ol2[X]][ol2[Y]] = null
+    open_list[i] = ol2
+    open_count -= 1
+
+    // Found goal?
+    if (current[X] == goal[0]) && (current[Y] == goal[1]) {
+      return (astar_reconstruct_path(start, current))
+    }
+
+    // Define 8-directional neighbors (up, right, down, left, up-left, up-right, down-left, down-right)
+    neighbors[0][0] = current[X]
+    neighbors[0][1] = current[Y] - 1
+    neighbors[1][0] = current[X] + 1
+    neighbors[1][1] = current[Y]
+    neighbors[2][0] = current[X]
+    neighbors[2][1] = current[Y] + 1
+    neighbors[3][0] = current[X] - 1
+    neighbors[3][1] = current[Y]
+
+    neighbors[4][0] = current[X] - 1
+    neighbors[4][1] = current[Y] - 1
+    neighbors[5][0] = current[X] + 1
+    neighbors[5][1] = current[Y] - 1
+    neighbors[6][0] = current[X] - 1
+    neighbors[6][1] = current[Y] + 1
+    neighbors[7][0] = current[X] + 1
+    neighbors[7][1] = current[Y] + 1
+
+    // Check all neighbors
+    var local g_score
+    for i = 0 to 7 {
+      neighbor = neighbors[i]
+      if (neighbor[0] < 0) {
+        continue
+      }
+      if (neighbor[1] < 0) {
+        continue
+      }
+      if (neighbor[0] >= size) {
+        continue
+      }
+      if (neighbor[1] >= size) {
+        continue
+      }
+      local valid = false
+      if i <= 3 {
+        g_score = current[G] + 1
+        valid = astar_valid(flo, current, neighbor, goal)
+      } else {
+        g_score = current[G] + 1.4
+        valid = astar_valid3(flo, current, [neighbor[0], current[Y]], [current[X], neighbor[1]], neighbor, goal)
+      }
+      if valid {
+        // Skip if in closed list
+        if closed_list[neighbor[0]][neighbor[1]] {
+          continue
+        }
+        neighbor_index = neighbor_list[neighbor[0]][neighbor[1]]
+
+        if neighbor_index == null {
+          // Add new node to open list
+          local h = astar_heuristic(neighbor, goal)
+          node = [
+            neighbor[0],
+            neighbor[1],
+            g_score,
+            h,
+            g_score + h,
+            current,
+          ]
+          open_list[open_count] = node
+          neighbor_list[neighbor[0]][neighbor[1]] = open_count
+          open_count += 1
+        } else
+        if g_score < open_list[neighbor_index][G] {
+          // Update existing node if better path found
+          local c = open_list[neighbor_index]
+          c[G] = g_score
+          c[F] = g_score + c[H]
+          c[PREV] = current
+        }
+      }
+    }
+    // We dont want path finding hog all resources...
+    total_count += 1
+    if total_count > total_limit {
+      return ([start])
+    }
+  }
+  return ([start])
+}
+
+fn run() {
+  local path = astar_find(map, [1, 2], [8, 8])
+  local chars = ['.', 'O', '+', '*']
+  for p, i in path {
+    map.data[p[1]][p[0]] = (i == 0) ? 3 : 2
+  }
+  writeln('Path: ', path)
+  for y = 0 to map.size - 1 {
+    for x = 0 to map.size - 1 {
+      write(chars[map.data[y][x]], ' ')
+    }
+    write('\n')
+  }
+  write('\n')
+}
+
+run()
+
