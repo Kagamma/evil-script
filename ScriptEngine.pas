@@ -33,11 +33,11 @@ unit ScriptEngine;
 // enable this if you want to include this in castle game engine's profiler report
 {.$define SE_PROFILER}
 // enable this if you dont need to store map's keys as (utf8)strings. It will be stored as shortstrings instead, which speed up map operations.
-{$define SE_MAP_SHORTSTRING}
+{.$define SE_MAP_SHORTSTRING}
 // enable this to replace FP's TDirectory with avk959's TGChainHashMap. It is a lot faster than TDirectory.
 // requires https://github.com/avk959/LGenerics
 // note: enable this will undef SE_MAP_SHORTSTRING, because this optimization is not necessary for TGChainHashMap
-{$define SE_MAP_AVK959}
+{.$define SE_MAP_AVK959}
 {$ifdef SE_MAP_AVK959}
   {$undef SE_MAP_SHORTSTRING}
   {$define TSEDictionary := TGChainHashMap}
