@@ -65,10 +65,10 @@ Declares a new function. The function below will accept 2 parameters,  add them 
 type
   TCustomFunctions = class
   public
-    class function Add(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+    class function Add(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
   end;
   ...
-class function TCustomFunctions.Add(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal): TSEValue;
+class function TCustomFunctions.Add(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   Result := Args[0] + Args[1];
 end;
@@ -85,17 +85,17 @@ Declares a new function. The function below will accept 2 parameters,  add them 
 type
   TCustomFunctions = class
   public
-    class function Add(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: TSEValue): TSEValue;
+    class function Add(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
   end;
   ...
-class function TCustomFunctions.Add(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: TSEValue): TSEValue;
+class function TCustomFunctions.Add(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  This.SetValue('value', Args[0] + Args[1]);
+  This^.SetValue('value', Args[0] + Args[1]);
 end;
 ```
 Register the function to the script engine:
 ```
-  SE.RegisterFuncWithSelf('add', @TCustomFunctions(nil).Add, 2);
+  SE.RegisterFunc('add', @TCustomFunctions(nil).Add, 2);
   SE.Source :=
 'obj = [ value: 0, add: add ]' + #10 +
 'obj.add(2, 3)';
@@ -203,7 +203,7 @@ A 16-byte data structure. `TSEValue.Kind` stores the type of variable, which can
       V.Kind := sevkFunction;
 
       // VarFuncKind stores the type of function:
-      // - sefkNative = Pascal function registered via TScriptEngine.RegisterFunc() / TScriptEngine.RegisterFuncWithSelf().
+      // - sefkNative = Pascal function registered via TScriptEngine.RegisterFunc()
       // - sefkScript = Evil script function.
       V.VarFuncKind := sefkScript;
 
