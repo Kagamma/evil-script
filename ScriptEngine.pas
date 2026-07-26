@@ -5095,7 +5095,7 @@ var
   FuncScriptInfo: PSEFuncScriptInfo;
   FuncImportInfo: PSEFuncImportInfo;
   I, J, ArgCountStack, ArgCount, ArgSize, DeepCount: Integer;
-  This: TSEValue;
+  This: PSEValue;
   CodePtrLocal: Integer;
   GlobalLocal: PSEValue;
   BinaryPtrLocal: Integer;
@@ -6141,7 +6141,7 @@ labelStart:
               begin
                 if DeepCount > 1 then
                   (Self.StackPtr - 1)^ := TV2;
-                This := Pop^;
+                This := Pop;
                 Dec(BinaryLocal[CodePtrLocal + 2].VarPointer); // ArgCount contains this, so we minus it by 1
                 goto labelCallNative;
               end;
@@ -6154,7 +6154,7 @@ labelStart:
           FuncNativeInfo := Self.Parent.FuncNativeList.Ptr(Integer(BinaryLocal[CodePtrLocal + 1].VarPointer));
           ArgCount := Integer(BinaryLocal[CodePtrLocal + 2].VarPointer);
           Self.StackPtr := Self.StackPtr - ArgCount;
-          TV := TSEFunc(FuncNativeInfo^.Func)(Self, Self.StackPtr, ArgCount, @This);
+          TV := TSEFunc(FuncNativeInfo^.Func)(Self, Self.StackPtr, ArgCount, This);
           if IsDone then
           begin
             Exit;
