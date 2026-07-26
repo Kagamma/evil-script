@@ -6150,7 +6150,6 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opCallNative:{$endif}
         begin
         labelCallNative:
-          GC.CheckForGCFast;
           FuncNativeInfo := Self.Parent.FuncNativeList.Ptr(Integer(BinaryLocal[CodePtrLocal + 1].VarPointer));
           ArgCount := Integer(BinaryLocal[CodePtrLocal + 2].VarPointer);
           Self.StackPtr := Self.StackPtr - ArgCount;
@@ -6160,6 +6159,7 @@ labelStart:
             Exit;
           end;
           Push(TV);
+          GC.CheckForGCFast;
           Inc(CodePtrLocal, 4);
           DispatchGoto;
         end;
