@@ -4261,6 +4261,7 @@ begin
   Self.FOldObjectCheckCycle := 10;
   Self.FObjectThreshold := 700;
   Self.FReachableValueList := TSEValueList.Create;
+  Self.FReachableValueList.Capacity := 65536;
   Self.FVMThreadList := TSEVMList.Create;
   Self.EnableParallel := {$ifdef SE_MAP_AVK959}True{$else}False{$endif};
 end;
@@ -4589,7 +4590,7 @@ var
   {$ifdef SE_THREADS}
     if Self.EnableParallel then
     begin
-      Self.FReachableValueList.Clear;
+      Self.FReachableValueList.Count := 0;
       for I := 0 to VMList.Count - 1 do
       begin
         VM := VMList[I];
@@ -8994,8 +8995,13 @@ var
       begin
         repeat
           ParseExpr(True);
-          Token := NextTokenExpected([tkComma, tkBracketClose]);
           Inc(ArgCount);
+          Token := NextTokenExpected([tkComma, tkBracketClose]);
+          if (Token.Kind = tkComma) and (PeekAtNextToken.Kind = tkBracketClose) then
+          begin
+            NextToken;
+            break;
+          end;
         until Token.Kind = tkBracketClose;
       end else
         NextToken;
