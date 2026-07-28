@@ -1,0 +1,101 @@
+const screen_w = 80
+const screen_h = 24
+const cx = screen_w / 2
+const cy = screen_h / 2
+
+chars = '.,-~:;=!*#$@'
+chars_len = length(chars)
+
+// Pre-allocate buffers
+output  = []
+zbuffer = []
+for i = 0 to screen_w * screen_h - 1 {
+  output[i]  = ' '
+  zbuffer[i] = 0
+}
+
+A = 0.0
+B = 0.0
+
+// Constants
+const R1 = 0.5          // tube radius
+const R2 = 1.5          // torus radius
+const K2 = 5.0          // viewer distance
+K1 = screen_w * K2 / (8 * (R1 + R2))
+
+while true {
+  mem_gc()
+
+  // clear buffers
+  for i = 0 to screen_w * screen_h - 1 {
+    output[i]  = ' '
+    zbuffer[i] = 0
+  }
+
+  cosA = cos(A)
+  sinA = sin(A)
+  cosB = cos(B)
+  sinB = sin(B)
+
+  for theta = 0.0 to 6.28 step 0.07 {
+    costheta = cos(theta)
+    sintheta = sin(theta)
+
+    for phi = 0.0 to 6.28 step 0.02 {
+      cosphi = cos(phi)
+      sinphi = sin(phi)
+
+      circlex = R2 + R1 * costheta
+      circley = R1 * sintheta
+
+      x = circlex * (cosB * cosphi + sinA * sinB * sinphi) - circley * cosA * sinB
+      y = circlex * (sinB * cosphi - sinA * cosB * sinphi) + circley * cosA * cosB
+      z = K2 + cosA * circlex * sinphi + circley * sinA
+
+      if z <= 0.1
+        continue // behind or too close to camera
+
+      ooz = 1.0 / z
+
+      // project
+      xp = floor(cx + K1 * ooz * x)
+      yp = floor(cy - K1 * ooz * y)
+
+      // luminance (same formula as classic donut)
+      L = cosphi * costheta * sinB
+          - cosA * costheta * sinphi
+          - sinA * sintheta
+          + cosB * (cosA * sintheta - costheta * sinA * sinphi)
+
+      if (L > 0) & (xp >= 0) & (xp < screen_w) & (yp >= 0) & (yp < screen_h) {
+        idx = xp + screen_w * yp
+
+        if ooz > zbuffer[idx] {
+          zbuffer[idx] = ooz
+
+          // map luminance to character
+          li = floor(L * 8)
+          if li < 0
+            li = 0
+          if li >= chars_len
+            li = chars_len - 1
+
+          output[idx] = chars[li]
+        }
+      }
+    }
+  }
+
+  write('\x1b[2J\x1b[H')
+
+  for y = 0 to screen_h - 1 {
+    line = ''
+    for x = 0 to screen_w - 1 {
+      line = line + output[x + screen_w * y]
+    }
+    writeln(line)
+  }
+
+  A += 0.04
+  B += 0.02
+}
