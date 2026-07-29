@@ -442,6 +442,7 @@ type
     ArgCount: Integer;
     VarCount: Integer;
     VarSymbols: TStrings;
+    HasSelf: Boolean;
   end;
   PSEFuncScriptInfo = ^TSEFuncScriptInfo;
 
@@ -9016,12 +9017,6 @@ var
     end else
     if FuncScriptInfo <> nil then
     begin
-      This := FindVar('self');
-      if (This <> nil) and (This^.Local > 0) then
-        EmitPushVar(This^)
-      else
-        Emit([Pointer(opPushConst), SENull]); // this
-      Inc(ArgCount);
       Emit([Pointer(opCallScript), Pointer(Ind), Pointer(ArgCount), Pointer(0)])
     end
     else
@@ -9042,6 +9037,7 @@ var
     ParentBinary: TSEBinary;
     ParentBinaryPos: Integer;
     VarSymbols: TStrings;
+    This: PSEIdent;
   begin
     ReturnList := TList.Create;
     VarSymbols := TStringList.Create;
@@ -9093,6 +9089,10 @@ var
       if PeekAtNextToken.Kind = tkEqual then
         Self.TokenList.Insert(Pos + 1, TokenResult);
       ParseBlock;
+
+      This := FindVar('self', True);
+      if (not This^.IsUsed) or (not This^.IsAssigned) then
+        Func^.HasSelf := False;
 
       ReturnList := ReturnStack.Pop;
       for I := 0 to ReturnList.Count - 1 do
@@ -10426,6 +10426,7 @@ begin
   FuncScriptInfo.Name := Name;
   FuncScriptInfo.VarSymbols := TStringList.Create;
   FuncScriptInfo.PossibleKinds := [sevkNumber, sevkString, sevkNull, sevkMap];
+  FuncScriptInfo.HasSelf := True;
   Self.FuncScriptList.Add(FuncScriptInfo);
   Result := Self.FuncScriptList.Ptr(Self.FuncScriptList.Count - 1);
   Self.FuncCurrent := Self.FuncScriptList.Count - 1;
