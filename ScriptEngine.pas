@@ -151,11 +151,15 @@ type
     Size: Integer;
   end;
   PSEOpcodeInfo = ^TSEOpcodeInfo;
-  TSEOpcodeInfoListAncestor = specialize TList<TSEOpcodeInfo>;
-  TSEOpcodeInfoList = class(TSEOpcodeInfoListAncestor)
+
+  generic TSEListPtr<TT> = class(specialize TList<TT>)
   public
-    function Ptr(const P: Cardinal): PSEOpcodeInfo;
+    type
+      PTT = ^TT;
+    function Ptr(const Index: SizeInt): PTT; inline;
   end;
+
+  TSEOpcodeInfoList = class(specialize TSEListPtr<TSEOpcodeInfo>);
 
   TSENestedProc = procedure is nested;
 
@@ -305,10 +309,7 @@ type
   PPSEValue = ^PSEValue;
 
   TSEValueListAncestor = specialize TList<TSEValue>;
-  TSEValueList = class(TSEValueListAncestor)
-  public
-    function Ptr(const P: Cardinal): PSEValue;
-  end;
+  TSEValueList = class(specialize TSEListPtr<TSEValue>);
 
   TSEBinary = class(TSEValueList)
   public
@@ -326,10 +327,7 @@ type
     Next: Cardinal;
   end;
   TSEGCNodeListAncestor = specialize TList<TSEGCNode>;
-  TSEGCNodeList = class(TSEGCNodeListAncestor)
-  public
-    function Ptr(const P: Cardinal): PSEGCNode;
-  end;
+  TSEGCNodeList = class(specialize TSEListPtr<TSEGCNode>);
   TSEGCNodeAvailStack = specialize TStack<Integer>;
 
   TSEGarbageCollectorPhase = (
@@ -457,29 +455,10 @@ type
   PSEFuncImportInfo = ^TSEFuncImportInfo;
 
   TSEStringLookupMap = specialize TSEDictionary<String, Cardinal>;
-  TSEStringListAncestor = specialize TList<RawByteString>;
-  TSEStringList = class(TSEStringListAncestor)
-  public
-    function Ptr(const P: Cardinal): PRawByteString;
-  end;
-
-  TSEFuncNativeListAncestor = specialize TList<TSEFuncNativeInfo>;
-  TSEFuncNativeList = class(TSEFuncNativeListAncestor)
-  public
-    function Ptr(const P: Cardinal): PSEFuncNativeInfo;
-  end;
-
-  TSEFuncScriptListAncestor = specialize TList<TSEFuncScriptInfo>;
-  TSEFuncScriptList = class(TSEFuncScriptListAncestor)
-  public
-    function Ptr(const P: Cardinal): PSEFuncScriptInfo;
-  end;
-
-  TSEFuncImportListAncestor = specialize TList<TSEFuncImportInfo>;
-  TSEFuncImportList = class(TSEFuncImportListAncestor)
-  public
-    function Ptr(const P: Cardinal): PSEFuncImportInfo;
-  end;
+  TSEStringList = class(specialize TSEListPtr<RawByteString>);
+  TSEFuncNativeList = class(specialize TSEListPtr<TSEFuncNativeInfo>);
+  TSEFuncScriptList = class(specialize TSEListPtr<TSEFuncScriptInfo>);
+  TSEFuncImportList = class(specialize TSEListPtr<TSEFuncImportInfo>);
 
   TSELineOfCode = record
     BinaryCount: Integer;
@@ -783,11 +762,7 @@ type
   end;
   PSEIdent = ^TSEIdent;
 
-  TSEIdentListAncestor = specialize TList<TSEIdent>;
-  TSEIdentList = class(TSEIdentListAncestor)
-  public
-    function Ptr(const P: Cardinal): PSEIdent;
-  end;
+  TSEIdentList = class(specialize TSEListPtr<TSEIdent>);
 
   TSEToken = record
     Kind: TSETokenKind;
@@ -3302,44 +3277,9 @@ begin
   Result := Args[0].Invoke(Args[1], @Args[2], ArgCount - 2);
 end;
 
-function TSEStringList.Ptr(const P: Cardinal): PRawByteString; inline;
+function TSEListPtr.Ptr(const Index: SizeInt): PTT;
 begin
-  Result := @FItems[P];
-end;
-
-function TSEGCNodeList.Ptr(const P: Cardinal): PSEGCNode; inline;
-begin
-  Result := @FItems[P];
-end;
-
-function TSEOpcodeInfoList.Ptr(const P: Cardinal): PSEOpcodeInfo; inline;
-begin
-  Result := @FItems[P];
-end;
-
-function TSEFuncNativeList.Ptr(const P: Cardinal): PSEFuncNativeInfo; inline;
-begin
-  Result := @FItems[P];
-end;
-
-function TSEFuncScriptList.Ptr(const P: Cardinal): PSEFuncScriptInfo; inline;
-begin
-  Result := @FItems[P];
-end;
-
-function TSEFuncImportList.Ptr(const P: Cardinal): PSEFuncImportInfo; inline;
-begin
-  Result := @FItems[P];
-end;
-
-function TSEIdentList.Ptr(const P: Cardinal): PSEIdent; inline;
-begin
-  Result := @FItems[P];
-end;
-
-function TSEValueList.Ptr(const P: Cardinal): PSEValue; inline;
-begin
-  Result := @FItems[P];
+  Result := @FItems[Index];
 end;
 
 // ----- Fast inline TSEValue operations -----
