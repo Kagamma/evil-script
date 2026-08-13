@@ -295,8 +295,8 @@ type
     procedure Unlock; inline;
     function TryLock: Boolean; inline;
     procedure ToMap;
-    procedure Set2(const Key: PString; const AValue: TSEValue); overload; inline;
-    procedure Set2(const Index: SizeInt; const AValue: TSEValue); overload; inline;
+    procedure Set2(const Key: PString; constref AValue: TSEValue); overload; inline;
+    procedure Set2(const Index: SizeInt; constref AValue: TSEValue); overload; inline;
     function Get2(const Key: PString): TSEValue; overload; inline;
     function Get2(const Index: SizeInt): TSEValue; overload; inline;
     procedure Del2(const Key: PString); overload; inline;
@@ -853,15 +853,15 @@ type
 function SEValueToText(const Value: TSEValue; const IsRoot: Boolean = True): String;
 function SESize(constref Value: TSEValue): SizeInt; inline;
 procedure SEValidateType(V: PSEValue; Expected: TSEValueKind; At: DWord; const FuncName: String); inline;
-procedure SEMapDelete(constref V: TSEValue; constref I: Integer); inline; overload;
+procedure SEMapDelete(constref V: TSEValue; const I: Integer); inline; overload;
 procedure SEMapDelete(constref V: TSEValue; constref S: String); inline; overload;
 procedure SEMapDelete(constref V, I: TSEValue); inline; overload;
-function SEMapGet(constref V: TSEValue; constref I: Integer): TSEValue; inline; overload;
+function SEMapGet(constref V: TSEValue; const I: Integer): TSEValue; inline; overload;
 function SEMapGet(constref V: TSEValue; constref S: String): TSEValue; inline; overload;
 function SEMapGet(constref V, I: TSEValue): TSEValue; inline; overload;
-procedure SEMapSet(constref V: TSEValue; constref I: Integer; const A: TSEValue); inline; overload;
-procedure SEMapSet(constref V: TSEValue; constref S: String; const A: TSEValue); inline; overload;
-procedure SEMapSet(constref V, I: TSEValue; const A: TSEValue); inline; overload;
+procedure SEMapSet(constref V: TSEValue; const I: Integer; constref A: TSEValue); inline; overload;
+procedure SEMapSet(constref V: TSEValue; constref S: String; constref A: TSEValue); inline; overload;
+procedure SEMapSet(constref V, I: TSEValue; constref A: TSEValue); inline; overload;
 function SEMapIsValidArray(constref V: TSEValue): Boolean; inline;
 procedure SEDisAsm(const VM: TSEVM; var Res: String);
 function SEGet(const AName: String): TSEValue;
@@ -1305,7 +1305,7 @@ begin
   end;
 end;
 
-procedure SEMapDelete(constref V: TSEValue; constref I: Integer); inline; overload;
+procedure SEMapDelete(constref V: TSEValue; const I: Integer); inline; overload;
 begin
   TSEValueMap(V.VarMap).Del2(I);
 end;
@@ -1331,7 +1331,7 @@ end;
 
 
 
-function SEMapGet(constref V: TSEValue; constref I: Integer): TSEValue; inline; overload;
+function SEMapGet(constref V: TSEValue; const I: Integer): TSEValue; inline; overload;
 begin
   Result := TSEValueMap(V.VarMap).Items[I];
 end;
@@ -1361,17 +1361,17 @@ begin
   end;
 end;
 
-procedure SEMapSet(constref V: TSEValue; constref I: Integer; const A: TSEValue); inline; overload;
+procedure SEMapSet(constref V: TSEValue; const I: Integer; constref A: TSEValue); inline; overload;
 begin
   TSEValueMap(V.VarMap).Set2(I, A);
 end;
 
-procedure SEMapSet(constref V: TSEValue; constref S: String; const A: TSEValue); inline; overload;
+procedure SEMapSet(constref V: TSEValue; constref S: String; constref A: TSEValue); inline; overload;
 begin
   TSEValueMap(V.VarMap).Set2(@S, A);
 end;
 
-procedure SEMapSet(constref V, I: TSEValue; const A: TSEValue); inline; overload;
+procedure SEMapSet(constref V, I: TSEValue; constref A: TSEValue); inline; overload;
 begin
   case I.Kind of
     sevkString:
@@ -4039,7 +4039,7 @@ begin
   end;
 end;
 
-procedure TSEValueMap.Set2(const Key: PString; const AValue: TSEValue);
+procedure TSEValueMap.Set2(const Key: PString; constref AValue: TSEValue);
 begin
   if Self.FIsValidArray then
     Self.ToMap;
@@ -4051,7 +4051,7 @@ begin
   end;
 end;
 
-procedure TSEValueMap.Set2(const Index: SizeInt; const AValue: TSEValue);
+procedure TSEValueMap.Set2(const Index: SizeInt; constref AValue: TSEValue);
 begin
   if Index < 0 then
     Exit;
@@ -5966,16 +5966,16 @@ labelStart:
             A := Pop;
           B := Pop;
           case B^.Kind of
+            sevkMap:
+              Push(SEMapGet(B^, A^));
+            sevkPascalObject:
+              Push(B^.GetProp(A^));
             sevkString:
               {$ifdef SE_STRING_UTF8}
                 Push(UTF8Copy(B^.VarString^, Integer(A^) + 1, 1));
               {$else}
                 Push(B^.VarString^[Integer(A^) + 1]);
               {$endif}
-            sevkMap:
-              Push(SEMapGet(B^, A^));
-            sevkPascalObject:
-              Push(B^.GetProp(A^));
             else
               Push(SENull);
           end;
@@ -6173,6 +6173,10 @@ labelStart:
             end;
           end;
           case TV.Kind of
+            sevkMap:
+              SEMapSet(TV, C^, B^);
+            sevkPascalObject:
+              TV.SetProp(C^, B^);
             sevkString:
               case B^.Kind of
                 sevkString:
@@ -6197,10 +6201,6 @@ labelStart:
                     {$endif}
                   end;
               end;
-            sevkPascalObject:
-              TV.SetProp(C^, B^);
-            sevkMap:
-              SEMapSet(TV, C^, B^);
           end;
           Inc(CodePtrLocal, 3);
           DispatchGoto;
@@ -6227,6 +6227,10 @@ labelStart:
             end;
           end;
           case TV.Kind of
+            sevkMap:
+              SEMapSet(TV, C^, B^);
+            sevkPascalObject:
+              TV.SetProp(C^, B^);
             sevkString:
               case B^.Kind of
                 sevkString:
@@ -6255,10 +6259,6 @@ labelStart:
                     {$endif}
                   end;
               end;
-            sevkPascalObject:
-              TV.SetProp(C^, B^);
-            sevkMap:
-              SEMapSet(TV, C^, B^);
           end;
           Inc(CodePtrLocal, 4);
           DispatchGoto;
