@@ -40,9 +40,6 @@ unit ScriptEngine;
 {.$define SE_MAP_AVK959}
 {$ifdef SE_MAP_AVK959}
   {$undef SE_MAP_SHORTSTRING}
-  {$define TSEDictionary := TGChainHashMap}
-{$else}
-  {$define TSEDictionary := TDictionary}
 {$endif}
 // Enable this if you want multi-threading support
 {$ifndef GO32v2}
@@ -65,7 +62,7 @@ uses
   CastleTimeUtils,
   {$endif}
   {$ifdef SE_MAP_AVK959}
-  lghashmap,
+  lghashmap, lgHelpers,
   {$endif}
   base64,
   fpjson, jsonparser
@@ -280,7 +277,18 @@ type
     function Size: SizeInt;
   end;
 
-  TSEValueDict = specialize TSEDictionary<{$ifdef SE_MAP_SHORTSTRING}ShortString{$else}String{$endif}, TSEValue>;
+  {$ifdef SE_MAP_AVK959}
+    {$define TSEDictionary := TGChainHashMap}
+    TSEStringEq = class
+    public
+      class function HashCode(const aKey: string): SizeInt; static; inline;
+      class function Equal(const L, R: string): Boolean; static; inline;
+    end;
+    TSEValueDict = specialize TGLiteChainHashMap<String, TSEValue, TSEStringEq>.TMap;
+  {$else}
+    {$define TSEDictionary := TDictionary}
+    TSEValueDict = specialize TSEDictionary<{$ifdef SE_MAP_SHORTSTRING}ShortString{$else}String{$endif}, TSEValue>;
+  {$endif}
   TSEValueMap = class(specialize TList<TSEValue>)
   private
     FIsValidArray: Boolean;
@@ -3978,6 +3986,20 @@ begin
     R := True;
 end;
 
+{$ifdef SE_MAP_AVK959}
+class function TSEStringEq.HashCode(const aKey: String): SizeInt;
+begin
+  // Use the built-in helper from lgHelpers (fast)
+  Result := String.HashCode(aKey);
+  // Alternative: Result := lgHash.HashStr(aKey); or your own hash
+end;
+
+class function TSEStringEq.Equal(const L, R: String): Boolean;
+begin
+  Result := L = R;
+end;
+{$endif}
+
 constructor TSEValueMap.Create;
 begin
   inherited;
@@ -3992,8 +4014,12 @@ begin
   {$ifdef SE_THREADS}
   DoneCriticalSection(Self.FLock);
   {$endif}
-  if Self.FMap <> nil then
-    Self.FMap.Free;
+  {$ifdef SE_MAP_AVK959}
+    Self.FMap.Clear;
+  {$else}
+    if Self.FMap <> nil then
+      Self.FMap.Free;
+  {$endif}
   inherited;
 end;
 
@@ -4028,7 +4054,9 @@ begin
   try
     if Self.FIsValidArray then
     begin
+      {$ifndef SE_MAP_AVK959}
       Self.FMap := TSEValueDict.Create;
+      {$endif}
       for I := 0 to Self.Count - 1 do
         Self.FMap.AddOrSetValue(IntToStr(I), Self[I]);
       Self.FIsValidArray := False;
@@ -4093,7 +4121,9 @@ end;
 function TSEValueMap.Get2(const Key: PString): TSEValue;
 begin
   Result := SENull;
+  {$ifndef SE_MAP_AVK959}
   if Self.FMap <> nil then
+  {$endif}
     Self.FMap.TryGetValue(Key^, Result);
 end;
 
