@@ -62,7 +62,7 @@ uses
   CastleTimeUtils,
   {$endif}
   {$ifdef SE_MAP_AVK959}
-  lghashmap, lgHelpers,
+  lghashmap, lgHelpers, lgHash,
   {$endif}
   base64,
   fpjson, jsonparser
@@ -281,8 +281,8 @@ type
     {$define TSEDictionary := TGChainHashMap}
     TSEStringEq = class
     public
-      class function HashCode(const aKey: string): SizeInt; static; inline;
-      class function Equal(const L, R: string): Boolean; static; inline;
+      class function HashCode(const AKey: String): SizeInt; static; inline;
+      class function Equal(const L, R: String): Boolean; static; inline;
     end;
     TSEValueDict = specialize TGLiteChainHashMap<String, TSEValue, TSEStringEq>.TMap;
   {$else}
@@ -867,6 +867,7 @@ procedure SEMapDelete(constref V, I: TSEValue); inline; overload;
 function SEMapGet(constref V: TSEValue; const I: Integer): TSEValue; inline; overload;
 function SEMapGet(constref V: TSEValue; constref S: String): TSEValue; inline; overload;
 function SEMapGet(constref V, I: TSEValue): TSEValue; inline; overload;
+procedure SEMapGet(out R: TSEValue; constref V, I: TSEValue); inline; overload;
 procedure SEMapSet(constref V: TSEValue; const I: Integer; constref A: TSEValue); inline; overload;
 procedure SEMapSet(constref V: TSEValue; constref S: String; constref A: TSEValue); inline; overload;
 procedure SEMapSet(constref V, I: TSEValue; constref A: TSEValue); inline; overload;
@@ -1366,6 +1367,26 @@ begin
       end;
     else
       Exit(SENull);
+  end;
+end;
+
+procedure SEMapGet(out R: TSEValue; constref V, I: TSEValue); inline; overload;
+begin
+  case I.Kind of
+    sevkString:
+      begin
+        R := TSEValueMap(V.VarMap).Get2(I.VarString);
+      end;
+    sevkNumber:
+      begin
+        R := TSEValueMap(V.VarMap).Get2(Round(I.VarNumber));
+      end;
+    sevkConstString:
+      begin
+        R := TSEValueMap(V.VarMap).Get2(ConstStrings.Ptr(I.VarConstStringIndex));
+      end;
+    else
+      R := SENull;
   end;
 end;
 
@@ -3987,11 +4008,10 @@ begin
 end;
 
 {$ifdef SE_MAP_AVK959}
-class function TSEStringEq.HashCode(const aKey: String): SizeInt;
+class function TSEStringEq.HashCode(const AKey: String): SizeInt;
 begin
-  // Use the built-in helper from lgHelpers (fast)
-  Result := String.HashCode(aKey);
-  // Alternative: Result := lgHash.HashStr(aKey); or your own hash
+  Result := TxxHash32LE.HashStr(AKey);
+  //Result := String.HashCode(AKey);
 end;
 
 class function TSEStringEq.Equal(const L, R: String): Boolean;
@@ -6186,8 +6206,7 @@ labelStart:
         begin
         labelAssignGlobalArray:
           A := @BinaryLocal[CodePtrLocal + 1];
-          V := GetGlobalInt(Integer(A^));
-          TV := V^;
+          TV := GetGlobalInt(Integer(A^))^;
           B := Pop;
           ArgCount := BinaryLocal[CodePtrLocal + 2];
           if ArgCount = 1 then
@@ -6198,7 +6217,7 @@ labelStart:
             C := Self.StackPtr;
             for I := 1 to ArgCount - 1 do
             begin
-              TV := SEMapGet(TV, C^);
+              SEMapGet(TV, TV, C^);
               Inc(C);
             end;
           end;
@@ -6239,9 +6258,7 @@ labelStart:
         begin
         labelAssignLocalArray:
           A := @BinaryLocal[CodePtrLocal + 1];
-          J := Integer(BinaryLocal[CodePtrLocal + 3].VarPointer);
-          V := GetLocalInt(Integer(A^), J);
-          TV := V^;
+          TV := GetLocalInt(Integer(A^), Integer(BinaryLocal[CodePtrLocal + 3].VarPointer))^;
           B := Pop;
           ArgCount := BinaryLocal[CodePtrLocal + 2];
           if ArgCount = 1 then
@@ -6252,7 +6269,7 @@ labelStart:
             C := Self.StackPtr;
             for I := 1 to ArgCount - 1 do
             begin
-              TV := SEMapGet(TV, C^);
+              SEMapGet(TV, TV, C^);
               Inc(C);
             end;
           end;
