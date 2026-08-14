@@ -449,6 +449,7 @@ type
     VarCount: Integer;
     VarSymbols: TStrings;
     HasSelf: Boolean;
+    HasOverride: Boolean;
   end;
   PSEFuncScriptInfo = ^TSEFuncScriptInfo;
 
@@ -667,7 +668,8 @@ type
     tkVar,
     tkTry,
     tkCatch,
-    tkThrow
+    tkThrow,
+    tkOverride
   );
 TSETokenKindSet = set of TSETokenKind;
 
@@ -678,7 +680,7 @@ const
     ',', 'if', 'switch', 'case', 'default', 'identity', 'function', 'fn', 'variable', 'const', 'local',
     'unknown', 'else', 'while', 'break', 'continue', 'yield',
     '[', ']', 'and', 'or', 'xor', 'not', 'for', 'in', 'to', 'downto', 'step', 'return',
-    'atom', 'import', 'do', 'var', 'try', 'catch', 'throw'
+    'atom', 'import', 'do', 'var', 'try', 'catch', 'throw', 'override'
   );
   ValueKindNames: array[TSEValueKind] of RawByteString = (
     'null', 'number', 'string', 'map', 'buffer', 'pointer', 'boolean', 'function', 'pasobject', 'packedstring'
@@ -841,7 +843,7 @@ type
     function ExecFuncOnly(const AIndex: Integer; const Args: array of TSEValue): TSEValue; overload;
     function ExecFunc(const AIndex: Integer; const Args: array of TSEValue): TSEValue; overload;
     procedure RegisterFunc(const Name: String; const Func: TSEFunc; const ArgCount: Integer);
-    function RegisterScriptFunc(const Name: String; const ArgCount: Integer): PSEFuncScriptInfo;
+    function RegisterScriptFunc(const Name: String; const ArgCount: Integer; var AIndex: Cardinal; const IsOverride: Boolean = False): PSEFuncScriptInfo;
     procedure RegisterImportFunc(const Name, ActualName, LibName: String; const Args: TSEAtomKindArray; const Return: TSEAtomKind; const CC: TSECallingConvention = seccAuto);
     function Backup: TSECache;
     procedure Restore(const Cache: TSECache);
@@ -7416,6 +7418,8 @@ begin
               Token.Kind := tkCatch;
             'throw':
               Token.Kind := tkThrow;
+            'override':
+              Token.Kind := tkOverride;
             else
               Token.Kind := tkIdent;
           end;
@@ -8997,13 +9001,15 @@ var
     Name: String;
     OldFuncCurrent: Integer;
     ArgCount: Integer = 0;
-    I, FuncIndex: Integer;
+    I: Integer;
+    FuncIndex: Cardinal;
     ReturnList: TList;
     Func: PSEFuncScriptInfo;
     ParentBinary: TSEBinary;
     ParentBinaryPos: Integer;
     VarSymbols: TStrings;
     This: PSEIdent;
+    HasOverride: Boolean = False;
   begin
     ReturnList := TList.Create;
     VarSymbols := TStringList.Create;
@@ -9012,6 +9018,11 @@ var
       ReturnStack.Push(ReturnList);
       if not IsAnon then
       begin
+        if PeekAtNextToken.Kind = tkOverride then
+        begin
+          NextToken;
+          HasOverride := True;
+        end;
         Token := NextTokenExpected([tkIdent]);
         Name := Token.Value;
         if (Self.FuncTraversal = 0) and (FindFunc(Name) <> nil) then
@@ -9023,7 +9034,7 @@ var
         Name := Token.Value;
       end;
       Result := Token;
-      Func := RegisterScriptFunc(Name, 0);
+      Func := RegisterScriptFunc(Name, 0, FuncIndex, HasOverride);
 
       TokenResult.Value := 'result';
       TokenResult.Kind := tkIdent;
@@ -9047,7 +9058,6 @@ var
       Func^.ArgCount := ArgCount;
       for I := 0 to VarSymbols.Count - 1 do
         Func^.VarSymbols.Add(VarSymbols[I]);
-      FuncIndex := Self.FuncScriptList.Count - 1;
       ParentBinary := Self.Binary;
       ParentBinaryPos := Self.BinaryPos;
       Self.Binary := Self.VM.Binaries.Value^.Data[Func^.BinaryPos];
@@ -10130,16 +10140,19 @@ var
     Dec(Self.BlockTraversal);
   end;
 
+var
+  Dummy: Cardinal;
+
 begin
   // Implement assert function
-  Self.RegisterScriptFunc('assert', 2);
+  Self.RegisterScriptFunc('assert', 2, Dummy);
   if not Self.OptimizeAsserts then
   begin
     Self.Binary := Self.VM.Binaries.Value^.Data[1];
     Self.Binary.AddRange(FunctionAssert);
   end;
   // Implement ___throw function
-  Self.RegisterScriptFunc('___throw', 1);
+  Self.RegisterScriptFunc('___throw', 1, Dummy);
   Self.Binary := Self.VM.Binaries.Value^.Data[2];
   Self.Binary.AddRange(FunctionThrow);
   ContinueStack := TSEListStack.Create;
@@ -10380,10 +10393,27 @@ begin
   Self.FuncNativeList.Add(FuncNativeInfo);
 end;
 
-function TEvilC.RegisterScriptFunc(const Name: String; const ArgCount: Integer): PSEFuncScriptInfo;
+function TEvilC.RegisterScriptFunc(const Name: String; const ArgCount: Integer; var AIndex: Cardinal; const IsOverride: Boolean = False): PSEFuncScriptInfo;
 var
+  P: PSEFuncScriptInfo;
   FuncScriptInfo: TSEFuncScriptInfo;
+  I: Cardinal;
 begin
+  if IsOverride then
+  begin
+    for I := Self.FuncScriptList.Count - 1 downto 0 do
+    begin
+      P := Self.FuncScriptList.Ptr(I);
+      if P^.Name = Name then
+      begin
+        AIndex := I;
+        Self.FuncCurrent := I;
+        Self.VM.Binaries.Value^.Data[P^.BinaryPos].Clear;
+        P^.HasOverride := IsOverride;
+        Exit(P);
+      end;
+    end;
+  end;
   Self.VM.Binaries.Alloc(Self.VM.Binaries.Value^.Size + 1);
   Self.VM.Binaries.Value^.Data[Self.VM.Binaries.Value^.Size - 1] := TSEBinary.Create;
   Self.VM.Binaries.Value^.Data[Self.VM.Binaries.Value^.Size - 1].BinaryName := Name;
@@ -10393,9 +10423,11 @@ begin
   FuncScriptInfo.VarSymbols := TStringList.Create;
   FuncScriptInfo.PossibleKinds := [sevkNumber, sevkString, sevkNull, sevkMap];
   FuncScriptInfo.HasSelf := True;
+  FuncScriptInfo.HasOverride := IsOverride;
   Self.FuncScriptList.Add(FuncScriptInfo);
-  Result := Self.FuncScriptList.Ptr(Self.FuncScriptList.Count - 1);
-  Self.FuncCurrent := Self.FuncScriptList.Count - 1;
+  AIndex := Self.FuncScriptList.Count - 1;
+  Result := Self.FuncScriptList.Ptr(AIndex);
+  Self.FuncCurrent := AIndex;
 end;
 
 procedure TEvilC.RegisterImportFunc(const Name, ActualName, LibName: String; const Args: TSEAtomKindArray; const Return: TSEAtomKind; const CC: TSECallingConvention = seccAuto);

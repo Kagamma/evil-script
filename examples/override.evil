@@ -1,0 +1,19 @@
+fn test1() {
+  writeln("test1")
+}
+test1() // Should show "test1"
+
+fn test1() {
+  writeln("test1-new")
+}
+test1() // Should show "test1-new"
+
+fn test2() {
+  writeln("test2")
+}
+test2() // test2() was overridden, so should show "test2-override" even if we call it here
+
+fn override test2() {
+  writeln("test2-override")
+}
+test2() // Should show "test2-override"
