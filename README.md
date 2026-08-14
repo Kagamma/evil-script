@@ -17,7 +17,8 @@ Enable `SE_LIBFFI` if you need to call external functions from DLLs/SOs.
 - See `Test.pas` and `evil.pas` source code
 - Also see https://github.com/Kagamma/evil-script/tree/main/docs/how-to-use.md
 
-<img width="610" height="753" alt="image" src="https://github.com/user-attachments/assets/0c1fda61-69f1-4c04-abf8-741a065133e6" />
+<img width="604" height="747" alt="image" src="https://github.com/user-attachments/assets/9eb1715e-fd6a-4273-be0f-3d301340eb49" />
+
 
 poca: https://github.com/BeRo1985/poca
 
