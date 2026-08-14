@@ -3419,7 +3419,7 @@ begin
   R.VarNumber := -V.VarNumber;
 end;
 
-procedure SEValueMul(out R: TSEValue; constref V1, V2: TSEValue); inline; overload;
+procedure SEValueMul(out R: TSEValue; constref V2, V1: TSEValue); inline; overload;
 begin
   R.Kind := sevkNumber;
   R.VarNumber := V1.VarNumber * V2.VarNumber;
@@ -5532,7 +5532,8 @@ var
     {$define DispatchGoto :=
       P := DispatchTable[TSEOpcode(Integer(BinaryLocal[CodePtrLocal].VarPointer))];
       asm
-        b P;
+        ldr x16,P
+        br  x16
       end
     }
   {$endif}
@@ -5708,9 +5709,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorInc:{$endif}
         begin
         labelOperatorInc:
-          P  := BinaryLocal[CodePtrLocal + 1].VarPointer;
-          PP := BinaryLocal[CodePtrLocal + 2].VarPointer;
-          V  := GetVariable(P, PP);
+          V  := GetVariable(BinaryLocal[CodePtrLocal + 1].VarPointer, BinaryLocal[CodePtrLocal + 2].VarPointer);
           V^.VarNumber := V^.VarNumber + BinaryLocal[CodePtrLocal + 3].VarNumber;
           Inc(CodePtrLocal, 4);
           DispatchGoto;
@@ -5730,8 +5729,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorMul0:{$endif}
         begin
         labelOperatorMul0:
-          A := Pop;
-          Self.StackPtr^.VarNumber := A^.VarNumber * BinaryLocal[CodePtrLocal + 1].VarNumber;
+          Self.StackPtr^.VarNumber := Pop^.VarNumber * BinaryLocal[CodePtrLocal + 1].VarNumber;
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
@@ -5739,8 +5737,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorDiv0:{$endif}
         begin
         labelOperatorDiv0:
-          A := Pop;
-          Self.StackPtr^.VarNumber := A^.VarNumber / BinaryLocal[CodePtrLocal + 1].VarNumber;
+          Self.StackPtr^.VarNumber := Pop^.VarNumber / BinaryLocal[CodePtrLocal + 1].VarNumber;
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
@@ -5774,9 +5771,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorMul:{$endif}
         begin
         labelOperatorMul:
-          B := Pop;
-          A := Pop;
-          SEValueMul(Self.StackPtr^, A^, B^);
+          SEValueMul(Self.StackPtr^, {B}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -5785,8 +5780,7 @@ labelStart:
         begin
         labelOperatorDiv:
           B := Pop;
-          A := Pop;
-          SEValueDiv(Self.StackPtr^, A^, B^);
+          SEValueDiv(Self.StackPtr^, {A}Pop^, B^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -5804,8 +5798,7 @@ labelStart:
         begin
         labelOperatorEqual:
           B := Pop;
-          A := Pop;
-          SEValueEqual(Self.StackPtr^, A^, B^);
+          SEValueEqual(Self.StackPtr^, {A}Pop^, B^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -5814,8 +5807,7 @@ labelStart:
         begin
         labelOperatorNotEqual:
           B := Pop;
-          A := Pop;
-          SEValueNotEqual(Self.StackPtr^, A^, B^);
+          SEValueNotEqual(Self.StackPtr^, {A}Pop^, B^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -5824,8 +5816,7 @@ labelStart:
         begin
         labelOperatorShiftLeft:
           B := Pop;
-          A := Pop;
-          SEValueShiftLeft(Self.StackPtr^, A^, B^);
+          SEValueShiftLeft(Self.StackPtr^, {A}Pop^, B^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -5834,8 +5825,7 @@ labelStart:
         begin
         labelOperatorShiftRight:
           B := Pop;
-          A := Pop;
-          SEValueShiftRight(Self.StackPtr^, A^, B^);
+          SEValueShiftRight(Self.StackPtr^, {A}Pop^, B^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -5844,8 +5834,7 @@ labelStart:
         begin
         labelOperatorLesser:
           B := Pop;
-          A := Pop;
-          SEValueLesser(Self.StackPtr^, A^, B^);
+          SEValueLesser(Self.StackPtr^, {A}Pop^, B^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -5854,8 +5843,7 @@ labelStart:
         begin
         labelOperatorLesserOrEqual:
           B := Pop;
-          A := Pop;
-          SEValueLesserOrEqual(Self.StackPtr^, A^, B^);
+          SEValueLesserOrEqual(Self.StackPtr^, {A}Pop^, B^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -5864,8 +5852,7 @@ labelStart:
         begin
         labelOperatorGreater:
           B := Pop;
-          A := Pop;
-          SEValueGreater(Self.StackPtr^, A^, B^);
+          SEValueGreater(Self.StackPtr^, {A}Pop^, B^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -5874,8 +5861,7 @@ labelStart:
         begin
         labelOperatorGreaterOrEqual:
           B := Pop;
-          A := Pop;
-          SEValueGreaterOrEqual(Self.StackPtr^, A^, B^);
+          SEValueGreaterOrEqual(Self.StackPtr^, {A}Pop^, B^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -5884,8 +5870,7 @@ labelStart:
         begin
         labelOperatorAnd:
           B := Pop;
-          A := Pop;
-          Push(Integer(A^) and Integer(B^));
+          Push(Integer({A}Pop^) and Integer(B^));
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
@@ -5893,8 +5878,7 @@ labelStart:
         begin
         labelOperatorOr:
           B := Pop;
-          A := Pop;
-          Push(Integer(A^) or Integer(B^));
+          Push(Integer({A}Pop^) or Integer(B^));
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
@@ -5902,8 +5886,7 @@ labelStart:
         begin
         labelOperatorXor:
           B := Pop;
-          A := Pop;
-          Push(Integer(A^) xor Integer(B^));
+          Push(Integer({A}Pop^) xor Integer(B^));
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
@@ -5929,8 +5912,7 @@ labelStart:
         begin
         labelOperatorAdd1:
           A := Pop;
-          P := BinaryLocal[CodePtrLocal + 2].VarPointer;
-          B := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
+          B := GetVariable(BinaryLocal[CodePtrLocal + 1], {P}BinaryLocal[CodePtrLocal + 2].VarPointer);
           if A^.Kind = sevkNumber then
             Self.StackPtr^.VarNumber := A^.VarNumber + B^.VarNumber
           else
@@ -5943,8 +5925,7 @@ labelStart:
         begin
         labelOperatorSub1:
           A := Pop;
-          P := BinaryLocal[CodePtrLocal + 2].VarPointer;
-          B := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
+          B := GetVariable(BinaryLocal[CodePtrLocal + 1], {P}BinaryLocal[CodePtrLocal + 2].VarPointer);
           if A^.Kind = sevkNumber then
             Self.StackPtr^.VarNumber := A^.VarNumber - B^.VarNumber
           else
@@ -5956,10 +5937,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorMul1:{$endif}
         begin
         labelOperatorMul1:
-          A := Pop;
-          P := BinaryLocal[CodePtrLocal + 2].VarPointer;
-          B := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
-          SEValueMul(Self.StackPtr^, A^, B^);
+          SEValueMul(Self.StackPtr^, {B}GetVariable(BinaryLocal[CodePtrLocal + 1], {P}BinaryLocal[CodePtrLocal + 2].VarPointer)^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 3);
           DispatchGoto;
@@ -5968,9 +5946,7 @@ labelStart:
         begin
         labelOperatorDiv1:
           A := Pop;
-          P := BinaryLocal[CodePtrLocal + 2].VarPointer;
-          B := GetVariable(BinaryLocal[CodePtrLocal + 1], P);
-          SEValueDiv(Self.StackPtr^, A^, B^);
+          SEValueDiv(Self.StackPtr^, A^, {B}GetVariable(BinaryLocal[CodePtrLocal + 1], {P}BinaryLocal[CodePtrLocal + 2].VarPointer)^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 3);
           DispatchGoto;
@@ -6047,8 +6023,7 @@ labelStart:
         begin
         labelJumpEqualRel:
           B := Pop;
-          A := Pop;
-          if SEValueEqual(A^, B^) then
+          if SEValueEqual(Pop^, B^) then
             CodePtrLocal := CodePtrLocal + Integer(BinaryLocal[CodePtrLocal + 1].VarPointer)
           else
             Inc(CodePtrLocal, 2);
@@ -6057,8 +6032,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opJumpEqual1Rel:{$endif}
         begin
         labelJumpEqual1Rel:
-          A := Pop;
-          if SEValueEqual(A^, BinaryLocal[CodePtrLocal + 1]) then
+          if SEValueEqual(Pop^, BinaryLocal[CodePtrLocal + 1]) then
             CodePtrLocal := CodePtrLocal + Integer(BinaryLocal[CodePtrLocal + 2].VarPointer)
           else
             Inc(CodePtrLocal, 3);
@@ -6073,9 +6047,10 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opJumpEqualOrGreater2Rel:{$endif}
         begin
         labelJumpEqualOrGreater2Rel:
-          B := GetVariable(BinaryLocal[CodePtrLocal + 3].VarPointer, BinaryLocal[CodePtrLocal + 4].VarPointer);
-          A := GetVariable(BinaryLocal[CodePtrLocal + 1].VarPointer, BinaryLocal[CodePtrLocal + 2].VarPointer);
-          if SEValueGreaterOrEqual(A^, B^) then
+          if SEValueGreaterOrEqual(
+            GetVariable(BinaryLocal[CodePtrLocal + 1].VarPointer, BinaryLocal[CodePtrLocal + 2].VarPointer)^,
+            GetVariable(BinaryLocal[CodePtrLocal + 3].VarPointer, BinaryLocal[CodePtrLocal + 4].VarPointer)^)
+          then
             CodePtrLocal := CodePtrLocal + Integer(BinaryLocal[CodePtrLocal + 5].VarPointer)
           else
             Inc(CodePtrLocal, 6);
@@ -6084,9 +6059,10 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opJumpEqualOrLesser2Rel:{$endif}
         begin
         labelJumpEqualOrLesser2Rel:
-          B := GetVariable(BinaryLocal[CodePtrLocal + 3].VarPointer, BinaryLocal[CodePtrLocal + 4].VarPointer);
-          A := GetVariable(BinaryLocal[CodePtrLocal + 1].VarPointer, BinaryLocal[CodePtrLocal + 2].VarPointer);
-          if SEValueLesserOrEqual(A^, B^) then
+          if SEValueLesserOrEqual(
+            GetVariable(BinaryLocal[CodePtrLocal + 1].VarPointer, BinaryLocal[CodePtrLocal + 2].VarPointer)^,
+            GetVariable(BinaryLocal[CodePtrLocal + 3].VarPointer, BinaryLocal[CodePtrLocal + 4].VarPointer)^)
+          then
             CodePtrLocal := CodePtrLocal + Integer(BinaryLocal[CodePtrLocal + 5].VarPointer)
           else
             Inc(CodePtrLocal, 6);
@@ -6112,7 +6088,7 @@ labelStart:
                 for I := 0 to DeepCount - 1 do
                 begin
                   TV2 := A^;
-                  TV := SEMapGet(A^, C^);
+                  SEMapGet(TV, A^, C^);
                   A := @TV;
                   Inc(C);
                 end;
@@ -6162,12 +6138,11 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opCallScript:{$endif}
         begin
         labelCallScript:
-          ArgCount := Integer(BinaryLocal[CodePtrLocal + 2].VarPointer);
           FuncScriptInfo := Self.Parent.FuncScriptList.Ptr(Integer(BinaryLocal[CodePtrLocal + 1].VarPointer));
           Inc(Self.FramePtr);
           if Self.FramePtr > @Self.Frame[Self.FrameSize - 1] then
             raise Exception.Create('Too much recursion');
-          Self.FramePtr^.Stack := Self.StackPtr - ArgCount;
+          Self.FramePtr^.Stack := Self.StackPtr - {ArgCount}Integer(BinaryLocal[CodePtrLocal + 2].VarPointer);
           Self.FramePtr^.Code := CodePtrLocal + 4;
           Self.FramePtr^.Binary := BinaryPtrLocal;
           Self.FramePtr^.Func := FuncScriptInfo;
@@ -8270,7 +8245,7 @@ var
             opOperatorMul:
               begin
                 Pop2;
-                SEValueMul(V, V1, V2);
+                SEValueMul(V, V2, V1);
                 Emit([Pointer(opPushConst), V]);
               end;
             opOperatorDiv:
