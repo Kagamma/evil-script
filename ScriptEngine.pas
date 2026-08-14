@@ -4010,7 +4010,11 @@ end;
 {$ifdef SE_MAP_AVK959}
 class function TSEStringEq.HashCode(const AKey: String): SizeInt;
 begin
+  {$ifdef CPU64}
   Result := TxxHash64LE.HashStr(AKey);
+  {$else}
+  Result := TxxHash32LE.HashStr(AKey);
+  {$endif}
   //Result := String.HashCode(AKey);
 end;
 
