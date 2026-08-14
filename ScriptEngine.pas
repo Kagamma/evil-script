@@ -5225,7 +5225,7 @@ var
     end;
   end;
 
-  procedure Push(const Value: TSEValue); inline;
+  procedure Push(constref Value: TSEValue); inline;
   begin
     Self.StackPtr^ := Value;
     Inc(Self.StackPtr);
