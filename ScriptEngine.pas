@@ -848,10 +848,10 @@ type
     function Backup: TSECache;
     procedure Restore(const Cache: TSECache);
     function FindFunc(const Name: String): Pointer; inline; overload;
-    function FindFuncNative(const Name: String; var Ind: NativeInt): PSEFuncNativeInfo; inline;
-    function FindFuncScript(const Name: String; var Ind: NativeInt): PSEFuncScriptInfo; inline;
-    function FindFuncImport(const Name: String; var Ind: NativeInt): PSEFuncImportInfo; inline;
-    function FindFunc(const Name: String; var Kind: TSEFuncKind; var Ind: NativeInt): Pointer; inline; overload;
+    function FindFuncNative(const Name: String; var Ind: Cardinal): PSEFuncNativeInfo; inline;
+    function FindFuncScript(const Name: String; var Ind: Cardinal): PSEFuncScriptInfo; inline;
+    function FindFuncImport(const Name: String; var Ind: Cardinal): PSEFuncImportInfo; inline;
+    function FindFunc(const Name: String; var Kind: TSEFuncKind; var Ind: Cardinal): Pointer; inline; overload;
     procedure SetConst(const Name: String; const Value: TSEValue); inline; overload;
 
     property IsPaused: Boolean read GetIsPaused write SetIsPaused;
@@ -7431,9 +7431,9 @@ begin
   Exit(nil);
 end;
 
-function TEvilC.FindFuncNative(const Name: String; var Ind: NativeInt): PSEFuncNativeInfo; inline;
+function TEvilC.FindFuncNative(const Name: String; var Ind: Cardinal): PSEFuncNativeInfo; inline;
 var
-  I: NativeInt;
+  I: Cardinal;
 begin
   for I := Self.FuncNativeList.Count - 1 downto 0 do
   begin
@@ -7447,9 +7447,9 @@ begin
   Exit(nil);
 end;
 
-function TEvilC.FindFuncScript(const Name: String; var Ind: NativeInt): PSEFuncScriptInfo; inline;
+function TEvilC.FindFuncScript(const Name: String; var Ind: Cardinal): PSEFuncScriptInfo; inline;
 var
-  I: NativeInt;
+  I: Cardinal;
 begin
   for I := Self.FuncScriptList.Count - 1 downto 0 do
   begin
@@ -7463,9 +7463,9 @@ begin
   Exit(nil);
 end;
 
-function TEvilC.FindFuncImport(const Name: String; var Ind: NativeInt): PSEFuncImportInfo; inline;
+function TEvilC.FindFuncImport(const Name: String; var Ind: Cardinal): PSEFuncImportInfo; inline;
 var
-  I: NativeInt;
+  I: Cardinal;
 begin
   for I := Self.FuncImportList.Count - 1 downto 0 do
   begin
@@ -7479,7 +7479,7 @@ begin
   Exit(nil);
 end;
 
-function TEvilC.FindFunc(const Name: String; var Kind: TSEFuncKind; var Ind: NativeInt): Pointer; inline; overload;
+function TEvilC.FindFunc(const Name: String; var Kind: TSEFuncKind; var Ind: Cardinal): Pointer; inline; overload;
 begin
   Result := FindFuncScript(Name, Ind);
   if Result = nil then
@@ -8408,7 +8408,7 @@ var
       Ident: PSEIdent;
       V,
       FuncValue: TSEValue;
-      Ind: NativeInt;
+      Ind: Cardinal;
       P: Pointer;
 
       procedure FuncTail(IsFirst: Boolean = True);
@@ -8627,7 +8627,7 @@ var
     var
       Token: TSEToken;
       FuncInfo: PSEFuncNativeInfo;
-      FuncIndex: NativeInt;
+      FuncIndex: Cardinal;
     begin
       SignedFactor;
       while True do
@@ -8889,7 +8889,8 @@ var
     FuncNativeInfo: PSEFuncNativeInfo = nil;
     FuncScriptInfo: PSEFuncScriptInfo = nil;
     FuncImportInfo: PSEFuncImportInfo = nil;
-    I, Ind: NativeInt;
+    I: NativeInt;
+    Ind: Cardinal;
     DefinedArgCount: NativeInt;
     ArgCount: NativeInt = 0;
     Token: TSEToken;
@@ -9063,7 +9064,7 @@ var
   var
     I, J: NativeInt;
     FuncValue: TSEValue;
-    Ind: NativeInt;
+    Ind: Cardinal;
     P: Pointer;
   begin
     Inc(Self.FuncTraversal, ATraversal);
@@ -9373,7 +9374,7 @@ var
     VarHiddenTargetName,
     VarHiddenCountName,
     VarHiddenArrayName: String;
-    Ind: NativeInt;
+    Ind: Cardinal;
     Step: Single = 1;
   begin
     ContinueList := TList.Create;
@@ -9595,7 +9596,8 @@ var
   procedure ParseArrayAssign;
   var
     FuncNativeInfo: PSEFuncNativeInfo;
-    I, Ind: NativeInt;
+    I: NativeInt;
+    Ind: Cardinal;
     ArgCount: NativeInt = 0;
     Token: TSEToken;
   begin
