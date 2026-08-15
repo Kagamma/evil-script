@@ -12,10 +12,8 @@ unit ScriptEngine;
 {.$define SE_STRING_UTF8}
 // use computed goto instead of case of
 // try-catch will not work without computed goto!
-{$ifndef AARCH64}
-  {$ifndef WASI}
-    {$define SE_COMPUTED_GOTO}
-  {$endif}
+{$ifndef WASI}
+  {$define SE_COMPUTED_GOTO}
 {$endif}
 // enable this if you want to use libffi to handle dynamic function calls
 {.$define SE_LIBFFI}
@@ -37,7 +35,7 @@ unit ScriptEngine;
 // enable this to replace FP's TDirectory with avk959's TGChainHashMap. It is a lot faster than TDirectory.
 // requires https://github.com/avk959/LGenerics
 // note: enable this will undef SE_MAP_SHORTSTRING, because this optimization is not necessary for TGChainHashMap
-{.$define SE_MAP_AVK959}
+{$define SE_MAP_AVK959}
 {$ifdef SE_MAP_AVK959}
   {$undef SE_MAP_SHORTSTRING}
 {$endif}
@@ -148,7 +146,9 @@ type
     {$endif}
     opPushTrap,
     opPopTrap,
-    opThrow
+    opThrow,
+
+    opJITBlock
   );
   TSEOpcodeSet = set of TSEOpcode;
   TSEOpcodeInfo = record
@@ -328,11 +328,23 @@ type
 
   TSEValueListAncestor = specialize TList<TSEValue>;
   TSEValueList = class(specialize TSEListPtr<TSEValue>);
+  TSEJITBlockList = specialize TList<Pointer>;
 
   TSEBinary = class(TSEValueList)
   public
     BinaryName: String;
+    JITBlockList: TSEJITBlockList;
+    IsComputedGotoPatched: Boolean;
+    constructor Create;
+    destructor Destroy; override;
   end;
+
+  TSEJITBlockInfo = record
+    StartBlock,
+    EndBlock: NativeInt;
+    Binary: TSEBinary;
+  end;
+  TSEJITBlockInfoStack = specialize TList<TSEJITBlockInfo>;
 
   PSEGCNode = ^TSEGCNode;
   TSEGCNode = record
@@ -562,6 +574,8 @@ type
 
   TEvilC = class;
   TSEVM = class
+  private
+    IsComputedGotoPatched: Boolean;
   public
     Name: String;
     Owner: TSEVM;
@@ -569,6 +583,7 @@ type
     ThreadOwner: TSEVMThread;
     {$endif}
     CoroutineOwner: TSEVMCoroutine;
+    EnableJIT: Boolean;
     IsPaused: Boolean;
     IsDone: Boolean;
     IsYielded: Boolean;
@@ -767,7 +782,8 @@ const
     {$endif}
     2, // opPushTrap,
     1, // opPopTrap,
-    1  // opThrow
+    1, // opThrow
+    1  // opJITBlock (the actual size is stored at Code + 3)
   );
 
 type
@@ -807,8 +823,11 @@ type
   private
     FSource: String;
     FInternalIdentCount: NativeUInt;
+    JITBlockInfoStack: TSEJITBlockInfoStack;
     procedure SetSource(V: String);
     function InternalIdent: String;
+    procedure CheckStartJITBlock;
+    procedure CheckEndJITBlock(const AKindSet: TSEValueKindSet);
   public
     Owner: TObject;
     OptimizeConstants,        // True = enable optimization for constant values stored in ConstList
@@ -1573,6 +1592,22 @@ begin
         end;
       end;
   end;
+end;
+
+constructor TSEBinary.Create;
+begin
+  inherited;
+  Self.JITBlockList := TSEJITBlockList.Create;
+end;
+
+destructor TSEBinary.Destroy;
+var
+  Mem: Pointer;
+begin
+  for Mem in Self.JITBlockList do
+    FreeMem(Mem);
+  Self.JITBlockList.Free;
+  inherited;
 end;
 
 procedure TSEValueHelper.AllocBuffer(constref Size: NativeInt); inline;
@@ -4894,66 +4929,7 @@ begin
     FreeAndNil(Self.Binaries.Value^.Data[I]);
   Self.Binaries.Alloc(1);
   Self.Binaries.Value^.Data[0] := TSEBinary.Create;
-end;
-
-function TSEVM.Fork(const AStackSize: Cardinal): TSEVM;
-var
-  StackCount: Cardinal;
-  I: NativeInt;
-begin
-  Result := TSEVM.Create;
-  Result.Binaries.Free;
-
-  Result.Owner := Self;
-  Result.StackSize := AStackSize;
-  Result.Parent := Self.Parent;
-  Result.IsPaused := False;
-  Result.IsDone := False;
-  Result.Parent.IsDone := False;
-  Result.Global := Self.Global.Ref;
-  SetLength(Result.Stack, AStackSize);
-  SetLength(Result.Frame, Result.FrameSize);
-  SetLength(Result.Trap, Result.TrapSize);
-  Result.StackPtr := PSEValue(@Result.Stack[0]) + SE_STACK_RESERVED;
-  Result.FramePtr := @Result.Frame[0];
-  Result.FramePtr^.Stack := Result.StackPtr;
-  Result.TrapPtr := @Result.Trap[0];
-  Dec(Result.TrapPtr);
-  //
-  Result.Binaries := Self.Binaries.Ref;
-end;
-
-procedure TSEVM.ModifyGlobalVariable(const AName: String; const AValue: TSEValue);
-begin
-  Self.SetGlobalVariable(AName, AValue);
-end;
-
-procedure TSEVM.SetGlobalVariable(const AName: String; const AValue: TSEValue);
-var
-  I: NativeInt;
-begin
-  for I := 0 to Self.Parent.GlobalVarSymbols.Count - 1 do
-  begin
-    if Self.Parent.GlobalVarSymbols[I] = AName then
-    begin
-      Self.Global.Value^.Data[I] := AValue;
-      break;
-    end;
-  end;
-end;
-
-function TSEVM.GetGlobalVariable(const AName: String): PSEValue;
-var
-  I: NativeInt;
-begin
-  for I := 0 to Self.Parent.GlobalVarSymbols.Count - 1 do
-  begin
-    if Self.Parent.GlobalVarSymbols[I] = AName then
-    begin
-      Result := @Self.Global.Value^.Data[I];
-      break;
-    end;
-  end;
+  Self.IsComputedGotoPatched := False;
 end;
 
 procedure TSEValueArrayManaged.Alloc(const ASize: Cardinal);
@@ -5065,6 +5041,66 @@ begin
   end;
   Self.Global.Free;
   inherited;
+end;
+
+function TSEVM.Fork(const AStackSize: Cardinal): TSEVM;
+var
+  StackCount: Cardinal;
+  I: NativeInt;
+begin
+  Result := TSEVM.Create;
+  Result.Binaries.Free;
+
+  Result.Owner := Self;
+  Result.StackSize := AStackSize;
+  Result.Parent := Self.Parent;
+  Result.IsPaused := False;
+  Result.IsDone := False;
+  Result.Parent.IsDone := False;
+  Result.Global := Self.Global.Ref;
+  SetLength(Result.Stack, AStackSize);
+  SetLength(Result.Frame, Result.FrameSize);
+  SetLength(Result.Trap, Result.TrapSize);
+  Result.StackPtr := PSEValue(@Result.Stack[0]) + SE_STACK_RESERVED;
+  Result.FramePtr := @Result.Frame[0];
+  Result.FramePtr^.Stack := Result.StackPtr;
+  Result.TrapPtr := @Result.Trap[0];
+  Dec(Result.TrapPtr);
+  //
+  Result.Binaries := Self.Binaries.Ref;
+end;
+
+procedure TSEVM.ModifyGlobalVariable(const AName: String; const AValue: TSEValue);
+begin
+  Self.SetGlobalVariable(AName, AValue);
+end;
+
+procedure TSEVM.SetGlobalVariable(const AName: String; const AValue: TSEValue);
+var
+  I: NativeInt;
+begin
+  for I := 0 to Self.Parent.GlobalVarSymbols.Count - 1 do
+  begin
+    if Self.Parent.GlobalVarSymbols[I] = AName then
+    begin
+      Self.Global.Value^.Data[I] := AValue;
+      break;
+    end;
+  end;
+end;
+
+function TSEVM.GetGlobalVariable(const AName: String): PSEValue;
+var
+  I: NativeInt;
+begin
+  for I := 0 to Self.Parent.GlobalVarSymbols.Count - 1 do
+  begin
+    if Self.Parent.GlobalVarSymbols[I] = AName then
+    begin
+      Result := @Self.Global.Value^.Data[I];
+      break;
+    end;
+  end;
 end;
 
 procedure TSEVM.Reset;
@@ -5533,14 +5569,14 @@ var
 {$ifdef SE_COMPUTED_GOTO}
   {$if defined(CPUX86_64) or defined(CPUi386)}
     {$define DispatchGoto :=
-      P := DispatchTable[TSEOpcode(NativeUInt(BinaryLocal[CodePtrLocal].VarPointer))];
+      P := BinaryLocal[CodePtrLocal].VarPointer;
       asm
         jmp P;
       end
     }
   {$elseif defined(CPUARM) or defined(CPUAARCH64)}
     {$define DispatchGoto :=
-      P := DispatchTable[TSEOpcode(NativeUInt(BinaryLocal[CodePtrLocal].VarPointer))];
+      P := BinaryLocal[CodePtrLocal].VarPointer;
       asm
         ldr x16,P
         br  x16
@@ -5635,7 +5671,8 @@ label
   {$endif}
   labelPushTrap,
   labelPopTrap,
-  labelThrow;
+  labelThrow,
+  labelJITBlock;
 
 {$ifdef SE_COMPUTED_GOTO}
 var
@@ -5711,9 +5748,38 @@ var
     {$endif}
     @labelPushTrap,
     @labelPopTrap,
-    @labelThrow
+    @labelThrow,
+    @labelJITBlock
   );
 {$endif}
+
+  // Prepare for direct threading
+  procedure ComputedGotoPatcher;
+  var
+    I, BIndex: NativeInt;
+    Binary: TSEBinary;
+    Op: TSEOpcode;
+  begin
+    {$ifndef SE_COMPUTED_GOTO}
+    Exit;
+    {$endif}
+    if Self.IsComputedGotoPatched then
+      Exit;
+    for I := 0 to Length(Self.Binaries.Value^.Data) - 1 do
+    begin
+      Binary := Self.Binaries.Value^.Data[I];
+      if Binary.IsComputedGotoPatched then
+        continue;
+      BIndex := 0;
+      while BIndex <= Binary.Count - 1 do
+      begin
+        Op := TSEOpcode(NativeUInt(Binary.Ptr(BIndex)^.VarPointer));
+        Binary.Ptr(BIndex)^.VarPointer := DispatchTable[Op];
+        Inc(BIndex, OpcodeSizes[Op]);
+      end;
+      Binary.IsComputedGotoPatched := True;
+    end;
+  end;
 
 begin
   if Self.IsDone then
@@ -5726,6 +5792,7 @@ begin
   BinaryPtrLocal := Self.BinaryPtr;
   BinaryLocal := Self.Binaries.Value^.Data[Self.BinaryPtr].Ptr(0);
   GC.CheckForGC;
+  ComputedGotoPatcher;
 
 labelStart:
   while True do
@@ -6385,6 +6452,11 @@ labelStart:
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
+      {$ifndef SE_COMPUTED_GOTO}opJITBlock:{$endif}
+        begin
+        labelJITBlock:
+          // TODO: Implement JIT
+        end;
       {$ifdef UNIX}
       {$ifndef SE_COMPUTED_GOTO}opBlockCleanup:{$endif}
         begin
@@ -6671,6 +6743,7 @@ begin
   Self.IncludePathList := TStringList.Create;
   Self.CurrentFileList := TStringList.Create;
   Self.LocalVarCountList := TSEIntegerList.Create;
+  Self.JITBlockInfoStack := TSEJITBlockInfoStack.Create;
   //
   Self.OptimizeConstants := True;
   Self.OptimizeAsserts := True;
@@ -6891,6 +6964,7 @@ begin
   FreeAndNil(Self.CurrentFileList);
   FreeAndNil(Self.LocalVarCountList);
   FreeAndNil(Self.GlobalVarSymbols);
+  FreeAndNil(Self.JITBlockInfoStack);
   inherited;
 end;
 
@@ -6927,6 +7001,14 @@ function TEvilC.InternalIdent: String; inline;
 begin
   Inc(Self.FInternalIdentCount);
   Result := IntToStr(FInternalIdentCount);
+end;
+
+procedure TEvilC.CheckStartJITBlock;
+begin
+end;
+
+procedure TEvilC.CheckEndJITBlock(const AKindSet: TSEValueKindSet);
+begin
 end;
 
 function TEvilC.GetIsPaused: Boolean;
@@ -8910,6 +8992,7 @@ var
     JumpExpr2: NativeInt;
 
   begin
+    CheckStartJITBlock;
     Result := [];
     OpCountStart := Self.OpcodeInfoList.Count;
     Logic;
@@ -8933,6 +9016,7 @@ var
       Patch(JumpExpr2 - 1, Pointer(Expr2Block) - (JumpExpr2 - 3));
       Patch(JumpEnd - 1, Pointer(EndBlock) - (JumpEnd - 2));
     end;
+    CheckEndJITBlock(Result);
   end;
 
   procedure ParseFuncRefCallByMapRewind(const Ident: TSEIdent; const DeepCount, RewindStartAdd: NativeInt; const ThisRefIdent: PSEIdent = nil);
