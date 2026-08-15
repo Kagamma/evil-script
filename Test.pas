@@ -60,7 +60,7 @@ end;
 
 class function TCustomFunctions.ReturnAnotherNativeFunction(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 var
-  Ind: Integer;
+  Ind: Cardinal;
 begin
   if VM.Parent.FindFuncNative('return_me', Ind) <> nil then
   begin
