@@ -3523,26 +3523,14 @@ end;
 
 procedure SEValueShiftLeft(out R: TSEValue; constref V1, V2: TSEValue); inline; overload;
 begin
-  if V1.Kind = V2.Kind then
-  case V1.Kind of
-    sevkNumber:
-      begin
-        R.Kind := sevkNumber;
-        R.VarNumber := Round(V1.VarNumber) shl Round(V2.VarNumber);
-      end;
-  end;
+  R.Kind := sevkNumber;
+  R.VarNumber := Round(V1.VarNumber) shl Round(V2.VarNumber);
 end;
 
 procedure SEValueShiftRight(out R: TSEValue; constref V1, V2: TSEValue); inline; overload;
 begin
-  if V1.Kind = V2.Kind then
-  case V1.Kind of
-    sevkNumber:
-      begin
-        R.Kind := sevkNumber;
-        R.VarNumber := Round(V1.VarNumber) shr Round(V2.VarNumber);
-      end;
-  end;
+  R.Kind := sevkNumber;
+  R.VarNumber := Round(V1.VarNumber) shr Round(V2.VarNumber);
 end;
 
 function SEValueLesser(constref V1, V2: TSEValue): Boolean; inline; overload;
