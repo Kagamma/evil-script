@@ -466,7 +466,7 @@ type
   TSEFuncScriptInfo = record
     PossibleKinds: TSEValueKindSet;
     Name: String;
-    BinaryPos: NativeInt;
+    CodeSegmentIndex: NativeInt;
     ArgCount: NativeInt;
     VarCount: NativeInt;
     VarSymbols: TStrings;
@@ -492,8 +492,8 @@ type
   TSEFuncImportList = class(specialize TSEListPtr<TSEFuncImportInfo>);
 
   TSELineOfCode = record
-    BinaryCount: NativeInt;
-    BinaryPtr: NativeInt;
+    CodeIndex: NativeInt;
+    CodeSegmentIndex: NativeInt;
     Line: NativeInt;
     Module: String;
   end;
@@ -503,17 +503,17 @@ type
   TSEStack = TSEValueListAncestor;
   TSEVarMap = TSEValue;
   TSEFrame = record
-    Code: NativeInt;
-    Stack: PSEValue;
-    Binary: NativeInt;
+    CodePtr: PSEValue;
+    StackPtr: PSEValue;
+    CodeSegmentIndex: NativeInt;
     Func: PSEFuncScriptInfo;
   end;
   PSEFrame = ^TSEFrame;
   TSETrap = record
     FramePtr: PSEFrame;
-    Stack: PSEValue;
-    Binary: NativeInt;
-    CatchCode: NativeInt;
+    StackPtr: PSEValue;
+    CodeSegmentIndex: NativeInt;
+    CatchCodeIndex: NativeInt;
   end;
   PSETrap = ^TSETrap;
 
@@ -594,9 +594,9 @@ type
     Stack: array of TSEValue;
     Frame: array of TSEFrame;
     Trap: array of TSETrap;
-    CodePtr: NativeInt;
+    CodePtr: PSEValue;
     StackPtr: PSEValue;
-    BinaryPtr: NativeInt;
+    CodeSegmentIndex: NativeInt;
     FramePtr: PSEFrame;
     TrapPtr: PSETrap;
     StackSize: NativeInt;
@@ -863,7 +863,7 @@ type
     FuncTraversal: NativeInt;
     BlockTraversal: NativeInt;
     CurrentFileList: TStrings;
-    BinaryPos: NativeInt; // This is mainly for storing line of code for runtime
+    CodeSegmentIndex: NativeInt; // This is mainly for storing line of code for runtime
     Binary: TSEBinary; // Current working binary
     constructor Create(const StackSize: LongWord = 2048);
     destructor Destroy; override;
@@ -5004,7 +5004,7 @@ end;
 constructor TSEVM.Create;
 begin
   inherited;
-  Self.CodePtr := 0;
+  Self.CodePtr := nil;
   Self.IsPaused := False;
   Self.IsDone := True;
   Self.StackSize := SEStackSize;
@@ -5063,7 +5063,7 @@ begin
   SetLength(Result.Trap, Result.TrapSize);
   Result.StackPtr := PSEValue(@Result.Stack[0]) + SE_STACK_RESERVED;
   Result.FramePtr := @Result.Frame[0];
-  Result.FramePtr^.Stack := Result.StackPtr;
+  Result.FramePtr^.StackPtr := Result.StackPtr;
   Result.TrapPtr := @Result.Trap[0];
   Dec(Result.TrapPtr);
   //
@@ -5105,8 +5105,8 @@ end;
 
 procedure TSEVM.Reset;
 begin
-  Self.CodePtr := 0;
-  Self.BinaryPtr := 0;
+  Self.CodePtr := nil;
+  Self.CodeSegmentIndex := 0;
   Self.IsPaused := False;
   Self.IsDone := False;
   Self.Parent.IsDone := False;
@@ -5121,7 +5121,7 @@ begin
   // FillChar(Self.Trap[0], Length(Self.Trap) * SizeOf(TSETrap), 0);
   Self.FramePtr := @Self.Frame[0];
   Self.StackPtr := @Self.Stack[0];
-  Self.FramePtr^.Stack := Self.StackPtr;
+  Self.FramePtr^.StackPtr := Self.StackPtr;
   Self.TrapPtr := @Self.Trap[0];
   Dec(Self.TrapPtr);
 end;
@@ -5138,10 +5138,9 @@ var
   FuncImportInfo: PSEFuncImportInfo;
   I, J, ArgCountStack, ArgCount, ArgSize, DeepCount: NativeInt;
   This: PSEValue;
-  CodePtrLocal: NativeInt;
   GlobalLocal: PSEValue;
-  BinaryPtrLocal: NativeInt;
-  BinaryLocal: PSEValue;
+  CodeSegmentIndexLocal: NativeInt;
+  CodePtrLocal: PSEValue;
   FuncImport, P, PP, PC: Pointer;
   LineOfCode: TSELineOfCode;
   IsScriptException: Boolean = False;
@@ -5149,6 +5148,7 @@ var
   procedure GetLineOfCode;
   var
     I: NativeInt;
+    CodeIndex: NativeUInt;
   begin
     if FramePtr = @Self.Frame[0] then
     begin
@@ -5156,17 +5156,19 @@ var
       while I >= 0 do
       begin
         LineOfCode := Self.Parent.LineOfCodeList[I];
-        if (CodePtrLocal >= LineOfCode.BinaryCount) and (LineOfCode.BinaryPtr = 0) then
+        CodeIndex := NativeUInt(CodePtrLocal - Self.Binaries.Value^.Data[LineOfCode.CodeSegmentIndex].Ptr(0)) div SizeOf(TSEValue);
+        if (CodeIndex >= LineOfCode.CodeIndex) and (LineOfCode.CodeSegmentIndex = 0) then
           break;
         Dec(I);
       end;
     end else
     begin
       I := 0;
-      while I < Self.Parent.LineOfCodeList.Count - 1 do
+      while I <= Self.Parent.LineOfCodeList.Count - 1 do
       begin
         LineOfCode := Self.Parent.LineOfCodeList[I];
-        if (CodePtrLocal < LineOfCode.BinaryCount) and (BinaryPtrLocal = LineOfCode.BinaryPtr) then
+        CodeIndex := NativeUInt(CodePtrLocal - Self.Binaries.Value^.Data[LineOfCode.CodeSegmentIndex].Ptr(0)) div SizeOf(TSEValue);
+        if (CodeIndex < LineOfCode.CodeIndex) and (CodeSegmentIndexLocal = LineOfCode.CodeSegmentIndex) then
           break;
         Inc(I);
       end;
@@ -5225,7 +5227,7 @@ var
     LineOfCode: TSELineOfCode;
     Nodes: TSEStackTraceSymbolArray;
     NodeCount: NativeInt = 0;
-    BinaryPos: NativeInt;
+    CodeSegmentIndex: NativeInt;
   begin
     if Self.Parent.StackTraceHandler <> nil then
     begin
@@ -5243,17 +5245,17 @@ var
           begin
             LineOfCode := Self.Parent.LineOfCodeList[J];
             if I = 1 then
-              BinaryPos := 0
+              CodeSegmentIndex := 0
             else
-              BinaryPos := Self.Frame[I - 1].Func^.BinaryPos;
-            if (CurFrame^.Binary < LineOfCode.BinaryCount) and (BinaryPos = LineOfCode.BinaryPtr) then
+              CodeSegmentIndex := Self.Frame[I - 1].Func^.CodeSegmentIndex;
+            if (CurFrame^.CodeSegmentIndex < LineOfCode.CodeIndex) and (CodeSegmentIndex = LineOfCode.CodeSegmentIndex) then
               break;
             Dec(J);
           end;
           Nodes[NodeCount - 1].Name := CurFunc^.Name + ' [' + LineOfCode.Module + ':' + IntToStr(LineOfCode.Line) + ']';
           for J := 0 to CurFrame^.Func^.VarSymbols.Count - 1 do
           begin
-            AddChildNode(@Nodes[NodeCount - 1], CurFunc^.VarSymbols[J], @CurFrame^.Stack[J - 1]);
+            AddChildNode(@Nodes[NodeCount - 1], CurFunc^.VarSymbols[J], @CurFrame^.StackPtr[J - 1]);
           end;
         end;
       end;
@@ -5288,7 +5290,7 @@ var
 
   procedure AssignLocal(const I: Pointer; const F: NativeInt; const Value: PSEValue); inline;
   begin
-    ((Self.FramePtr - F)^.Stack + NativeInt(I))^ := Value^;
+    ((Self.FramePtr - F)^.StackPtr + NativeInt(I))^ := Value^;
   end;
 
   function GetGlobal(const I: Pointer): PSEValue; inline;
@@ -5298,7 +5300,7 @@ var
 
   function GetLocal(const I: Pointer; const F: NativeInt): PSEValue; inline;
   begin
-    Exit((Self.FramePtr - F)^.Stack + NativeInt(I));
+    Exit((Self.FramePtr - F)^.StackPtr + NativeInt(I));
   end;
 
   function GetGlobalInt(const I: NativeInt): PSEValue; inline;
@@ -5308,7 +5310,7 @@ var
 
   function GetLocalInt(const I, F: NativeInt): PSEValue; inline;
   begin
-    Exit((Self.FramePtr - F)^.Stack + NativeInt(I));
+    Exit((Self.FramePtr - F)^.StackPtr + NativeInt(I));
   end;
 
   procedure AssignGlobalInt(const I: NativeInt; const Value: PSEValue); inline;
@@ -5318,7 +5320,7 @@ var
 
   procedure AssignLocalInt(const I: NativeInt; const F: NativeInt; const Value: PSEValue); inline;
   begin
-    ((Self.FramePtr - F)^.Stack + NativeInt(I))^ := Value^;
+    ((Self.FramePtr - F)^.StackPtr + NativeInt(I))^ := Value^;
   end;
 
   function GetVariable(const I: Pointer; const F: Pointer): PSEValue; inline;
@@ -5326,7 +5328,7 @@ var
     if F = Pointer(SE_REG_GLOBAL) then
       Exit(@GlobalLocal[NativeInt(I)])
     else
-      Exit((Self.FramePtr - NativeInt(F))^.Stack + NativeInt(I));
+      Exit((Self.FramePtr - NativeInt(F))^.StackPtr + NativeInt(I));
   end;
 
   procedure SetVariable(const I: Pointer; const F: Pointer; const Value: PSEValue); inline;
@@ -5334,7 +5336,7 @@ var
     if F = Pointer(SE_REG_GLOBAL) then
       GlobalLocal[NativeInt(I)] := Value^
     else
-      ((Self.FramePtr - NativeInt(F))^.Stack + NativeInt(I))^ := Value^;
+      ((Self.FramePtr - NativeInt(F))^.StackPtr + NativeInt(I))^ := Value^;
   end;
 
   procedure CallImportFunc;
@@ -5357,7 +5359,7 @@ var
     ffiAbi: ffi_abi;
     {$endif}
   begin
-    FuncImportInfo := Self.Parent.FuncImportList.Ptr(NativeInt(BinaryLocal[CodePtrLocal + 1].VarPointer));
+    FuncImportInfo := Self.Parent.FuncImportList.Ptr(NativeInt(CodePtrLocal[1].VarPointer));
     {$ifndef SE_LIBFFI}
       raise Exception.Create('You need to enable SE_LIBFFI in order to call external function "' + FuncImportInfo^.Name + '"');
     {$else}
@@ -5569,14 +5571,14 @@ var
 {$ifdef SE_COMPUTED_GOTO}
   {$if defined(CPUX86_64) or defined(CPUi386)}
     {$define DispatchGoto :=
-      P := BinaryLocal[CodePtrLocal].VarPointer;
+      P := CodePtrLocal^.VarPointer;
       asm
         jmp P;
       end
     }
   {$elseif defined(CPUARM) or defined(CPUAARCH64)}
     {$define DispatchGoto :=
-      P := BinaryLocal[CodePtrLocal].VarPointer;
+      P := CodePtrLocal^.VarPointer;
       asm
         ldr x16,P
         br  x16
@@ -5788,9 +5790,11 @@ begin
   if Self.IsPaused then
     Exit;
   GlobalLocal := @Self.Global.Value^.Data[0];
-  CodePtrLocal := Self.CodePtr;
-  BinaryPtrLocal := Self.BinaryPtr;
-  BinaryLocal := Self.Binaries.Value^.Data[Self.BinaryPtr].Ptr(0);
+  CodeSegmentIndexLocal := Self.CodeSegmentIndex;
+  if Self.CodePtr <> nil then
+    CodePtrLocal := Self.CodePtr
+  else
+    CodePtrLocal := Self.Binaries.Value^.Data[Self.CodeSegmentIndex].Ptr(0);
   GC.CheckForGC;
   ComputedGotoPatcher;
 
@@ -5801,13 +5805,13 @@ labelStart:
     while True do
     begin
       {$ifndef SE_COMPUTED_GOTO}
-      case TSEOpcode(NativeUInt(BinaryLocal[CodePtrLocal].VarPointer)) of
+      case TSEOpcode(NativeUInt(CodePtrLocal^.VarPointer)) of
       {$endif}
       {$ifndef SE_COMPUTED_GOTO}opOperatorInc:{$endif}
         begin
         labelOperatorInc:
-          V  := GetVariable(BinaryLocal[CodePtrLocal + 1].VarPointer, BinaryLocal[CodePtrLocal + 2].VarPointer);
-          V^.VarNumber := V^.VarNumber + BinaryLocal[CodePtrLocal + 3].VarNumber;
+          V  := GetVariable(CodePtrLocal[1].VarPointer, CodePtrLocal[2].VarPointer);
+          V^.VarNumber := V^.VarNumber + CodePtrLocal[3].VarNumber;
           Inc(CodePtrLocal, 4);
           DispatchGoto;
         end;
@@ -5816,9 +5820,9 @@ labelStart:
         labelOperatorAdd0:
           A := Pop;
           if A^.Kind = sevkNumber then
-            Self.StackPtr^.VarNumber := A^.VarNumber + BinaryLocal[CodePtrLocal + 1].VarNumber
+            Self.StackPtr^.VarNumber := A^.VarNumber + CodePtrLocal[1].VarNumber
           else
-            SEValueAdd(Self.StackPtr^, A^, BinaryLocal[CodePtrLocal + 1]);
+            SEValueAdd(Self.StackPtr^, A^, CodePtrLocal[1]);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
@@ -5826,7 +5830,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorMul0:{$endif}
         begin
         labelOperatorMul0:
-          Self.StackPtr^.VarNumber := Pop^.VarNumber * BinaryLocal[CodePtrLocal + 1].VarNumber;
+          Self.StackPtr^.VarNumber := Pop^.VarNumber * CodePtrLocal[1].VarNumber;
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
@@ -5834,7 +5838,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorDiv0:{$endif}
         begin
         labelOperatorDiv0:
-          Self.StackPtr^.VarNumber := Pop^.VarNumber / BinaryLocal[CodePtrLocal + 1].VarNumber;
+          Self.StackPtr^.VarNumber := Pop^.VarNumber / CodePtrLocal[1].VarNumber;
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
@@ -5843,7 +5847,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorLesser0:{$endif}
         begin
         labelOperatorLesser0:
-          Self.StackPtr^ := Pop^.VarNumber < BinaryLocal[CodePtrLocal + 1].VarNumber;
+          Self.StackPtr^ := Pop^.VarNumber < CodePtrLocal[1].VarNumber;
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
@@ -5851,7 +5855,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorLesserOrEqual0:{$endif}
         begin
         labelOperatorLesserOrEqual0:
-          Self.StackPtr^ := Pop^.VarNumber <= BinaryLocal[CodePtrLocal + 1].VarNumber;
+          Self.StackPtr^ := Pop^.VarNumber <= CodePtrLocal[1].VarNumber;
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
@@ -5859,7 +5863,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorGreater0:{$endif}
         begin
         labelOperatorGreater0:
-          Self.StackPtr^ := Pop^.VarNumber > BinaryLocal[CodePtrLocal + 1].VarNumber;
+          Self.StackPtr^ := Pop^.VarNumber > CodePtrLocal[1].VarNumber;
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
@@ -5867,7 +5871,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorGreaterOrEqual0:{$endif}
         begin
         labelOperatorGreaterOrEqual0:
-          Self.StackPtr^ := Pop^.VarNumber >= BinaryLocal[CodePtrLocal + 1].VarNumber;
+          Self.StackPtr^ := Pop^.VarNumber >= CodePtrLocal[1].VarNumber;
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
@@ -5877,9 +5881,9 @@ labelStart:
         labelOperatorEqual0:
           A := Pop;
           if A^.Kind = sevkNumber then
-            Self.StackPtr^ := A^.VarNumber = BinaryLocal[CodePtrLocal + 1].VarNumber
+            Self.StackPtr^ := A^.VarNumber = CodePtrLocal[1].VarNumber
           else
-            SEValueEqual(Self.StackPtr^, A^, BinaryLocal[CodePtrLocal + 1]);
+            SEValueEqual(Self.StackPtr^, A^, CodePtrLocal[1]);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
@@ -5889,9 +5893,9 @@ labelStart:
         labelOperatorNotEqual0:
           A := Pop;
           if A^.Kind = sevkNumber then
-            Self.StackPtr^ := A^.VarNumber <> BinaryLocal[CodePtrLocal + 1].VarNumber
+            Self.StackPtr^ := A^.VarNumber <> CodePtrLocal[1].VarNumber
           else
-            SEValueNotEqual(Self.StackPtr^, A^, BinaryLocal[CodePtrLocal + 1]);
+            SEValueNotEqual(Self.StackPtr^, A^, CodePtrLocal[1]);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
@@ -5899,7 +5903,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorAnd0:{$endif}
         begin
         labelOperatorAnd0:
-          Self.StackPtr^.VarNumber := NativeInt(Pop^) and NativeInt(BinaryLocal[CodePtrLocal + 1]);
+          Self.StackPtr^.VarNumber := NativeInt(Pop^) and NativeInt(CodePtrLocal[1]);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -5907,7 +5911,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorOr0:{$endif}
         begin
         labelOperatorOr0:
-          Self.StackPtr^.VarNumber := NativeInt(Pop^) or NativeInt(BinaryLocal[CodePtrLocal + 1]);
+          Self.StackPtr^.VarNumber := NativeInt(Pop^) or NativeInt(CodePtrLocal[1]);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -6054,7 +6058,7 @@ labelStart:
         begin
         labelOperatorAdd1:
           A := Pop;
-          B := GetVariable(BinaryLocal[CodePtrLocal + 1], {P}BinaryLocal[CodePtrLocal + 2].VarPointer);
+          B := GetVariable(CodePtrLocal[1], {P}CodePtrLocal[2].VarPointer);
           if A^.Kind = sevkNumber then
             Self.StackPtr^.VarNumber := A^.VarNumber + B^.VarNumber
           else
@@ -6067,7 +6071,7 @@ labelStart:
         begin
         labelOperatorSub1:
           A := Pop;
-          B := GetVariable(BinaryLocal[CodePtrLocal + 1], {P}BinaryLocal[CodePtrLocal + 2].VarPointer);
+          B := GetVariable(CodePtrLocal[1], {P}CodePtrLocal[2].VarPointer);
           if A^.Kind = sevkNumber then
             Self.StackPtr^.VarNumber := A^.VarNumber - B^.VarNumber
           else
@@ -6079,7 +6083,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorMul1:{$endif}
         begin
         labelOperatorMul1:
-          SEValueMul(Self.StackPtr^, {B}GetVariable(BinaryLocal[CodePtrLocal + 1], {P}BinaryLocal[CodePtrLocal + 2].VarPointer)^, Pop^);
+          SEValueMul(Self.StackPtr^, {B}GetVariable(CodePtrLocal[1], {P}CodePtrLocal[2].VarPointer)^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 3);
           DispatchGoto;
@@ -6087,7 +6091,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorDiv1:{$endif}
         begin
         labelOperatorDiv1:
-          SEValueDiv(Self.StackPtr^, Pop^, {B}GetVariable(BinaryLocal[CodePtrLocal + 1], {P}BinaryLocal[CodePtrLocal + 2].VarPointer)^);
+          SEValueDiv(Self.StackPtr^, Pop^, {B}GetVariable(CodePtrLocal[1], {P}CodePtrLocal[2].VarPointer)^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 3);
           DispatchGoto;
@@ -6112,43 +6116,43 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opPushConst:{$endif}
         begin
         labelPushConst:
-          Push(BinaryLocal[CodePtrLocal + 1]);
+          Push(CodePtrLocal[1]);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opPushConstString:{$endif}
         begin
         labelPushConstString:
-          Push(ConstStrings.Ptr(NativeInt(BinaryLocal[CodePtrLocal + 1].VarPointer))^);
+          Push(ConstStrings.Ptr(NativeInt(CodePtrLocal[1].VarPointer))^);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opPushGlobalVar:{$endif}
         begin
         labelPushGlobalVar:
-          Push(GetGlobal(BinaryLocal[CodePtrLocal + 1].VarPointer)^);
+          Push(GetGlobal(CodePtrLocal[1].VarPointer)^);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opPushLocalVar:{$endif}
         begin
         labelPushLocalVar:
-          Push(GetLocal(BinaryLocal[CodePtrLocal + 1].VarPointer, NativeInt(BinaryLocal[CodePtrLocal + 2].VarPointer))^);
+          Push(GetLocal(CodePtrLocal[1].VarPointer, NativeInt(CodePtrLocal[2].VarPointer))^);
           Inc(CodePtrLocal, 3);
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opPushVar2:{$endif}
         begin
         labelPushVar2:
-          Push(GetVariable(BinaryLocal[CodePtrLocal + 1].VarPointer, BinaryLocal[CodePtrLocal + 3].VarPointer)^);
-          Push(GetVariable(BinaryLocal[CodePtrLocal + 2].VarPointer, BinaryLocal[CodePtrLocal + 4].VarPointer)^);
+          Push(GetVariable(CodePtrLocal[1].VarPointer, CodePtrLocal[3].VarPointer)^);
+          Push(GetVariable(CodePtrLocal[2].VarPointer, CodePtrLocal[4].VarPointer)^);
           Inc(CodePtrLocal, 5);
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opPushArrayPop:{$endif}
         begin
         labelPushArrayPop:
-          A := @BinaryLocal[CodePtrLocal + 1];
+          A := @CodePtrLocal[1];
           if A^.Kind = sevkNull then
             A := Pop;
           B := Pop;
@@ -6180,7 +6184,7 @@ labelStart:
         begin
         labelJumpEqualRel:
           if SEValueEqual(Pop^, Pop^) then
-            CodePtrLocal := CodePtrLocal + NativeInt(BinaryLocal[CodePtrLocal + 1].VarPointer)
+            CodePtrLocal := CodePtrLocal + NativeInt(CodePtrLocal[1].VarPointer)
           else
             Inc(CodePtrLocal, 2);
           DispatchGoto;
@@ -6188,8 +6192,8 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opJumpEqual1Rel:{$endif}
         begin
         labelJumpEqual1Rel:
-          if SEValueEqual(Pop^, BinaryLocal[CodePtrLocal + 1]) then
-            CodePtrLocal := CodePtrLocal + NativeInt(BinaryLocal[CodePtrLocal + 2].VarPointer)
+          if SEValueEqual(Pop^, CodePtrLocal[1]) then
+            CodePtrLocal := CodePtrLocal + NativeInt(CodePtrLocal[2].VarPointer)
           else
             Inc(CodePtrLocal, 3);
           DispatchGoto;
@@ -6197,17 +6201,17 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opJumpUnconditionalRel:{$endif}
         begin
         labelJumpUnconditionalRel:
-          CodePtrLocal := CodePtrLocal + NativeInt(BinaryLocal[CodePtrLocal + 1].VarPointer);
+          CodePtrLocal := CodePtrLocal + NativeInt(CodePtrLocal[1].VarPointer);
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opJumpEqualOrGreater2Rel:{$endif}
         begin
         labelJumpEqualOrGreater2Rel:
           if SEValueGreaterOrEqual(
-            GetVariable(BinaryLocal[CodePtrLocal + 1].VarPointer, BinaryLocal[CodePtrLocal + 2].VarPointer)^,
-            GetVariable(BinaryLocal[CodePtrLocal + 3].VarPointer, BinaryLocal[CodePtrLocal + 4].VarPointer)^)
+            GetVariable(CodePtrLocal[1].VarPointer, CodePtrLocal[2].VarPointer)^,
+            GetVariable(CodePtrLocal[3].VarPointer, CodePtrLocal[4].VarPointer)^)
           then
-            CodePtrLocal := CodePtrLocal + NativeInt(BinaryLocal[CodePtrLocal + 5].VarPointer)
+            CodePtrLocal := CodePtrLocal + NativeInt(CodePtrLocal[5].VarPointer)
           else
             Inc(CodePtrLocal, 6);
           DispatchGoto;
@@ -6216,10 +6220,10 @@ labelStart:
         begin
         labelJumpEqualOrLesser2Rel:
           if SEValueLesserOrEqual(
-            GetVariable(BinaryLocal[CodePtrLocal + 1].VarPointer, BinaryLocal[CodePtrLocal + 2].VarPointer)^,
-            GetVariable(BinaryLocal[CodePtrLocal + 3].VarPointer, BinaryLocal[CodePtrLocal + 4].VarPointer)^)
+            GetVariable(CodePtrLocal[1].VarPointer, CodePtrLocal[2].VarPointer)^,
+            GetVariable(CodePtrLocal[3].VarPointer, CodePtrLocal[4].VarPointer)^)
           then
-            CodePtrLocal := CodePtrLocal + NativeInt(BinaryLocal[CodePtrLocal + 5].VarPointer)
+            CodePtrLocal := CodePtrLocal + NativeInt(CodePtrLocal[5].VarPointer)
           else
             Inc(CodePtrLocal, 6);
           DispatchGoto;
@@ -6236,7 +6240,7 @@ labelStart:
               end;
             sevkMap:
               begin
-                DeepCount := NativeInt(BinaryLocal[CodePtrLocal + 3].VarPointer);
+                DeepCount := NativeInt(CodePtrLocal[3].VarPointer);
                 if DeepCount = 0 then
                   raise Exception.Create('Not a function reference');
                 Self.StackPtr := Self.StackPtr - DeepCount;
@@ -6252,7 +6256,7 @@ labelStart:
             else
               raise Exception.Create('Not a function reference');
           end;
-          BinaryLocal[CodePtrLocal + 1] := Pointer(A^.VarFuncIndx);
+          CodePtrLocal[1] := Pointer(A^.VarFuncIndx);
           case A^.VarFuncKind of
             sefkScript:
               begin
@@ -6270,7 +6274,7 @@ labelStart:
                 if DeepCount > 1 then
                   (Self.StackPtr - 1)^ := TV2;
                 This := Pop;
-                Dec(BinaryLocal[CodePtrLocal + 2].VarPointer); // ArgCount contains this, so we minus it by 1
+                Dec(CodePtrLocal[2].VarPointer); // ArgCount contains this, so we minus it by 1
                 goto labelCallNative;
               end;
           end;
@@ -6278,8 +6282,8 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opCallNative:{$endif}
         begin
         labelCallNative:
-          FuncNativeInfo := Self.Parent.FuncNativeList.Ptr(NativeInt(BinaryLocal[CodePtrLocal + 1].VarPointer));
-          ArgCount := NativeInt(BinaryLocal[CodePtrLocal + 2].VarPointer);
+          FuncNativeInfo := Self.Parent.FuncNativeList.Ptr(NativeInt(CodePtrLocal[1].VarPointer));
+          ArgCount := NativeInt(CodePtrLocal[2].VarPointer);
           Self.StackPtr := Self.StackPtr - ArgCount;
           TV := TSEFunc(FuncNativeInfo^.Func)(Self, Self.StackPtr, ArgCount, This);
           if IsDone then
@@ -6294,27 +6298,25 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opCallScript:{$endif}
         begin
         labelCallScript:
-          FuncScriptInfo := Self.Parent.FuncScriptList.Ptr(NativeInt(BinaryLocal[CodePtrLocal + 1].VarPointer));
+          FuncScriptInfo := Self.Parent.FuncScriptList.Ptr(NativeInt(CodePtrLocal[1].VarPointer));
           Inc(Self.FramePtr);
           if Self.FramePtr > @Self.Frame[Self.FrameSize - 1] then
             raise Exception.Create('Too much recursion');
-          Self.FramePtr^.Stack := Self.StackPtr - {ArgCount}NativeInt(BinaryLocal[CodePtrLocal + 2].VarPointer);
-          Self.FramePtr^.Code := CodePtrLocal + 4;
-          Self.FramePtr^.Binary := BinaryPtrLocal;
+          Self.FramePtr^.StackPtr := Self.StackPtr - {ArgCount}NativeInt(CodePtrLocal[2].VarPointer);
+          Self.FramePtr^.CodePtr := CodePtrLocal + 4;
+          Self.FramePtr^.CodeSegmentIndex := CodeSegmentIndexLocal;
           Self.FramePtr^.Func := FuncScriptInfo;
           Self.StackPtr := Self.StackPtr + FuncScriptInfo^.VarCount;
-          CodePtrLocal := 0;
-          BinaryPtrLocal := FuncScriptInfo^.BinaryPos;
-          BinaryLocal := Self.Binaries.Value^.Data[BinaryPtrLocal].Ptr(0);
+          CodeSegmentIndexLocal := FuncScriptInfo^.CodeSegmentIndex;
+          CodePtrLocal := Self.Binaries.Value^.Data[CodeSegmentIndexLocal].Ptr(0);
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opPopFrame:{$endif}
         begin
         labelPopFrame:
-          CodePtrLocal := Self.FramePtr^.Code;
-          Self.StackPtr := Self.FramePtr^.Stack;
-          BinaryPtrLocal := Self.FramePtr^.Binary;
-          BinaryLocal := Self.Binaries.Value^.Data[BinaryPtrLocal].Ptr(0);
+          CodePtrLocal := Self.FramePtr^.CodePtr;
+          Self.StackPtr := Self.FramePtr^.StackPtr;
+          CodeSegmentIndexLocal := Self.FramePtr^.CodeSegmentIndex;
           Dec(Self.FramePtr);
           if Self.FramePtr < @Self.Frame[0] then
           begin
@@ -6326,24 +6328,24 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opAssignGlobalVar:{$endif}
         begin
         labelAssignGlobalVar:
-          AssignGlobal(BinaryLocal[CodePtrLocal + 1], Pop);
+          AssignGlobal(CodePtrLocal[1], Pop);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opAssignLocalVar:{$endif}
         begin
         labelAssignLocalVar:
-          AssignLocal(BinaryLocal[CodePtrLocal + 1], NativeInt(BinaryLocal[CodePtrLocal + 2].VarPointer), Pop);
+          AssignLocal(CodePtrLocal[1], NativeInt(CodePtrLocal[2].VarPointer), Pop);
           Inc(CodePtrLocal, 3);
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opAssignGlobalArray:{$endif}
         begin
         labelAssignGlobalArray:
-          A := @BinaryLocal[CodePtrLocal + 1];
+          A := @CodePtrLocal[1];
           TV := GetGlobalInt(NativeInt(A^))^;
           B := Pop;
-          ArgCount := BinaryLocal[CodePtrLocal + 2];
+          ArgCount := CodePtrLocal[2];
           if ArgCount = 1 then
             C := Pop
           else
@@ -6392,10 +6394,10 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opAssignLocalArray:{$endif}
         begin
         labelAssignLocalArray:
-          A := @BinaryLocal[CodePtrLocal + 1];
-          TV := GetLocalInt(NativeInt(A^), NativeInt(BinaryLocal[CodePtrLocal + 3].VarPointer))^;
+          A := @CodePtrLocal[1];
+          TV := GetLocalInt(NativeInt(A^), NativeInt(CodePtrLocal[3].VarPointer))^;
           B := Pop;
-          ArgCount := BinaryLocal[CodePtrLocal + 2];
+          ArgCount := CodePtrLocal[2];
           if ArgCount = 1 then
             C := Pop
           else
@@ -6448,7 +6450,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opPushConstFromConstList:{$endif}
         begin
         labelPushConstFromConstList:
-          Push(Self.Parent.ConstList[NativeInt(BinaryLocal[CodePtrLocal + 1].VarPointer)]);
+          Push(Self.Parent.ConstList[NativeInt(CodePtrLocal[1].VarPointer)]);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
@@ -6472,14 +6474,14 @@ labelStart:
           Self.IsYielded := True;
           Inc(CodePtrLocal);
           Self.CodePtr := CodePtrLocal;
-          Self.BinaryPtr := BinaryPtrLocal;
+          Self.CodeSegmentIndex := CodeSegmentIndexLocal;
           Exit;
         end;
       {$ifndef SE_COMPUTED_GOTO}opHlt:{$endif}
         begin
         labelHlt:
-          Self.CodePtr := CodePtrLocal;
-          Self.BinaryPtr := BinaryPtrLocal;
+          Self.CodePtr := nil;
+          Self.CodeSegmentIndex := CodeSegmentIndexLocal;
           Self.IsDone := True;
           Self.Parent.IsDone := True;
           Exit;
@@ -6489,9 +6491,9 @@ labelStart:
         labelPushTrap:
           Inc(Self.TrapPtr);
           Self.TrapPtr^.FramePtr := Self.FramePtr;
-          Self.TrapPtr^.Stack := Self.StackPtr;
-          Self.TrapPtr^.Binary := BinaryPtrLocal;
-          Self.TrapPtr^.CatchCode := NativeInt(BinaryLocal[CodePtrLocal + 1].VarPointer);
+          Self.TrapPtr^.StackPtr := Self.StackPtr;
+          Self.TrapPtr^.CodeSegmentIndex := CodeSegmentIndexLocal;
+          Self.TrapPtr^.CatchCodeIndex := NativeInt(CodePtrLocal[1].VarPointer);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
@@ -6512,10 +6514,9 @@ labelStart:
           begin
             TV := Pop^;
             Self.FramePtr := Self.TrapPtr^.FramePtr;
-            CodePtrLocal := Self.TrapPtr^.CatchCode;
-            Self.StackPtr := Self.TrapPtr^.Stack;
-            BinaryPtrLocal := Self.TrapPtr^.Binary;
-            BinaryLocal := Self.Binaries.Value^.Data[BinaryPtrLocal].Ptr(0);
+            Self.StackPtr := Self.TrapPtr^.StackPtr;
+            CodePtrLocal := Self.Binaries.Value^.Data[CodeSegmentIndexLocal].Ptr(0) + Self.TrapPtr^.CatchCodeIndex;
+            CodeSegmentIndexLocal := Self.TrapPtr^.CodeSegmentIndex;
             Push(TV);
             Dec(Self.TrapPtr);
           end;
@@ -6531,8 +6532,8 @@ labelStart:
       end;
       if Self.IsPaused then
       begin
+        Self.CodeSegmentIndex := CodeSegmentIndexLocal;
         Self.CodePtr := CodePtrLocal;
-        Self.BinaryPtr := BinaryPtrLocal;
         Exit;
       end;
       {$endif}
@@ -6569,22 +6570,20 @@ labelStart:
         Inc(Self.FramePtr);
         if Self.FramePtr > @Self.Frame[Self.FrameSize - 1] then
           raise Exception.Create('Too much recursion');
-        Self.FramePtr^.Stack := Self.StackPtr - ArgCount;
-        Self.FramePtr^.Code := CodePtrLocal;
-        Self.FramePtr^.Binary := BinaryPtrLocal;
+        Self.FramePtr^.StackPtr := Self.StackPtr - ArgCount;
+        Self.FramePtr^.CodePtr := CodePtrLocal;
+        Self.FramePtr^.CodeSegmentIndex := CodeSegmentIndexLocal;
         Self.FramePtr^.Func := FuncScriptInfo;
         Self.StackPtr := Self.StackPtr + FuncScriptInfo^.VarCount;
-        CodePtrLocal := 0;
-        BinaryPtrLocal := FuncScriptInfo^.BinaryPos;
-        BinaryLocal := Self.Binaries.Value^.Data[BinaryPtrLocal].Ptr(0);
+        CodeSegmentIndexLocal := FuncScriptInfo^.CodeSegmentIndex;
+        CodePtrLocal := Self.Binaries.Value^.Data[CodeSegmentIndexLocal].Ptr(0);
         DispatchGoto;
       end else
       begin
         Self.FramePtr := Self.TrapPtr^.FramePtr;
-        CodePtrLocal := Self.TrapPtr^.CatchCode;
-        Self.StackPtr := Self.TrapPtr^.Stack;
-        BinaryPtrLocal := Self.FramePtr^.Binary;
-        BinaryLocal := Self.Binaries.Value^.Data[BinaryPtrLocal].Ptr(0);
+        Self.StackPtr := Self.TrapPtr^.StackPtr;
+        CodeSegmentIndexLocal := Self.FramePtr^.CodeSegmentIndex;
+        CodePtrLocal := Self.Binaries.Value^.Data[CodeSegmentIndexLocal].Ptr(0) + Self.TrapPtr^.CatchCodeIndex;
         Push(E.Message);
         Dec(Self.TrapPtr);
         DispatchGoto;
@@ -6593,8 +6592,8 @@ labelStart:
       end;
     end;
   end;
+  Self.CodeSegmentIndex := CodeSegmentIndexLocal;
   Self.CodePtr := CodePtrLocal;
-  Self.BinaryPtr := BinaryPtrLocal;
 end;
 
 {$ifdef SE_THREADS}
@@ -6610,7 +6609,7 @@ begin
     Inc(Self.VM.StackPtr);
   end;
   Self.VM.StackPtr := Self.VM.StackPtr + Self.VM.Parent.FuncScriptList[Fn.VarFuncIndx].VarCount;
-  Self.VM.BinaryPtr := Self.VM.Parent.FuncScriptList[Fn.VarFuncIndx].BinaryPos;
+  Self.VM.CodeSegmentIndex := Self.VM.Parent.FuncScriptList[Fn.VarFuncIndx].CodeSegmentIndex;
 
   inherited Create(True);
   Self.VM.Parent.VMThreadList.Add(Self);
@@ -6664,9 +6663,9 @@ begin
     Inc(Self.VM.StackPtr);
   end;
   Self.VM.StackPtr := Self.VM.StackPtr + Self.VM.Parent.FuncScriptList[Fn.VarFuncIndx].VarCount;
-  Self.VM.BinaryPtr := Self.VM.Parent.FuncScriptList[Fn.VarFuncIndx].BinaryPos;
+  Self.VM.CodeSegmentIndex := Self.VM.Parent.FuncScriptList[Fn.VarFuncIndx].CodeSegmentIndex;
   Self.FStackPtr := Self.VM.StackPtr;
-  Self.FBinaryPtr := Self.VM.BinaryPtr;
+  Self.FBinaryPtr := Self.VM.CodeSegmentIndex;
 end;
 
 function TSEVMCoroutine.Execute: TSEValue;
@@ -6704,7 +6703,7 @@ begin
     Self.VM.StackPtr[0] := Args[I];
     Inc(Self.VM.StackPtr);
   end;
-  Self.VM.BinaryPtr := Self.FBinaryPtr;
+  Self.VM.CodeSegmentIndex := Self.FBinaryPtr;
   Self.VM.StackPtr := Self.FStackPtr;
   Self.IsTerminated := False;
   Self.IsDone := False;
@@ -7773,8 +7772,8 @@ var
     if (Self.LineOfCodeList.Count = 0) or
        ((Self.LineOfCodeList.Count > 0) and (CurrentLine <> Result.Ln)) then
     begin
-      LineOfCode.BinaryCount := Self.Binary.Count;
-      LineOfCode.BinaryPtr := Self.BinaryPos;
+      LineOfCode.CodeIndex := Self.Binary.Count;
+      LineOfCode.CodeSegmentIndex := Self.CodeSegmentIndex;
       LineOfCode.Line := Result.Ln;
       LineOfCode.Module := Result.BelongedFileName;
       CurrentLine := LineOfCode.Line;
@@ -9278,9 +9277,9 @@ var
       for I := 0 to VarSymbols.Count - 1 do
         Func^.VarSymbols.Add(VarSymbols[I]);
       ParentBinary := Self.Binary;
-      ParentBinaryPos := Self.BinaryPos;
-      Self.Binary := Self.VM.Binaries.Value^.Data[Func^.BinaryPos];
-      Self.BinaryPos := Func^.BinaryPos;
+      ParentBinaryPos := Self.CodeSegmentIndex;
+      Self.Binary := Self.VM.Binaries.Value^.Data[Func^.CodeSegmentIndex];
+      Self.CodeSegmentIndex := Func^.CodeSegmentIndex;
       if PeekAtNextToken.Kind = tkEqual then
         Self.TokenList.Insert(Pos + 1, TokenResult);
       ParseBlock;
@@ -9298,7 +9297,7 @@ var
       Func := Self.FuncScriptList.Ptr(FuncIndex);
       Func^.VarCount := Self.LocalVarCountList[Self.LocalVarCountList.Count - 1] - ArgCount;
       Self.Binary := ParentBinary;
-      Self.BinaryPos := ParentBinaryPos;
+      Self.CodeSegmentIndex := ParentBinaryPos;
     finally
       Self.FuncCurrent := OldFuncCurrent;
       ReturnList.Free;
@@ -10413,7 +10412,7 @@ begin
   Self.VM.BinaryClear;
   Self.VM.IsDone := True;
   Self.Vm.IsPaused := False;
-  Self.BinaryPos := 0;
+  Self.CodeSegmentIndex := 0;
   Self.IsDone := False;
   Self.IsParsed := False;
   Self.IsLex := False;
@@ -10497,19 +10496,19 @@ begin
     begin
       Self.Parse;
     end;
-    Self.VM.CodePtr := 0;
-    Self.VM.BinaryPtr := 0;
+    Self.VM.CodePtr := nil;
+    Self.VM.CodeSegmentIndex := 0;
     Self.VM.IsPaused := False;
     Self.VM.IsDone := False;
     Self.VM.FramePtr := @Self.VM.Frame[0];
     Self.VM.StackPtr := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
-    Self.VM.FramePtr^.Stack := Self.VM.StackPtr;
+    Self.VM.FramePtr^.StackPtr := Self.VM.StackPtr;
     Self.VM.TrapPtr := @Self.VM.Trap[0];
     Dec(Self.VM.TrapPtr);
     Func := Self.FuncScriptList.Ptr(AIndex);
-    Self.VM.BinaryPtr := Func^.BinaryPos;
+    Self.VM.CodeSegmentIndex := Func^.CodeSegmentIndex;
     Self.VM.StackPtr := Self.VM.StackPtr + Func^.ArgCount + Func^.VarCount;
-    if Self.VM.BinaryPtr <> 0 then
+    if Self.VM.CodeSegmentIndex <> 0 then
     begin
       Stack := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
       for I := 0 to Length(Args) - 1 do
@@ -10569,19 +10568,19 @@ begin
       end;
     end else
     begin
-      Self.VM.CodePtr := 0;
-      Self.VM.BinaryPtr := 0;
+      Self.VM.CodePtr := nil;
+      Self.VM.CodeSegmentIndex := 0;
       Self.VM.IsPaused := False;
       Self.VM.IsDone := False;
       Self.VM.FramePtr := @Self.VM.Frame[0];
       Self.VM.StackPtr := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
-      Self.VM.FramePtr^.Stack := Self.VM.StackPtr;
+      Self.VM.FramePtr^.StackPtr := Self.VM.StackPtr;
       Self.VM.TrapPtr := @Self.VM.Trap[0];
       Dec(Self.VM.TrapPtr);
       Func := Self.FuncScriptList.Ptr(AIndex);
-      Self.VM.BinaryPtr := Func^.BinaryPos;
+      Self.VM.CodeSegmentIndex := Func^.CodeSegmentIndex;
       Self.VM.StackPtr := Self.VM.StackPtr + Func^.ArgCount + Func^.VarCount;
-      if Self.VM.BinaryPtr <> 0 then
+      if Self.VM.CodeSegmentIndex <> 0 then
       begin
         Stack := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
         for I := 0 to Length(Args) - 1 do
@@ -10628,7 +10627,7 @@ begin
       begin
         AIndex := I;
         Self.FuncCurrent := I;
-        Self.VM.Binaries.Value^.Data[P^.BinaryPos].Clear;
+        Self.VM.Binaries.Value^.Data[P^.CodeSegmentIndex].Clear;
         P^.HasOverride := IsOverride;
         Exit(P);
       end;
@@ -10638,7 +10637,7 @@ begin
   Self.VM.Binaries.Value^.Data[Self.VM.Binaries.Value^.Size - 1] := TSEBinary.Create;
   Self.VM.Binaries.Value^.Data[Self.VM.Binaries.Value^.Size - 1].BinaryName := Name;
   FuncScriptInfo.ArgCount := ArgCount;
-  FuncScriptInfo.BinaryPos := Self.VM.Binaries.Value^.Size - 1;
+  FuncScriptInfo.CodeSegmentIndex := Self.VM.Binaries.Value^.Size - 1;
   FuncScriptInfo.Name := Name;
   FuncScriptInfo.VarSymbols := TStringList.Create;
   FuncScriptInfo.PossibleKinds := [sevkNumber, sevkString, sevkNull, sevkMap];
