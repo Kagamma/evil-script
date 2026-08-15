@@ -112,6 +112,16 @@ type
     opOperatorDiv,
     opOperatorMod,
     opOperatorNegative,
+
+    opOperatorLesser0,
+    opOperatorLesserOrEqual0,
+    opOperatorGreater0,
+    opOperatorGreaterOrEqual0,
+    opOperatorEqual0,
+    opOperatorNotEqual0,
+    opOperatorAnd0,
+    opOperatorOr0,
+
     opOperatorLesser,
     opOperatorLesserOrEqual,
     opOperatorGreater,
@@ -721,6 +731,16 @@ const
     1, // opOperatorDiv,
     1, // opOperatorMod,
     1, // opOperatorNegative,
+
+    2, // opOperatorLesser0,
+    2, // opOperatorLesserOrEqual0,
+    2, // opOperatorGreater0,
+    2, // opOperatorGreaterOrEqual0,
+    2, // opOperatorEqual0,
+    2, // opOperatorNotEqual0,
+    2, // opOperatorAnd0,
+    2, // opOperatorOr0,
+  
     1, // opOperatorLesser,
     1, // opOperatorLesserOrEqual,
     1, // opOperatorGreater,
@@ -3315,7 +3335,7 @@ end;
 
 // ----- Fast inline TSEValue operations -----
 
-procedure SEValueAdd(out R: TSEValue; constref V1, V2: TSEValue); inline; overload;
+procedure SEValueAdd(out R: TSEValue; constref V1, V2: TSEValue); overload;
 var
   I, Len: NativeInt;
   Temp: TSEValue;
@@ -3367,7 +3387,7 @@ begin
     end;
 end;
 
-procedure SEValueSub(out R: TSEValue; constref V1, V2: TSEValue); inline; overload;
+procedure SEValueSub(out R: TSEValue; constref V1, V2: TSEValue); overload;
 var
   Temp: TSEValue;
 begin
@@ -5580,6 +5600,16 @@ label
   labelOperatorDiv,
   labelOperatorMod,
   labelOperatorNegative,
+
+  labelOperatorLesser0,
+  labelOperatorLesserOrEqual0,
+  labelOperatorGreater0,
+  labelOperatorGreaterOrEqual0,
+  labelOperatorEqual0,
+  labelOperatorNotEqual0,
+  labelOperatorAnd0,
+  labelOperatorOr0,
+
   labelOperatorLesser,
   labelOperatorLesserOrEqual,
   labelOperatorGreater,
@@ -5645,6 +5675,16 @@ var
     @labelOperatorDiv,
     @labelOperatorMod,
     @labelOperatorNegative,
+
+    @labelOperatorLesser0,
+    @labelOperatorLesserOrEqual0,
+    @labelOperatorGreater0,
+    @labelOperatorGreaterOrEqual0,
+    @labelOperatorEqual0,
+    @labelOperatorNotEqual0,
+    @labelOperatorAnd0,
+    @labelOperatorOr0,
+
     @labelOperatorLesser,
     @labelOperatorLesserOrEqual,
     @labelOperatorGreater,
@@ -5732,6 +5772,88 @@ labelStart:
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
+
+      {$ifndef SE_COMPUTED_GOTO}opOperatorLesser0:{$endif}
+        begin
+        labelOperatorLesser0:
+          Self.StackPtr^ := Pop^.VarNumber < BinaryLocal[CodePtrLocal + 1].VarNumber;
+          Inc(Self.StackPtr);
+          Inc(CodePtrLocal, 2);
+          DispatchGoto;
+        end;
+      {$ifndef SE_COMPUTED_GOTO}opOperatorLesserOrEqual0:{$endif}
+        begin
+        labelOperatorLesserOrEqual0:
+          Self.StackPtr^ := Pop^.VarNumber <= BinaryLocal[CodePtrLocal + 1].VarNumber;
+          Inc(Self.StackPtr);
+          Inc(CodePtrLocal, 2);
+          DispatchGoto;
+        end;
+      {$ifndef SE_COMPUTED_GOTO}opOperatorGreater0:{$endif}
+        begin
+        labelOperatorGreater0:
+          Self.StackPtr^ := Pop^.VarNumber > BinaryLocal[CodePtrLocal + 1].VarNumber;
+          Inc(Self.StackPtr);
+          Inc(CodePtrLocal, 2);
+          DispatchGoto;
+        end;
+      {$ifndef SE_COMPUTED_GOTO}opOperatorGreaterOrEqual0:{$endif}
+        begin
+        labelOperatorGreaterOrEqual0:
+          Self.StackPtr^ := Pop^.VarNumber >= BinaryLocal[CodePtrLocal + 1].VarNumber;
+          Inc(Self.StackPtr);
+          Inc(CodePtrLocal, 2);
+          DispatchGoto;
+        end;
+      {$ifndef SE_COMPUTED_GOTO}opOperatorEqual0:{$endif}
+        begin
+        labelOperatorEqual0:
+          A := Pop;
+          if A^.Kind = sevkNumber then
+            Self.StackPtr^ := A^.VarNumber = BinaryLocal[CodePtrLocal + 1].VarNumber
+          else
+            SEValueEqual(Self.StackPtr^, A^, BinaryLocal[CodePtrLocal + 1]);
+          Inc(Self.StackPtr);
+          Inc(CodePtrLocal, 2);
+          DispatchGoto;
+        end;
+      {$ifndef SE_COMPUTED_GOTO}opOperatorNotEqual0:{$endif}
+        begin
+        labelOperatorNotEqual0:
+          A := Pop;
+          if A^.Kind = sevkNumber then
+            Self.StackPtr^ := A^.VarNumber <> BinaryLocal[CodePtrLocal + 1].VarNumber
+          else
+            SEValueNotEqual(Self.StackPtr^, A^, BinaryLocal[CodePtrLocal + 1]);
+          Inc(Self.StackPtr);
+          Inc(CodePtrLocal, 2);
+          DispatchGoto;
+        end;
+      {$ifndef SE_COMPUTED_GOTO}opOperatorAnd0:{$endif}
+        begin
+        labelOperatorAnd0:
+          Self.StackPtr^.VarNumber := NativeInt(Pop^) and NativeInt(BinaryLocal[CodePtrLocal + 1]);
+          Inc(Self.StackPtr);
+          Inc(CodePtrLocal);
+          DispatchGoto;
+        end;
+      {$ifndef SE_COMPUTED_GOTO}opOperatorOr0:{$endif}
+        begin
+        labelOperatorOr0:
+          Self.StackPtr^.VarNumber := NativeInt(Pop^) or NativeInt(BinaryLocal[CodePtrLocal + 1]);
+          Inc(Self.StackPtr);
+          Inc(CodePtrLocal);
+          DispatchGoto;
+        end;
+
+      {$ifndef SE_COMPUTED_GOTO}opOperatorNegative:{$endif}
+        begin
+        labelOperatorNegative:
+          SEValueNeg(Self.StackPtr^, Pop^);
+          Inc(Self.StackPtr);
+          Inc(CodePtrLocal);
+          DispatchGoto;
+        end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorAdd:{$endif}
         begin
         labelOperatorAdd:
@@ -5783,38 +5905,6 @@ labelStart:
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorEqual:{$endif}
-        begin
-        labelOperatorEqual:
-          SEValueEqual(Self.StackPtr^, {A}Pop^, Pop^);
-          Inc(Self.StackPtr);
-          Inc(CodePtrLocal);
-          DispatchGoto;
-        end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorNotEqual:{$endif}
-        begin
-        labelOperatorNotEqual:
-          SEValueNotEqual(Self.StackPtr^, {A}Pop^, Pop^);
-          Inc(Self.StackPtr);
-          Inc(CodePtrLocal);
-          DispatchGoto;
-        end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorShiftLeft:{$endif}
-        begin
-        labelOperatorShiftLeft:
-          SEValueShiftLeft(Self.StackPtr^, {A}Pop^, Pop^);
-          Inc(Self.StackPtr);
-          Inc(CodePtrLocal);
-          DispatchGoto;
-        end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorShiftRight:{$endif}
-        begin
-        labelOperatorShiftRight:
-          SEValueShiftRight(Self.StackPtr^, {A}Pop^, Pop^);
-          Inc(Self.StackPtr);
-          Inc(CodePtrLocal);
-          DispatchGoto;
-        end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorLesser:{$endif}
         begin
         labelOperatorLesser:
@@ -5843,6 +5933,22 @@ labelStart:
         begin
         labelOperatorGreaterOrEqual:
           SEValueGreaterOrEqual(Self.StackPtr^, {A}Pop^, Pop^);
+          Inc(Self.StackPtr);
+          Inc(CodePtrLocal);
+          DispatchGoto;
+        end;
+      {$ifndef SE_COMPUTED_GOTO}opOperatorEqual:{$endif}
+        begin
+        labelOperatorEqual:
+          SEValueEqual(Self.StackPtr^, {A}Pop^, Pop^);
+          Inc(Self.StackPtr);
+          Inc(CodePtrLocal);
+          DispatchGoto;
+        end;
+      {$ifndef SE_COMPUTED_GOTO}opOperatorNotEqual:{$endif}
+        begin
+        labelOperatorNotEqual:
+          SEValueNotEqual(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -5876,14 +5982,7 @@ labelStart:
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorNegative:{$endif}
-        begin
-        labelOperatorNegative:
-          SEValueNeg(Self.StackPtr^, Pop^);
-          Inc(Self.StackPtr);
-          Inc(CodePtrLocal);
-          DispatchGoto;
-        end;
+
       {$ifndef SE_COMPUTED_GOTO}opOperatorAdd1:{$endif}
         begin
         labelOperatorAdd1:
@@ -5924,6 +6023,22 @@ labelStart:
           SEValueDiv(Self.StackPtr^, Pop^, {B}GetVariable(BinaryLocal[CodePtrLocal + 1], {P}BinaryLocal[CodePtrLocal + 2].VarPointer)^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 3);
+          DispatchGoto;
+        end;
+      {$ifndef SE_COMPUTED_GOTO}opOperatorShiftLeft:{$endif}
+        begin
+        labelOperatorShiftLeft:
+          SEValueShiftLeft(Self.StackPtr^, {A}Pop^, Pop^);
+          Inc(Self.StackPtr);
+          Inc(CodePtrLocal);
+          DispatchGoto;
+        end;
+      {$ifndef SE_COMPUTED_GOTO}opOperatorShiftRight:{$endif}
+        begin
+        labelOperatorShiftRight:
+          SEValueShiftRight(Self.StackPtr^, {A}Pop^, Pop^);
+          Inc(Self.StackPtr);
+          Inc(CodePtrLocal);
           DispatchGoto;
         end;
 
@@ -7861,6 +7976,34 @@ var
   procedure ParseArrayAssign; forward;
   procedure ParseFuncAnonDecl(const ATraversal: Cardinal = 1); forward;
 
+  function OpToOp0(const Op: TSEOpcode): TSEOpcode; inline;
+  begin
+    case Op of
+      opOperatorAdd:
+        Result := opOperatorAdd0;
+      opOperatorMul:
+        Result := opOperatorMul0;
+      opOperatorDiv:
+        Result := opOperatorDiv0;
+      opOperatorAnd:
+        Result := opOperatorAnd0;
+      opOperatorOr:
+        Result := opOperatorOr0;
+      opOperatorEqual:
+        Result := opOperatorEqual0;
+      opOperatorNotEqual:
+        Result := opOperatorNotEqual0;
+      opOperatorGreater:
+        Result := opOperatorGreater0;
+      opOperatorGreaterOrEqual:
+        Result := opOperatorGreaterOrEqual0;
+      opOperatorLesser:
+        Result := opOperatorLesser0;
+      opOperatorLesserOrEqual:
+        Result := opOperatorLesserOrEqual0;
+    end;
+  end;
+
   function OpToOp1(const Op: TSEOpcode): TSEOpcode; inline;
   begin
     case Op of
@@ -7968,6 +8111,10 @@ var
             opPushGlobalVar, opPushLocalVar, opPushArrayPop,
             opOperatorAdd0, opOperatorMul0, opOperatorDiv0,
             opOperatorAdd1, opOperatorSub1, opOperatorMul1, opOperatorDiv1,
+            opOperatorAdd, opOperatorSub, opOperatorMul, opOperatorDiv,
+            opOperatorGreater, opOperatorGreaterOrEqual, opOperatorLesser, opOperatorLesserOrEqual,
+            opOperatorEqual, opOperatorNotEqual, opOperatorAnd, opOperatorOr, opOperatorXor, opOperatorNot,
+            opOperatorInc, opOperatorNegative,
             opCallScript, opCallNative, opCallImport
           ]);
           if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
@@ -8012,6 +8159,10 @@ var
             opPushGlobalVar, opPushLocalVar, opPushArrayPop,
             opOperatorAdd0, opOperatorMul0, opOperatorDiv0,
             opOperatorAdd1, opOperatorSub1, opOperatorMul1, opOperatorDiv1,
+            opOperatorAdd, opOperatorSub, opOperatorMul, opOperatorDiv,
+            opOperatorGreater, opOperatorGreaterOrEqual, opOperatorLesser, opOperatorLesserOrEqual,
+            opOperatorEqual, opOperatorNotEqual, opOperatorAnd, opOperatorOr, opOperatorXor, opOperatorNot,
+            opOperatorInc, opOperatorNegative,
             opCallScript, opCallNative, opCallImport
           ]);
           if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
@@ -8043,13 +8194,25 @@ var
             end;
           end;
         end;
-      opOperatorDiv:
+      opOperatorDiv,
+      opOperatorEqual,
+      opOperatorNotEqual,
+      opOperatorGreater,
+      opOperatorGreaterOrEqual,
+      opOperatorLesser,
+      opOperatorLesserOrEqual,
+      opOperatorAnd,
+      opOperatorOr:
         begin
           OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushConst]);
           OpInfoPrev2 := PeekAtPrevOpExpected(1, [
             opPushGlobalVar, opPushLocalVar,
             opOperatorAdd0, opOperatorMul0, opOperatorDiv0,
             opOperatorAdd1, opOperatorSub1, opOperatorMul1, opOperatorDiv1,
+            opOperatorAdd, opOperatorSub, opOperatorMul, opOperatorDiv,
+            opOperatorGreater, opOperatorGreaterOrEqual, opOperatorLesser, opOperatorLesserOrEqual,
+            opOperatorEqual, opOperatorNotEqual, opOperatorAnd, opOperatorOr, opOperatorXor, opOperatorNot,
+            opOperatorInc, opOperatorNegative,
             opPushArrayPop, opCallScript, opCallNative, opCallImport
           ]);
           if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
@@ -8061,7 +8224,7 @@ var
               Exit;
             Self.Binary.DeleteRange(Self.Binary.Count - 2, 2);
             Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 1, 1);
-            Emit([Pointer(NativeInt(opOperatorDiv0)), A.VarNumber]);
+            Emit([Pointer(NativeInt(OpToOp0(Op))), A.VarNumber]);
             Result := True;
           end;
         end;
@@ -8073,8 +8236,7 @@ var
     A: TSEValue;
     I: NativeInt;
     P: Pointer;
-    OpInfoPrev1,
-    OpInfoPrev2: PSEOpcodeInfo;
+    OpInfoPrev1: PSEOpcodeInfo;
   begin
     Result := False;
     if not Self.OptimizePeephole then
