@@ -143,9 +143,9 @@ type
   TSEOpcodeSet = set of TSEOpcode;
   TSEOpcodeInfo = record
     Op: TSEOpcode;
-    Pos: Integer;
+    Pos: NativeInt;
     Binary: Pointer;
-    Size: Integer;
+    Size: NativeInt;
   end;
   PSEOpcodeInfo = ^TSEOpcodeInfo;
 
@@ -186,8 +186,8 @@ type
   PSEPascalObject = ^TSEPascalObject;
 
   TSEListStack = specialize TStack<TList>;
-  TSEScopeStack = specialize TStack<Integer>;
-  TSEIntegerList = specialize TList<Integer>;
+  TSEScopeStack = specialize TStack<NativeInt>;
+  TSEIntegerList = specialize TList<NativeInt>;
   TSECardinalList = specialize TList<Cardinal>;
   TSEVM = class;
   TSEVMList = specialize TList<TSEVM>;
@@ -253,19 +253,19 @@ type
   TSEStackTraceSymbolProc = procedure(Message: String; Nodes: TSEStackTraceSymbolArray) of object;
 
   TSEValueHelper = record helper for TSEValue
-    procedure AllocBuffer(constref Size: Integer); inline;
+    procedure AllocBuffer(constref Size: NativeInt); inline;
     procedure AllocMap; inline;
     procedure AllocString(const S: String); inline;
     procedure AllocPascalObject(const Obj: TObject; const IsManaged: Boolean); inline;
-    function GetValue(constref I: Integer): TSEValue; inline; overload;
+    function GetValue(constref I: NativeInt): TSEValue; inline; overload;
     function GetValue(constref S: String): TSEValue; inline; overload;
     function GetValue(constref I: TSEValue): TSEValue; inline; overload;
-    procedure SetValue(constref I: Integer; const A: TSEValue); inline; overload;
+    procedure SetValue(constref I: NativeInt; const A: TSEValue); inline; overload;
     procedure SetValue(constref S: String; const A: TSEValue); inline; overload;
     procedure SetValue(I: TSEValue; const A: TSEValue); inline; overload;
     function GetProp(I: TSEValue): TSEValue;
     procedure SetProp(I: TSEValue; const A: TSEValue);
-    function Invoke(constref MethodName: String; const Args: PSEValue; const ArgCount: Integer): TSEValue;
+    function Invoke(constref MethodName: String; const Args: PSEValue; const ArgCount: NativeInt): TSEValue;
     function ContainsKey(constref S: String): Boolean; inline; overload;
     procedure UnManaged; inline;
     procedure Managed; inline;
@@ -309,7 +309,7 @@ type
     function Get2(const Index: SizeInt): TSEValue; overload; inline;
     procedure Del2(const Key: PString); overload; inline;
     procedure Del2(const Index: SizeInt); overload; inline;
-    function Ptr(const I: Integer): PSEValue;
+    function Ptr(const I: NativeInt): PSEValue;
     property Map: TSEValueDict read FMap;
     property IsValidArray: Boolean read FIsValidArray;
   end;
@@ -336,7 +336,7 @@ type
   end;
   TSEGCNodeListAncestor = specialize TList<TSEGCNode>;
   TSEGCNodeList = class(specialize TSEListPtr<TSEGCNode>);
-  TSEGCNodeAvailStack = specialize TStack<Integer>;
+  TSEGCNodeAvailStack = specialize TStack<NativeInt>;
 
   TSEGarbageCollectorPhase = (
     segcpRest,
@@ -372,7 +372,7 @@ type
     FNodeLastYoung,
     FNodeLastOld: Cardinal;
     FRunCount: Cardinal;
-    FTicks: QWord;
+    FTicks: NativeUInt;
     FInterval: Cardinal;
     FPromotion: Byte;
     FOldObjectCheckCycle: Byte;
@@ -387,7 +387,7 @@ type
     procedure CheckForGC;
     procedure CheckForGCFast;
     procedure GC(const Forced: Boolean = False);
-    procedure AllocBuffer(const PValue: PSEValue; const Size: Integer);
+    procedure AllocBuffer(const PValue: PSEValue; const Size: NativeInt);
     procedure AllocMap(const PValue: PSEValue);
     procedure AllocString(const PValue: PSEValue; const S: String);
     procedure AllocPascalObject(const PValue: PSEValue; const Obj: TObject; const IsManaged: Boolean);
@@ -437,16 +437,16 @@ type
     PossibleKinds: TSEValueKindSet;
     Name: String;
     Func: TSEFunc;
-    ArgCount: Integer;
+    ArgCount: NativeInt;
   end;
   PSEFuncNativeInfo = ^TSEFuncNativeInfo;
 
   TSEFuncScriptInfo = record
     PossibleKinds: TSEValueKindSet;
     Name: String;
-    BinaryPos: Integer;
-    ArgCount: Integer;
-    VarCount: Integer;
+    BinaryPos: NativeInt;
+    ArgCount: NativeInt;
+    VarCount: NativeInt;
     VarSymbols: TStrings;
     HasSelf: Boolean;
     HasOverride: Boolean;
@@ -470,28 +470,28 @@ type
   TSEFuncImportList = class(specialize TSEListPtr<TSEFuncImportInfo>);
 
   TSELineOfCode = record
-    BinaryCount: Integer;
-    BinaryPtr: Integer;
-    Line: Integer;
+    BinaryCount: NativeInt;
+    BinaryPtr: NativeInt;
+    Line: NativeInt;
     Module: String;
   end;
   TSELineOfCodeList = specialize TList<TSELineOfCode>;
 
-  TSEConstLookup = specialize TSEDictionary<String, Integer>;
+  TSEConstLookup = specialize TSEDictionary<String, NativeInt>;
   TSEStack = TSEValueListAncestor;
   TSEVarMap = TSEValue;
   TSEFrame = record
-    Code: Integer;
+    Code: NativeInt;
     Stack: PSEValue;
-    Binary: Integer;
+    Binary: NativeInt;
     Func: PSEFuncScriptInfo;
   end;
   PSEFrame = ^TSEFrame;
   TSETrap = record
     FramePtr: PSEFrame;
     Stack: PSEValue;
-    Binary: Integer;
-    CatchCode: Integer;
+    Binary: NativeInt;
+    CatchCode: NativeInt;
   end;
   PSETrap = ^TSETrap;
 
@@ -499,7 +499,7 @@ type
   TSEValueArrayManagedRecord = record
     Data: PSEValue;
     Size: Cardinal;
-    RefCount: Integer;
+    RefCount: NativeInt;
   end;
 
   TSEValueArrayManaged = record
@@ -513,7 +513,7 @@ type
   TSEBinariesManagedRecord = record
     Data: array of TSEBinary;
     Size: Cardinal;
-    RefCount: Integer;
+    RefCount: NativeInt;
   end;
 
   TSEBinariesManaged = record
@@ -538,7 +538,7 @@ type
 
   TSEVMCoroutine = class
     FStackPtr: PSEValue;
-    FBinaryPtr: Integer;
+    FBinaryPtr: NativeInt;
     IsDone: Boolean;
     IsExecuting: Boolean;
     IsTerminated: Boolean;
@@ -569,14 +569,14 @@ type
     Stack: array of TSEValue;
     Frame: array of TSEFrame;
     Trap: array of TSETrap;
-    CodePtr: Integer;
+    CodePtr: NativeInt;
     StackPtr: PSEValue;
-    BinaryPtr: Integer;
+    BinaryPtr: NativeInt;
     FramePtr: PSEFrame;
     TrapPtr: PSETrap;
-    StackSize: Integer;
-    FrameSize: Integer;
-    TrapSize: Integer;
+    StackSize: NativeInt;
+    FrameSize: NativeInt;
+    TrapSize: NativeInt;
     Parent: TEvilC;
     Binaries: TSEBinariesManaged;
 
@@ -759,15 +759,15 @@ type
   TSEIdent = record
     PossibleKinds: TSEValueKindSet;
     Kind: TSEIdentKind;
-    Addr: Integer;
+    Addr: NativeInt;
     IsUsed: Boolean;
     IsAssigned: Boolean;
     IsConst: Boolean;
     ConstValue: TSEValue;
-    Local: Integer;
-    Block: Integer;
-    Ln: Integer;
-    Col: Integer;
+    Local: NativeInt;
+    Block: NativeInt;
+    Ln: NativeInt;
+    Col: NativeInt;
     Name: String;
   end;
   PSEIdent = ^TSEIdent;
@@ -778,7 +778,7 @@ type
     Kind: TSETokenKind;
     BelongedFileName,
     Value: String;
-    Ln, Col: Integer;
+    Ln, Col: NativeInt;
   end;
   PSEToken = ^TSEToken;
   TSETokenList = specialize TList<TSEToken>;
@@ -786,7 +786,7 @@ type
   TEvilC = class
   private
     FSource: String;
-    FInternalIdentCount: QWord;
+    FInternalIdentCount: NativeUInt;
     procedure SetSource(V: String);
     function InternalIdent: String;
   public
@@ -795,7 +795,7 @@ type
     OptimizePeephole,         // True = enable peephole optimization, default is true
     OptimizeConstantFolding,  // True = enable constant folding optimization, default is true
     OptimizeAsserts: Boolean; // True = ignore assert, default is true
-    ErrorLn, ErrorCol: Integer;
+    ErrorLn, ErrorCol: NativeInt;
     VM: TSEVM;
     {$ifdef SE_THREADS}
     VMThreadList: TSEVMThreadList;
@@ -807,7 +807,7 @@ type
     TokenList: TSETokenList;
     OpcodeInfoList: TSEOpcodeInfoList;
     LocalVarCountList: TSEIntegerList;
-    GlobalVarCount: Integer;
+    GlobalVarCount: NativeInt;
     GlobalVarSymbols: TStrings;
     VarList: TSEIdentList;
     FuncNativeList: TSEFuncNativeList;
@@ -820,11 +820,11 @@ type
     IsLex,
     IsParsed: Boolean;
     IsDone: Boolean;
-    FuncCurrent: Integer;
-    FuncTraversal: Integer;
-    BlockTraversal: Integer;
+    FuncCurrent: NativeInt;
+    FuncTraversal: NativeInt;
+    BlockTraversal: NativeInt;
     CurrentFileList: TStrings;
-    BinaryPos: Integer; // This is mainly for storing line of code for runtime
+    BinaryPos: NativeInt; // This is mainly for storing line of code for runtime
     Binary: TSEBinary; // Current working binary
     constructor Create(const StackSize: LongWord = 2048);
     destructor Destroy; override;
@@ -840,18 +840,18 @@ type
     function ExecFuncOnly(const Name: String; const Args: array of TSEValue): TSEValue; overload;
     // This method is equivalent of calling Exec(), then ExecFuncOnly()
     function ExecFunc(const Name: String; const Args: array of TSEValue): TSEValue; overload;
-    function ExecFuncOnly(const AIndex: Integer; const Args: array of TSEValue): TSEValue; overload;
-    function ExecFunc(const AIndex: Integer; const Args: array of TSEValue): TSEValue; overload;
-    procedure RegisterFunc(const Name: String; const Func: TSEFunc; const ArgCount: Integer);
-    function RegisterScriptFunc(const Name: String; const ArgCount: Integer; var AIndex: Cardinal; const IsOverride: Boolean = False): PSEFuncScriptInfo;
+    function ExecFuncOnly(const AIndex: NativeInt; const Args: array of TSEValue): TSEValue; overload;
+    function ExecFunc(const AIndex: NativeInt; const Args: array of TSEValue): TSEValue; overload;
+    procedure RegisterFunc(const Name: String; const Func: TSEFunc; const ArgCount: NativeInt);
+    function RegisterScriptFunc(const Name: String; const ArgCount: NativeInt; var AIndex: Cardinal; const IsOverride: Boolean = False): PSEFuncScriptInfo;
     procedure RegisterImportFunc(const Name, ActualName, LibName: String; const Args: TSEAtomKindArray; const Return: TSEAtomKind; const CC: TSECallingConvention = seccAuto);
     function Backup: TSECache;
     procedure Restore(const Cache: TSECache);
     function FindFunc(const Name: String): Pointer; inline; overload;
-    function FindFuncNative(const Name: String; var Ind: Integer): PSEFuncNativeInfo; inline;
-    function FindFuncScript(const Name: String; var Ind: Integer): PSEFuncScriptInfo; inline;
-    function FindFuncImport(const Name: String; var Ind: Integer): PSEFuncImportInfo; inline;
-    function FindFunc(const Name: String; var Kind: TSEFuncKind; var Ind: Integer): Pointer; inline; overload;
+    function FindFuncNative(const Name: String; var Ind: NativeInt): PSEFuncNativeInfo; inline;
+    function FindFuncScript(const Name: String; var Ind: NativeInt): PSEFuncScriptInfo; inline;
+    function FindFuncImport(const Name: String; var Ind: NativeInt): PSEFuncImportInfo; inline;
+    function FindFunc(const Name: String; var Kind: TSEFuncKind; var Ind: NativeInt): Pointer; inline; overload;
     procedure SetConst(const Name: String; const Value: TSEValue); inline; overload;
 
     property IsPaused: Boolean read GetIsPaused write SetIsPaused;
@@ -863,14 +863,14 @@ type
 function SEValueToText(const Value: TSEValue; const IsRoot: Boolean = True): String;
 function SESize(constref Value: TSEValue): SizeInt; inline;
 procedure SEValidateType(V: PSEValue; Expected: TSEValueKind; At: DWord; const FuncName: String); inline;
-procedure SEMapDelete(constref V: TSEValue; const I: Integer); inline; overload;
+procedure SEMapDelete(constref V: TSEValue; const I: NativeInt); inline; overload;
 procedure SEMapDelete(constref V: TSEValue; constref S: String); inline; overload;
 procedure SEMapDelete(constref V, I: TSEValue); inline; overload;
-function SEMapGet(constref V: TSEValue; const I: Integer): TSEValue; inline; overload;
+function SEMapGet(constref V: TSEValue; const I: NativeInt): TSEValue; inline; overload;
 function SEMapGet(constref V: TSEValue; constref S: String): TSEValue; inline; overload;
 function SEMapGet(constref V, I: TSEValue): TSEValue; inline; overload;
 procedure SEMapGet(out R: TSEValue; constref V, I: TSEValue); inline; overload;
-procedure SEMapSet(constref V: TSEValue; const I: Integer; constref A: TSEValue); inline; overload;
+procedure SEMapSet(constref V: TSEValue; const I: NativeInt; constref A: TSEValue); inline; overload;
 procedure SEMapSet(constref V: TSEValue; constref S: String; constref A: TSEValue); inline; overload;
 procedure SEMapSet(constref V, I: TSEValue; constref A: TSEValue); inline; overload;
 function SEMapIsValidArray(constref V: TSEValue): Boolean; inline;
@@ -883,7 +883,7 @@ operator := (V: String) R: TSEValue;
 operator := (V: Boolean) R: TSEValue;
 operator := (V: TSEValueArray) R: TSEValue;
 operator := (V: Pointer) R: TSEValue;
-operator := (V: TSEValue) R: Integer;
+operator := (V: TSEValue) R: NativeInt;
 operator := (V: TSEValue) R: TValue;
 operator := (V: TValue) R: TSEValue;
 {$ifdef CPU64}
@@ -1206,7 +1206,7 @@ begin
   end;
 end;
 
-function StringIndexOf(S, P: String): Integer; inline;
+function StringIndexOf(S, P: String): NativeInt; inline;
 begin
   {$ifdef SE_STRING_UTF8}
   Result := UTF8Pos(P, S);
@@ -1220,7 +1220,7 @@ function SEValueToText(const Value: TSEValue; const IsRoot: Boolean = True): Str
 var
   Key, S: String;
   IsValidArray: Boolean;
-  I: Integer = 0;
+  I: NativeInt = 0;
 begin
   case Value.Kind of
     sevkString:
@@ -1272,7 +1272,7 @@ begin
       Result := 'null';
     sevkBuffer:
       begin
-        Result := 'buffer@' + IntToStr(QWord(Value.VarBuffer^.Ptr));
+        Result := 'buffer@' + IntToStr(NativeUInt(Value.VarBuffer^.Ptr));
         if Value.VarBuffer^.Base <> nil then
         begin
           Result := Result + ' <' + IntToStr(MemSize(Value.VarBuffer^.Base) - 16) + ' bytes>';
@@ -1280,11 +1280,11 @@ begin
       end;
     sevkPointer:
       begin
-        Result := IntToStr(Integer(Value.VarPointer));
+        Result := IntToStr(NativeInt(Value.VarPointer));
       end;
     sevkPascalObject:
       begin
-        Result := 'pasobject@' + IntToStr(QWord(Value.VarPascalObject^.Value));
+        Result := 'pasobject@' + IntToStr(NativeUInt(Value.VarPascalObject^.Value));
       end;
     sevkConstString:
       Result := '.' + ConstStrings.Ptr(Value.VarConstStringIndex)^;
@@ -1316,7 +1316,7 @@ begin
   end;
 end;
 
-procedure SEMapDelete(constref V: TSEValue; const I: Integer); inline; overload;
+procedure SEMapDelete(constref V: TSEValue; const I: NativeInt); inline; overload;
 begin
   TSEValueMap(V.VarMap).Del2(I);
 end;
@@ -1342,7 +1342,7 @@ end;
 
 
 
-function SEMapGet(constref V: TSEValue; const I: Integer): TSEValue; inline; overload;
+function SEMapGet(constref V: TSEValue; const I: NativeInt): TSEValue; inline; overload;
 begin
   Result := TSEValueMap(V.VarMap).Items[I];
 end;
@@ -1392,7 +1392,7 @@ begin
   end;
 end;
 
-procedure SEMapSet(constref V: TSEValue; const I: Integer; constref A: TSEValue); inline; overload;
+procedure SEMapSet(constref V: TSEValue; const I: NativeInt; constref A: TSEValue); inline; overload;
 begin
   TSEValueMap(V.VarMap).Set2(I, A);
 end;
@@ -1423,7 +1423,7 @@ end;
 
 procedure SEDisAsm(const VM: TSEVM; var Res: String);
 var
-  I, J, K: Integer;
+  I, J, K: NativeInt;
   SB: TStringBuilder;
   Binary: TSEBinary;
   Op: TSEOpcode;
@@ -1441,7 +1441,7 @@ begin
       I := 0;
       while I <= Binary.Count - 1 do
       begin
-        Op := TSEOpcode(QWord(Binary[I].VarPointer));
+        Op := TSEOpcode(NativeUInt(Binary[I].VarPointer));
         System.WriteStr(S, Op);
         SB.Append(IntToStr(I) + ': ' + S);
         for K := 1 to OpcodeSizes[Op] - 1 do
@@ -1511,7 +1511,7 @@ end;
 
 function SEClone(constref V: TSEValue): TSEValue;
 var
-  I: Integer;
+  I: NativeInt;
   S, Key: String;
 begin
   case V.Kind of
@@ -1555,7 +1555,7 @@ begin
   end;
 end;
 
-procedure TSEValueHelper.AllocBuffer(constref Size: Integer); inline;
+procedure TSEValueHelper.AllocBuffer(constref Size: NativeInt); inline;
 begin
   GC.AllocBuffer(@Self, Size);
 end;
@@ -1575,7 +1575,7 @@ begin
   GC.AllocPascalObject(@Self, Obj, IsManaged);
 end;
 
-function TSEValueHelper.GetValue(constref I: Integer): TSEValue; inline; overload;
+function TSEValueHelper.GetValue(constref I: NativeInt): TSEValue; inline; overload;
 begin
   Result := SEMapGet(Self, I);
 end;
@@ -1590,7 +1590,7 @@ begin
   Result := SEMapGet(Self, I);
 end;
 
-procedure TSEValueHelper.SetValue(constref I: Integer; const A: TSEValue); inline; overload;
+procedure TSEValueHelper.SetValue(constref I: NativeInt; const A: TSEValue); inline; overload;
 begin
   SEMapSet(Self, I, A);
 end;
@@ -1695,14 +1695,14 @@ begin
   end;
 end;
 
-function TSEValueHelper.Invoke(constref MethodName: String; const Args: PSEValue; const ArgCount: Integer): TSEValue;
+function TSEValueHelper.Invoke(constref MethodName: String; const Args: PSEValue; const ArgCount: NativeInt): TSEValue;
 var
   Obj: TObject;
   MethodArgs: array of TValue;
   Ctx: TRttiContext;
   RttiType: TRttiType;
   Method: TRttiMethod;
-  I: Integer;
+  I: NativeInt;
 begin
   Obj := Self.VarPascalObject^.Value;
   Ctx := TRttiContext.Create;
@@ -1827,7 +1827,7 @@ begin
   SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   SEValidateType(@Args[1], sevkNumber, 2, {$I %CURRENTROUTINE%});
   SEValidateType(@Args[2], sevkNumber, 3, {$I %CURRENTROUTINE%});
-  FillQWord(Args[0].VarBuffer^.Ptr^, Round(Args[2].VarNumber), QWord(Round(Args[1].VarNumber)));
+  FillQWord(Args[0].VarBuffer^.Ptr^, Round(Args[2].VarNumber), NativeUInt(Round(Args[1].VarNumber)));
   Result := Args[0];
 end;
 
@@ -1887,7 +1887,7 @@ begin
   SEValidateType(@Args[1], sevkNumber, 2, {$I %CURRENTROUTINE%});
   SEValidateType(@Args[2], sevkNumber, 3, {$I %CURRENTROUTINE%});
   V := Args[1].VarNumber;
-  FillQWord(Args[0].VarBuffer^.Ptr^, Round(Args[2].VarNumber), QWord((@V)^));
+  FillQWord(Args[0].VarBuffer^.Ptr^, Round(Args[2].VarNumber), NativeUInt((@V)^));
   Result := Args[0];
 end;
 
@@ -1916,7 +1916,7 @@ class function TBuiltInFunction.SEBufferGetU64(const VM: TSEVM; const Args: PSEV
 begin
   SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   Result.Kind := sevkNumber;
-  Result.VarNumber := QWord((Args[0].VarBuffer^.Ptr)^);
+  Result.VarNumber := NativeUInt((Args[0].VarBuffer^.Ptr)^);
 end;
 
 class function TBuiltInFunction.SEBufferGetI8(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -1992,9 +1992,9 @@ begin
   SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   case Args[1].Kind of
     sevkBuffer:
-      QWord(Args[0].VarBuffer^.Ptr^) := QWord(Args[1].VarBuffer^.Ptr);
+      NativeUInt(Args[0].VarBuffer^.Ptr^) := NativeUInt(Args[1].VarBuffer^.Ptr);
     else
-      QWord(Args[0].VarBuffer^.Ptr^) := Round(Args[1].VarNumber);
+      NativeUInt(Args[0].VarBuffer^.Ptr^) := Round(Args[1].VarNumber);
   end;
   Result := SENull;
 end;
@@ -2073,8 +2073,8 @@ end;
 
 class function TBuiltInFunction.SEArrayToBufferF32(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 var
-  I: Integer;
-  Size: QWord;
+  I: NativeInt;
+  Size: NativeUInt;
 begin
   SEValidateType(@Args[0], sevkMap, 1, {$I %CURRENTROUTINE%});
   Size := SESize(Args[0]);
@@ -2087,8 +2087,8 @@ end;
 
 class function TBuiltInFunction.SEArrayToBufferF64(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 var
-  I: Integer;
-  Size: QWord;
+  I: NativeInt;
+  Size: NativeUInt;
 begin
   SEValidateType(@Args[0], sevkMap, 1, {$I %CURRENTROUTINE%});
   Size := SESize(Args[0]);
@@ -2101,8 +2101,8 @@ end;
 
 class function TBuiltInFunction.SEBufferToArrayF32(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 var
-  I: Integer;
-  Size: QWord;
+  I: NativeInt;
+  Size: NativeUInt;
 begin
   SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   SEValidateType(@Args[1], sevkNumber, 2, {$I %CURRENTROUTINE%});
@@ -2117,8 +2117,8 @@ end;
 
 class function TBuiltInFunction.SEBufferToArrayF64(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 var
-  I: Integer;
-  Size: QWord;
+  I: NativeInt;
+  Size: NativeUInt;
 begin
   SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   SEValidateType(@Args[1], sevkNumber, 2, {$I %CURRENTROUTINE%});
@@ -2146,12 +2146,12 @@ end;
 
 class function TBuiltInFunction.SEKindOf(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Result := TSENumber(Integer(Args[0].Kind));
+  Result := TSENumber(NativeInt(Args[0].Kind));
 end;
 
 class function TBuiltInFunction.SEWrite(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 var
-  I: Integer;
+  I: NativeInt;
 begin
   if ArgCount > 0 then
     for I := 0 to ArgCount - 1 do
@@ -2161,7 +2161,7 @@ end;
 
 class function TBuiltInFunction.SEWriteln(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 var
-  I: Integer;
+  I: NativeInt;
 begin
   TBuiltInFunction.SEWrite(VM, Args, ArgCount, nil);
   Writeln;
@@ -2267,7 +2267,7 @@ end;
 
 class function TBuiltInFunction.SEMapCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 var
-  I: Integer = 0;
+  I: NativeInt = 0;
 begin
   GC.AllocMap(@Result);
   while I < ArgCount - 1 do
@@ -2294,7 +2294,7 @@ end;
 class function TBuiltInFunction.SEMapKeysGet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 var
   Key: String;
-  I: Integer = 0;
+  I: NativeInt = 0;
 begin
   SEValidateType(@Args[0], sevkMap, 1, {$I %CURRENTROUTINE%});
   GC.AllocMap(@Result);
@@ -2348,7 +2348,7 @@ end;
 
 class function TBuiltInFunction.SEArrayFill(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 var
-  I: Integer;
+  I: NativeInt;
 begin
   if SEMapIsValidArray(Args[0]) then
   begin
@@ -2395,7 +2395,7 @@ class function TBuiltInFunction.SERange(const VM: TSEVM; const Args: PSEValue; c
 
 var
   V: TSENumber;
-  I: Integer = 0;
+  I: NativeInt = 0;
 begin
   GC.AllocMap(@Result);
   V := Args[0];
@@ -2416,7 +2416,7 @@ end;
 
 class function TBuiltInFunction.SEMin(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 var
-  I: Integer;
+  I: NativeInt;
 begin
   for I := 0 to ArgCount - 2 do
     if Args[I] < Args[I + 1] then
@@ -2427,7 +2427,7 @@ end;
 
 class function TBuiltInFunction.SEMax(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 var
-  I: Integer;
+  I: NativeInt;
 begin
   for I := 0 to ArgCount - 2 do
     if Args[I] > Args[I + 1] then
@@ -2448,7 +2448,7 @@ end;
 
 class function TBuiltInFunction.SEStringGrep(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 var
-  I: Integer;
+  I: NativeInt;
   A: TStringDynArray;
   V: String;
 begin
@@ -2474,7 +2474,7 @@ end;
 class function TBuiltInFunction.SEStringSplit(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 var
   D: TStringDynArray;
-  I: Integer;
+  I: NativeInt;
 begin
   D := SplitString(Args[0], Args[1]);
   GC.AllocMap(@Result);
@@ -2530,7 +2530,7 @@ end;
 
 class function TBuiltInFunction.SEStringFormat(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 var
-  I: Integer;
+  I: NativeInt;
   S: String;
 begin
   S := Args[0].VarString^;
@@ -2564,8 +2564,8 @@ end;
 class function TBuiltInFunction.SEStringFindRegex(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 var
   R: TRegExpr;
-  I: Integer;
-  C: Integer = 0;
+  I: NativeInt;
+  C: NativeInt = 0;
   V: TSEValue;
 begin
   GC.AllocMap(@Result);
@@ -2879,7 +2879,7 @@ end;
 class function TBuiltInFunction.SEEventWait(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
-  Result := TSENumber(Integer(TEventObject(Args[0].VarPascalObject^.Value).WaitFor(Round(Args[1].VarNumber))));
+  Result := TSENumber(NativeInt(TEventObject(Args[0].VarPascalObject^.Value).WaitFor(Round(Args[1].VarNumber))));
 end;
 
 class function TBuiltInFunction.SEEventReset(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -2948,7 +2948,7 @@ begin
     FS := TFileStream.Create(Args[0], fmCreate);
   try
     FS.Position := FS.Size;
-    FS.Write(Args[1].VarBuffer^.Ptr^, Args[2]);
+    FS.Write(Args[1].VarBuffer^.Ptr^, Round(Args[2].VarNumber));
   finally
     FS.Free;
   end;
@@ -2985,7 +2985,7 @@ end;
 class function TBuiltInFunction.SEFileFindAll(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 var
   SL: TStringList;
-  I: Integer;
+  I: NativeInt;
 begin
   Result := SENull;
   {$ifdef SE_HAS_FILEUTIL}
@@ -3043,7 +3043,7 @@ end;
 class function TBuiltInFunction.SEDirectoryFindAll(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 var
   SL: TStringList;
-  I: Integer;
+  I: NativeInt;
 begin
   Result := SENull;
   {$ifdef SE_HAS_FILEUTIL}
@@ -3079,7 +3079,7 @@ class function TBuiltInFunction.SEJSONParse(const VM: TSEVM; const Args: PSEValu
 
   procedure QueryForArray(out R: TSEValue; Data: TJSONData);
   var
-    I: Integer;
+    I: NativeInt;
     D: TJSONData;
     Name: String;
     V: TSEValue;
@@ -3121,7 +3121,7 @@ class function TBuiltInFunction.SEJSONParse(const VM: TSEVM; const Args: PSEValu
 
   procedure QueryForObject(out R: TSEValue; Data: TJSONData);
   var
-    I: Integer;
+    I: NativeInt;
     D: TJSONData;
     V: TSEValue;
     Name: String;
@@ -3204,8 +3204,8 @@ class function TBuiltInFunction.SEJSONStringify(const VM: TSEVM; const Args: PSE
 
   procedure DecodeJSONArray(SB: TStringBuilder; const Map: TSEValue);
   var
-    I: Integer = 0;
-    J: Integer = 0;
+    I: NativeInt = 0;
+    J: NativeInt = 0;
     V: TSEValue;
   begin
     SB.Append('[');
@@ -3241,7 +3241,7 @@ class function TBuiltInFunction.SEJSONStringify(const VM: TSEVM; const Args: PSE
 
   procedure DecodeJSONObject(SB: TStringBuilder; const Map: TSEValue);
   var
-    I: Integer = 0;
+    I: NativeInt = 0;
     V: TSEValue;
     Key: String;
   begin
@@ -3317,7 +3317,7 @@ end;
 
 procedure SEValueAdd(out R: TSEValue; constref V1, V2: TSEValue); inline; overload;
 var
-  I, Len: Integer;
+  I, Len: NativeInt;
   Temp: TSEValue;
   Key, S: String;
 begin
@@ -3362,7 +3362,7 @@ begin
     if (V1.Kind = sevkBuffer) and (V2.Kind = sevkNumber) then
     begin
       GC.AllocBuffer(@Temp, 0);
-      Temp.VarBuffer^.Ptr := Pointer(QWord(V1.VarBuffer^.Ptr) + Round(V2.VarNumber));
+      Temp.VarBuffer^.Ptr := Pointer(NativeUInt(V1.VarBuffer^.Ptr) + Round(V2.VarNumber));
       R := Temp;
     end;
 end;
@@ -3385,7 +3385,7 @@ begin
     sevkBuffer:
       begin
         GC.AllocBuffer(@Temp, 0);
-        Temp.VarBuffer^.Ptr := Pointer(QWord(V1.VarBuffer^.Ptr) - Round(V2.VarNumber));
+        Temp.VarBuffer^.Ptr := Pointer(NativeUInt(V1.VarBuffer^.Ptr) - Round(V2.VarNumber));
         R := Temp;
       end;
   end;
@@ -3634,11 +3634,11 @@ end;
 operator := (V: Boolean) R: TSEValue; inline;
 begin
   R.Kind := sevkBoolean;
-  R.VarNumber := Integer(V);
+  R.VarNumber := NativeInt(V);
 end;
 operator := (V: TSEValueArray) R: TSEValue; inline;
 var
-  I: Integer;
+  I: NativeInt;
 begin
   GC.AllocMap(@R);
   for I := 0 to Length(V) - 1 do
@@ -3650,7 +3650,7 @@ begin
   R.VarPointer := V;
 end;
 
-operator := (V: TSEValue) R: Integer; inline;
+operator := (V: TSEValue) R: NativeInt; inline;
 begin
   R := Round(V.VarNumber);
 end;
@@ -3677,7 +3677,7 @@ begin
 end;
 operator := (V: TSEValue) R: TSEValueArray; inline;
 var
-  Len, I: Integer;
+  Len, I: NativeInt;
 begin
   if V.Kind <> sevkMap then
     Exit;
@@ -3702,9 +3702,9 @@ begin
     sevkPascalObject:
       R := V.VarPascalObject^.Value;
     sevkBuffer:
-      R := QWord(V.VarBuffer^.Ptr);
+      R := NativeUInt(V.VarBuffer^.Ptr);
     else
-      R := QWord(V.VarPointer);
+      R := NativeUInt(V.VarPointer);
   end;
 end;
 operator := (V: TValue) R: TSEValue;
@@ -3789,7 +3789,7 @@ end;
 
 operator + (V1, V2: TSEValue) R: TSEValue; inline;
 var
-  I, Len: Integer;
+  I, Len: NativeInt;
   S: String;
 begin
   if V1.Kind = V2.Kind then
@@ -3828,7 +3828,7 @@ begin
     sevkBuffer:
       begin
         GC.AllocBuffer(@R, 0);
-        R.VarBuffer^.Ptr := Pointer(QWord(V1.VarBuffer^.Ptr) + Round(V2.VarNumber));
+        R.VarBuffer^.Ptr := Pointer(NativeUInt(V1.VarBuffer^.Ptr) + Round(V2.VarNumber));
       end;
     sevkPointer:
       begin
@@ -3863,7 +3863,7 @@ begin
     sevkBuffer:
       begin
         GC.AllocBuffer(@R, 0);
-        R.VarBuffer^.Ptr := Pointer(QWord(V1.VarBuffer^.Ptr) - Round(V2.VarNumber));
+        R.VarBuffer^.Ptr := Pointer(NativeUInt(V1.VarBuffer^.Ptr) - Round(V2.VarNumber));
       end;
   end;
 end;
@@ -4062,7 +4062,7 @@ end;
 
 procedure TSEValueMap.ToMap;
 var
-  I: Integer;
+  I: NativeInt;
 begin
   Self.Lock;
   try
@@ -4149,7 +4149,7 @@ begin
     Result := SENull;
 end;
 
-function TSEValueMap.Ptr(const I: Integer): PSEValue;
+function TSEValueMap.Ptr(const I: NativeInt): PSEValue;
 begin
   Result := @Self.FItems[I];
 end;
@@ -4202,7 +4202,7 @@ end;
 
 procedure TSEGarbageCollectorMarkJob.Execute;
 var
-  I: Integer;
+  I: NativeInt;
 begin
   while True do
   begin
@@ -4253,7 +4253,7 @@ end;
 
 destructor TSEGarbageCollector.Destroy;
 var
-  I: Integer;
+  I: NativeInt;
   Value: PSEGCNode;
 begin
   I := Self.FNodeLastOld;
@@ -4322,7 +4322,7 @@ end;
 
 procedure TSEGarbageCollector.Initial;
 var
-  I, J: Integer;
+  I, J: NativeInt;
   Value, PrevValue: PSEGCNode;
 begin
   if Self.FRunCount mod Self.FOldObjectCheckCycle = 0 then
@@ -4373,7 +4373,7 @@ end;
 procedure TSEGarbageCollector.Sweep(const AFirst: Cardinal); inline;
 var
   Value: PSEGCNode;
-  I, MS: Integer;
+  I, MS: NativeInt;
   LastPtr: PCardinal;
 
   procedure Detach;
@@ -4461,7 +4461,7 @@ var
   Value: PSEGCNode;
   RValue: TSEValue;
   Key: String;
-  I: Integer;
+  I: NativeInt;
 begin
   if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) and (PValue^.Kind <> sevkPascalObject) then
     Exit;
@@ -4519,14 +4519,14 @@ var
   P, P2: PSEValue;
   V: TSEValue;
   VM: TSEVM;
-  I: Integer;
+  I: NativeInt;
   Key: String;
   Cache: TSECache;
   Binary: TSEBinary;
 
   procedure SuspendThreads;
   var
-    I: Integer;
+    I: NativeInt;
   begin
     {$ifdef SE_THREADS}
       Self.FVMThreadList.Clear;
@@ -4556,7 +4556,7 @@ var
 
   procedure ResumeThreads;
   var
-    I: Integer;
+    I: NativeInt;
   begin
     {$ifdef SE_THREADS}
     for I := 0 to FVMThreadList.Count - 1 do
@@ -4570,7 +4570,7 @@ var
 
   procedure Marking;
   var
-    I, J: Integer;
+    I, J: NativeInt;
   begin
   {$ifdef SE_THREADS}
     if Self.EnableParallel then
@@ -4734,7 +4734,7 @@ begin
   end;
 end;
 
-procedure TSEGarbageCollector.AllocBuffer(const PValue: PSEValue; const Size: Integer);
+procedure TSEGarbageCollector.AllocBuffer(const PValue: PSEValue; const Size: NativeInt);
 begin
   {$ifdef SE_THREADS}
   EnterCriticalSection(CS);
@@ -4745,7 +4745,7 @@ begin
     if Size > 0 then
     begin
       GetMem(PValue^.VarBuffer^.Base, Size + 16);
-      PValue^.VarBuffer^.Ptr := Pointer(QWord(PValue^.VarBuffer^.Base) + QWord(PValue^.VarBuffer^.Base) mod 16);
+      PValue^.VarBuffer^.Ptr := Pointer(NativeUInt(PValue^.VarBuffer^.Base) + NativeUInt(PValue^.VarBuffer^.Base) mod 16);
     end else
     begin
       PValue^.VarBuffer^.Base := nil;
@@ -4868,7 +4868,7 @@ end;
 
 procedure TSEVM.BinaryClear;
 var
-  I: Integer;
+  I: NativeInt;
 begin
   for I := 0 to Self.Binaries.Value^.Size - 1 do
     FreeAndNil(Self.Binaries.Value^.Data[I]);
@@ -4879,7 +4879,7 @@ end;
 function TSEVM.Fork(const AStackSize: Cardinal): TSEVM;
 var
   StackCount: Cardinal;
-  I: Integer;
+  I: NativeInt;
 begin
   Result := TSEVM.Create;
   Result.Binaries.Free;
@@ -4910,7 +4910,7 @@ end;
 
 procedure TSEVM.SetGlobalVariable(const AName: String; const AValue: TSEValue);
 var
-  I: Integer;
+  I: NativeInt;
 begin
   for I := 0 to Self.Parent.GlobalVarSymbols.Count - 1 do
   begin
@@ -4924,7 +4924,7 @@ end;
 
 function TSEVM.GetGlobalVariable(const AName: String): PSEValue;
 var
-  I: Integer;
+  I: NativeInt;
 begin
   for I := 0 to Self.Parent.GlobalVarSymbols.Count - 1 do
   begin
@@ -4993,7 +4993,7 @@ end;
 
 procedure TSEBinariesManaged.Free;
 var
-  I: Integer;
+  I: NativeInt;
 begin
   Dec(Self.Value^.RefCount);
   Assert(Self.Value^.RefCount >= 0, 'RefCount < 0');
@@ -5027,7 +5027,7 @@ end;
 
 destructor TSEVM.Destroy;
 var
-  I: Integer;
+  I: NativeInt;
 begin
   Self.Binaries.Free;
   if VMList <> nil then
@@ -5080,11 +5080,11 @@ var
   FuncNativeInfo: PSEFuncNativeInfo;
   FuncScriptInfo: PSEFuncScriptInfo;
   FuncImportInfo: PSEFuncImportInfo;
-  I, J, ArgCountStack, ArgCount, ArgSize, DeepCount: Integer;
+  I, J, ArgCountStack, ArgCount, ArgSize, DeepCount: NativeInt;
   This: PSEValue;
-  CodePtrLocal: Integer;
+  CodePtrLocal: NativeInt;
   GlobalLocal: PSEValue;
-  BinaryPtrLocal: Integer;
+  BinaryPtrLocal: NativeInt;
   BinaryLocal: PSEValue;
   FuncImport, P, PP, PC: Pointer;
   LineOfCode: TSELineOfCode;
@@ -5092,7 +5092,7 @@ var
 
   procedure GetLineOfCode;
   var
-    I: Integer;
+    I: NativeInt;
   begin
     if FramePtr = @Self.Frame[0] then
     begin
@@ -5121,7 +5121,7 @@ var
 
     procedure AddChildNode(Node: PSEStackTraceSymbol; const AName: String; AValue: PSEValue);
     var
-      I, C: Integer;
+      I, C: NativeInt;
       Key: String;
       V: TSEValue;
     begin
@@ -5165,11 +5165,11 @@ var
   var
     CurFrame: PSEFrame;
     CurFunc: PSEFuncScriptInfo;
-    I, J: Integer;
+    I, J: NativeInt;
     LineOfCode: TSELineOfCode;
     Nodes: TSEStackTraceSymbolArray;
-    NodeCount: Integer = 0;
-    BinaryPos: Integer;
+    NodeCount: NativeInt = 0;
+    BinaryPos: NativeInt;
   begin
     if Self.Parent.StackTraceHandler <> nil then
     begin
@@ -5227,71 +5227,71 @@ var
 
   procedure AssignGlobal(const I: Pointer; const Value: PSEValue); inline;
   begin
-    GlobalLocal[Integer(I)] := Value^;
+    GlobalLocal[NativeInt(I)] := Value^;
   end;
 
-  procedure AssignLocal(const I: Pointer; const F: Integer; const Value: PSEValue); inline;
+  procedure AssignLocal(const I: Pointer; const F: NativeInt; const Value: PSEValue); inline;
   begin
-    ((Self.FramePtr - F)^.Stack + Integer(I))^ := Value^;
+    ((Self.FramePtr - F)^.Stack + NativeInt(I))^ := Value^;
   end;
 
   function GetGlobal(const I: Pointer): PSEValue; inline;
   begin
-    Exit(@GlobalLocal[Integer(I)]);
+    Exit(@GlobalLocal[NativeInt(I)]);
   end;
 
-  function GetLocal(const I: Pointer; const F: Integer): PSEValue; inline;
+  function GetLocal(const I: Pointer; const F: NativeInt): PSEValue; inline;
   begin
-    Exit((Self.FramePtr - F)^.Stack + Integer(I));
+    Exit((Self.FramePtr - F)^.Stack + NativeInt(I));
   end;
 
-  function GetGlobalInt(const I: Integer): PSEValue; inline;
+  function GetGlobalInt(const I: NativeInt): PSEValue; inline;
   begin
-    Exit(@GlobalLocal[Integer(I)]);
+    Exit(@GlobalLocal[NativeInt(I)]);
   end;
 
-  function GetLocalInt(const I, F: Integer): PSEValue; inline;
+  function GetLocalInt(const I, F: NativeInt): PSEValue; inline;
   begin
-    Exit((Self.FramePtr - F)^.Stack + Integer(I));
+    Exit((Self.FramePtr - F)^.Stack + NativeInt(I));
   end;
 
-  procedure AssignGlobalInt(const I: Integer; const Value: PSEValue); inline;
+  procedure AssignGlobalInt(const I: NativeInt; const Value: PSEValue); inline;
   begin
-    GlobalLocal[Integer(I)] := Value^;
+    GlobalLocal[NativeInt(I)] := Value^;
   end;
 
-  procedure AssignLocalInt(const I: Integer; const F: Integer; const Value: PSEValue); inline;
+  procedure AssignLocalInt(const I: NativeInt; const F: NativeInt; const Value: PSEValue); inline;
   begin
-    ((Self.FramePtr - F)^.Stack + Integer(I))^ := Value^;
+    ((Self.FramePtr - F)^.Stack + NativeInt(I))^ := Value^;
   end;
 
   function GetVariable(const I: Pointer; const F: Pointer): PSEValue; inline;
   begin
     if F = Pointer(SE_REG_GLOBAL) then
-      Exit(@GlobalLocal[Integer(I)])
+      Exit(@GlobalLocal[NativeInt(I)])
     else
-      Exit((Self.FramePtr - Integer(F))^.Stack + Integer(I));
+      Exit((Self.FramePtr - NativeInt(F))^.Stack + NativeInt(I));
   end;
 
   procedure SetVariable(const I: Pointer; const F: Pointer; const Value: PSEValue); inline;
   begin
     if F = Pointer(SE_REG_GLOBAL) then
-      GlobalLocal[Integer(I)] := Value^
+      GlobalLocal[NativeInt(I)] := Value^
     else
-      ((Self.FramePtr - Integer(F))^.Stack + Integer(I))^ := Value^;
+      ((Self.FramePtr - NativeInt(F))^.Stack + NativeInt(I))^ := Value^;
   end;
 
   procedure CallImportFunc;
   var
-    I: Integer;
-    ImportBufferIndex: array [0..31] of QWord;
+    I: NativeInt;
+    ImportBufferIndex: array [0..31] of NativeUInt;
     ImportBufferData: array [0..8*31] of Byte;
     ImportBufferString: array [0..31] of String;
     ImportBufferWideString: array [0..31] of UnicodeString;
-    ImportResult: QWord;
+    ImportResult: NativeUInt;
     ImportResultD: TSENumber;
     ImportResultS: Single;
-    ArgCountStack, ArgCount, ArgSize: Integer;
+    ArgCountStack, ArgCount, ArgSize: NativeInt;
     FuncImport, P, PP: Pointer;
     {$ifdef SE_LIBFFI}
     ffiCif: ffi_cif;
@@ -5301,7 +5301,7 @@ var
     ffiAbi: ffi_abi;
     {$endif}
   begin
-    FuncImportInfo := Self.Parent.FuncImportList.Ptr(Integer(BinaryLocal[CodePtrLocal + 1].VarPointer));
+    FuncImportInfo := Self.Parent.FuncImportList.Ptr(NativeInt(BinaryLocal[CodePtrLocal + 1].VarPointer));
     {$ifndef SE_LIBFFI}
       raise Exception.Create('You need to enable SE_LIBFFI in order to call external function "' + FuncImportInfo^.Name + '"');
     {$else}
@@ -5340,25 +5340,25 @@ var
           end;
         seakU8:
           begin
-            QWord((@ImportBufferData[I * 8])^) := Byte(Round(Pop^.VarNumber));
+            NativeUInt((@ImportBufferData[I * 8])^) := Byte(Round(Pop^.VarNumber));
             ffiArgTypes[I] := @ffi_type_uint8;
             ffiArgValues[I] := @ImportBufferData[I * 8];
           end;
         seakU16:
           begin
-            QWord((@ImportBufferData[I * 8])^) := Word(Round(Pop^.VarNumber));
+            NativeUInt((@ImportBufferData[I * 8])^) := Word(Round(Pop^.VarNumber));
             ffiArgTypes[I] := @ffi_type_uint16;
             ffiArgValues[I] := @ImportBufferData[I * 8];
           end;
         seakU32:
           begin
-            QWord((@ImportBufferData[I * 8])^) := LongWord(Round(Pop^.VarNumber));
+            NativeUInt((@ImportBufferData[I * 8])^) := LongWord(Round(Pop^.VarNumber));
             ffiArgTypes[I] := @ffi_type_uint32;
             ffiArgValues[I] := @ImportBufferData[I * 8];
           end;
         seakU64:
           begin
-            QWord((@ImportBufferData[I * 8])^) := QWord(Round(Pop^.VarNumber));
+            NativeUInt((@ImportBufferData[I * 8])^) := NativeUInt(Round(Pop^.VarNumber));
             ffiArgTypes[I] := @ffi_type_uint64;
             ffiArgValues[I] := @ImportBufferData[I * 8];
           end;
@@ -5385,7 +5385,7 @@ var
             if A^.Kind = sevkBuffer then
               PChar((@ImportBufferData[I * 8])^) := PChar(A^.VarBuffer^.Ptr)
             else
-              QWord((@ImportBufferData[I * 8])^) := Round(A^.VarNumber);
+              NativeUInt((@ImportBufferData[I * 8])^) := Round(A^.VarNumber);
             ffiArgTypes[I] := @ffi_type_pointer;
             ffiArgValues[I] := @ImportBufferData[I * 8];
           end;
@@ -5400,7 +5400,7 @@ var
             if A^.Kind = sevkBuffer then
               PWideChar((@ImportBufferData[I * 8])^) := PWideChar(A^.VarBuffer^.Ptr)
             else
-              QWord((@ImportBufferData[I * 8])^) := Round(A^.VarNumber);
+              NativeUInt((@ImportBufferData[I * 8])^) := Round(A^.VarNumber);
             ffiArgTypes[I] := @ffi_type_pointer;
             ffiArgValues[I] := @ImportBufferData[I * 8];
           end;
@@ -5464,8 +5464,8 @@ var
       else
         ffiAbi := FFI_DEFAULT_ABI;
     end;
-    I := Integer(ffi_prep_cif(@ffiCif, ffiAbi, ArgCount, @ffiResultType, @ffiArgTypes[0]));
-    if I <> Integer(FFI_OK) then
+    I := NativeInt(ffi_prep_cif(@ffiCif, ffiAbi, ArgCount, @ffiResultType, @ffiArgTypes[0]));
+    if I <> NativeInt(FFI_OK) then
       raise Exception.Create('FFI status is not OK (' + IntToStr(I) + ') while calling external function "' + FuncImportInfo^.Name + '"');
     ffi_call(@ffiCif, ffi_fn(FuncImport), @ImportResult, @ffiArgValues[0]);
     if FuncImportInfo^.Return = seakF32 then
@@ -5485,16 +5485,16 @@ var
         end;
       seakU8, seakU16, seakU32:
         begin
-          TV := QWord(LongWord(ImportResult));
+          TV := NativeUInt(LongWord(ImportResult));
         end;
       seakU64:
         begin
-          TV := QWord(ImportResult);
+          TV := NativeUInt(ImportResult);
         end;
       seakBuffer, seakWBuffer:
         begin
           GC.AllocBuffer(@TV, 0);
-          TV.VarBuffer^.Ptr := Pointer(QWord(ImportResult));
+          TV.VarBuffer^.Ptr := Pointer(NativeUInt(ImportResult));
         end;
       seakF32:
         begin
@@ -5513,14 +5513,14 @@ var
 {$ifdef SE_COMPUTED_GOTO}
   {$if defined(CPUX86_64) or defined(CPUi386)}
     {$define DispatchGoto :=
-      P := DispatchTable[TSEOpcode(Integer(BinaryLocal[CodePtrLocal].VarPointer))];
+      P := DispatchTable[TSEOpcode(NativeUInt(BinaryLocal[CodePtrLocal].VarPointer))];
       asm
         jmp P;
       end
     }
   {$elseif defined(CPUARM) or defined(CPUAARCH64)}
     {$define DispatchGoto :=
-      P := DispatchTable[TSEOpcode(Integer(BinaryLocal[CodePtrLocal].VarPointer))];
+      P := DispatchTable[TSEOpcode(NativeUInt(BinaryLocal[CodePtrLocal].VarPointer))];
       asm
         ldr x16,P
         br  x16
@@ -5694,7 +5694,7 @@ labelStart:
     while True do
     begin
       {$ifndef SE_COMPUTED_GOTO}
-      case TSEOpcode(Integer(BinaryLocal[CodePtrLocal].VarPointer)) of
+      case TSEOpcode(NativeUInt(BinaryLocal[CodePtrLocal].VarPointer)) of
       {$endif}
       {$ifndef SE_COMPUTED_GOTO}opOperatorInc:{$endif}
         begin
@@ -5850,21 +5850,21 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorAnd:{$endif}
         begin
         labelOperatorAnd:
-          Push(Integer({A}Pop^) and Integer(Pop^));
+          Push(NativeInt({A}Pop^) and NativeInt(Pop^));
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorOr:{$endif}
         begin
         labelOperatorOr:
-          Push(Integer({A}Pop^) or Integer(Pop^));
+          Push(NativeInt({A}Pop^) or NativeInt(Pop^));
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorXor:{$endif}
         begin
         labelOperatorXor:
-          Push(Integer({A}Pop^) xor Integer(Pop^));
+          Push(NativeInt({A}Pop^) xor NativeInt(Pop^));
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
@@ -5937,7 +5937,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opPushConstString:{$endif}
         begin
         labelPushConstString:
-          Push(ConstStrings.Ptr(Integer(BinaryLocal[CodePtrLocal + 1].VarPointer))^);
+          Push(ConstStrings.Ptr(NativeInt(BinaryLocal[CodePtrLocal + 1].VarPointer))^);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
@@ -5951,7 +5951,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opPushLocalVar:{$endif}
         begin
         labelPushLocalVar:
-          Push(GetLocal(BinaryLocal[CodePtrLocal + 1].VarPointer, Integer(BinaryLocal[CodePtrLocal + 2].VarPointer))^);
+          Push(GetLocal(BinaryLocal[CodePtrLocal + 1].VarPointer, NativeInt(BinaryLocal[CodePtrLocal + 2].VarPointer))^);
           Inc(CodePtrLocal, 3);
           DispatchGoto;
         end;
@@ -5977,9 +5977,9 @@ labelStart:
               Push(B^.GetProp(A^));
             sevkString:
               {$ifdef SE_STRING_UTF8}
-                Push(UTF8Copy(B^.VarString^, Integer(A^) + 1, 1));
+                Push(UTF8Copy(B^.VarString^, NativeInt(A^) + 1, 1));
               {$else}
-                Push(B^.VarString^[Integer(A^) + 1]);
+                Push(B^.VarString^[NativeInt(A^) + 1]);
               {$endif}
             else
               Push(SENull);
@@ -5998,7 +5998,7 @@ labelStart:
         begin
         labelJumpEqualRel:
           if SEValueEqual(Pop^, Pop^) then
-            CodePtrLocal := CodePtrLocal + Integer(BinaryLocal[CodePtrLocal + 1].VarPointer)
+            CodePtrLocal := CodePtrLocal + NativeInt(BinaryLocal[CodePtrLocal + 1].VarPointer)
           else
             Inc(CodePtrLocal, 2);
           DispatchGoto;
@@ -6007,7 +6007,7 @@ labelStart:
         begin
         labelJumpEqual1Rel:
           if SEValueEqual(Pop^, BinaryLocal[CodePtrLocal + 1]) then
-            CodePtrLocal := CodePtrLocal + Integer(BinaryLocal[CodePtrLocal + 2].VarPointer)
+            CodePtrLocal := CodePtrLocal + NativeInt(BinaryLocal[CodePtrLocal + 2].VarPointer)
           else
             Inc(CodePtrLocal, 3);
           DispatchGoto;
@@ -6015,7 +6015,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opJumpUnconditionalRel:{$endif}
         begin
         labelJumpUnconditionalRel:
-          CodePtrLocal := CodePtrLocal + Integer(BinaryLocal[CodePtrLocal + 1].VarPointer);
+          CodePtrLocal := CodePtrLocal + NativeInt(BinaryLocal[CodePtrLocal + 1].VarPointer);
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opJumpEqualOrGreater2Rel:{$endif}
@@ -6025,7 +6025,7 @@ labelStart:
             GetVariable(BinaryLocal[CodePtrLocal + 1].VarPointer, BinaryLocal[CodePtrLocal + 2].VarPointer)^,
             GetVariable(BinaryLocal[CodePtrLocal + 3].VarPointer, BinaryLocal[CodePtrLocal + 4].VarPointer)^)
           then
-            CodePtrLocal := CodePtrLocal + Integer(BinaryLocal[CodePtrLocal + 5].VarPointer)
+            CodePtrLocal := CodePtrLocal + NativeInt(BinaryLocal[CodePtrLocal + 5].VarPointer)
           else
             Inc(CodePtrLocal, 6);
           DispatchGoto;
@@ -6037,7 +6037,7 @@ labelStart:
             GetVariable(BinaryLocal[CodePtrLocal + 1].VarPointer, BinaryLocal[CodePtrLocal + 2].VarPointer)^,
             GetVariable(BinaryLocal[CodePtrLocal + 3].VarPointer, BinaryLocal[CodePtrLocal + 4].VarPointer)^)
           then
-            CodePtrLocal := CodePtrLocal + Integer(BinaryLocal[CodePtrLocal + 5].VarPointer)
+            CodePtrLocal := CodePtrLocal + NativeInt(BinaryLocal[CodePtrLocal + 5].VarPointer)
           else
             Inc(CodePtrLocal, 6);
           DispatchGoto;
@@ -6054,7 +6054,7 @@ labelStart:
               end;
             sevkMap:
               begin
-                DeepCount := Integer(BinaryLocal[CodePtrLocal + 3].VarPointer);
+                DeepCount := NativeInt(BinaryLocal[CodePtrLocal + 3].VarPointer);
                 if DeepCount = 0 then
                   raise Exception.Create('Not a function reference');
                 Self.StackPtr := Self.StackPtr - DeepCount;
@@ -6096,8 +6096,8 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opCallNative:{$endif}
         begin
         labelCallNative:
-          FuncNativeInfo := Self.Parent.FuncNativeList.Ptr(Integer(BinaryLocal[CodePtrLocal + 1].VarPointer));
-          ArgCount := Integer(BinaryLocal[CodePtrLocal + 2].VarPointer);
+          FuncNativeInfo := Self.Parent.FuncNativeList.Ptr(NativeInt(BinaryLocal[CodePtrLocal + 1].VarPointer));
+          ArgCount := NativeInt(BinaryLocal[CodePtrLocal + 2].VarPointer);
           Self.StackPtr := Self.StackPtr - ArgCount;
           TV := TSEFunc(FuncNativeInfo^.Func)(Self, Self.StackPtr, ArgCount, This);
           if IsDone then
@@ -6112,11 +6112,11 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opCallScript:{$endif}
         begin
         labelCallScript:
-          FuncScriptInfo := Self.Parent.FuncScriptList.Ptr(Integer(BinaryLocal[CodePtrLocal + 1].VarPointer));
+          FuncScriptInfo := Self.Parent.FuncScriptList.Ptr(NativeInt(BinaryLocal[CodePtrLocal + 1].VarPointer));
           Inc(Self.FramePtr);
           if Self.FramePtr > @Self.Frame[Self.FrameSize - 1] then
             raise Exception.Create('Too much recursion');
-          Self.FramePtr^.Stack := Self.StackPtr - {ArgCount}Integer(BinaryLocal[CodePtrLocal + 2].VarPointer);
+          Self.FramePtr^.Stack := Self.StackPtr - {ArgCount}NativeInt(BinaryLocal[CodePtrLocal + 2].VarPointer);
           Self.FramePtr^.Code := CodePtrLocal + 4;
           Self.FramePtr^.Binary := BinaryPtrLocal;
           Self.FramePtr^.Func := FuncScriptInfo;
@@ -6151,7 +6151,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opAssignLocalVar:{$endif}
         begin
         labelAssignLocalVar:
-          AssignLocal(BinaryLocal[CodePtrLocal + 1], Integer(BinaryLocal[CodePtrLocal + 2].VarPointer), Pop);
+          AssignLocal(BinaryLocal[CodePtrLocal + 1], NativeInt(BinaryLocal[CodePtrLocal + 2].VarPointer), Pop);
           Inc(CodePtrLocal, 3);
           DispatchGoto;
         end;
@@ -6159,7 +6159,7 @@ labelStart:
         begin
         labelAssignGlobalArray:
           A := @BinaryLocal[CodePtrLocal + 1];
-          TV := GetGlobalInt(Integer(A^))^;
+          TV := GetGlobalInt(NativeInt(A^))^;
           B := Pop;
           ArgCount := BinaryLocal[CodePtrLocal + 2];
           if ArgCount = 1 then
@@ -6185,21 +6185,21 @@ labelStart:
                   begin
                     {$ifdef SE_STRING_UTF8}
                       S2 := B^.VarString^;
-                      UTF8Delete(TV.VarString^, Integer(C^) + 1, 1);
+                      UTF8Delete(TV.VarString^, NativeInt(C^) + 1, 1);
                       S := UTF8Copy(S2, 1, 1);
-                      UTF8Insert(S, TV.VarString^, Integer(C^) + 1);
+                      UTF8Insert(S, TV.VarString^, NativeInt(C^) + 1);
                     {$else}
-                      TV.VarString^[Integer(C^) + 1] := B^.VarString^[1];
+                      TV.VarString^[NativeInt(C^) + 1] := B^.VarString^[1];
                     {$endif}
                   end;
                 sevkNumber:
                   begin
                     {$ifdef SE_STRING_UTF8}
-                      UTF8Delete(TV.VarString^, Integer(C^) + 1, 1);
+                      UTF8Delete(TV.VarString^, NativeInt(C^) + 1, 1);
                       S := Char(Round(B^.VarNumber));
-                      UTF8Insert(S, TV.VarString^, Integer(C^) + 1);
+                      UTF8Insert(S, TV.VarString^, NativeInt(C^) + 1);
                     {$else}
-                      TV.VarString^[Integer(C^) + 1] := Char(Round(B^.VarNumber));
+                      TV.VarString^[NativeInt(C^) + 1] := Char(Round(B^.VarNumber));
                     {$endif}
                   end;
               end;
@@ -6211,7 +6211,7 @@ labelStart:
         begin
         labelAssignLocalArray:
           A := @BinaryLocal[CodePtrLocal + 1];
-          TV := GetLocalInt(Integer(A^), Integer(BinaryLocal[CodePtrLocal + 3].VarPointer))^;
+          TV := GetLocalInt(NativeInt(A^), NativeInt(BinaryLocal[CodePtrLocal + 3].VarPointer))^;
           B := Pop;
           ArgCount := BinaryLocal[CodePtrLocal + 2];
           if ArgCount = 1 then
@@ -6238,24 +6238,24 @@ labelStart:
                     {$ifdef SE_STRING_UTF8}
                       S1 := TV.VarString^;
                       S2 := B^.VarString^;
-                      UTF8Delete(S1, Integer(C^) + 1, 1);
+                      UTF8Delete(S1, NativeInt(C^) + 1, 1);
                       S := UTF8Copy(S2, 1, 1);
-                      UTF8Insert(S, S1, Integer(C^) + 1);
+                      UTF8Insert(S, S1, NativeInt(C^) + 1);
                       TV.VarString^ := S1;
                     {$else}
-                      TV.VarString^[Integer(C^) + 1] := B^.VarString^[1];
+                      TV.VarString^[NativeInt(C^) + 1] := B^.VarString^[1];
                     {$endif}
                   end;
                 sevkNumber:
                   begin
                     {$ifdef SE_STRING_UTF8}
                       S1 := TV.VarString^;
-                      UTF8Delete(S1, Integer(C^) + 1, 1);
+                      UTF8Delete(S1, NativeInt(C^) + 1, 1);
                       S := Char(Round(B^.VarNumber));
-                      UTF8Insert(S, S1, Integer(C^) + 1);
+                      UTF8Insert(S, S1, NativeInt(C^) + 1);
                       TV.VarString^ := S1;
                     {$else}
-                      TV.VarString^[Integer(C^) + 1] := Char(Round(B^.VarNumber));
+                      TV.VarString^[NativeInt(C^) + 1] := Char(Round(B^.VarNumber));
                     {$endif}
                   end;
               end;
@@ -6266,7 +6266,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opPushConstFromConstList:{$endif}
         begin
         labelPushConstFromConstList:
-          Push(Self.Parent.ConstList[Integer(BinaryLocal[CodePtrLocal + 1].VarPointer)]);
+          Push(Self.Parent.ConstList[NativeInt(BinaryLocal[CodePtrLocal + 1].VarPointer)]);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
@@ -6304,7 +6304,7 @@ labelStart:
           Self.TrapPtr^.FramePtr := Self.FramePtr;
           Self.TrapPtr^.Stack := Self.StackPtr;
           Self.TrapPtr^.Binary := BinaryPtrLocal;
-          Self.TrapPtr^.CatchCode := Integer(BinaryLocal[CodePtrLocal + 1].VarPointer);
+          Self.TrapPtr^.CatchCode := NativeInt(BinaryLocal[CodePtrLocal + 1].VarPointer);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
@@ -6413,7 +6413,7 @@ end;
 {$ifdef SE_THREADS}
 constructor TSEVMThread.Create(const AVM: TSEVM; const Fn: TSEValue; const Args: PSEValue; const ArgCount, AStackSize: Cardinal);
 var
-  I: Integer;
+  I: NativeInt;
 begin
   Self.VM := AVM.Fork(AStackSize);
   Self.VM.ThreadOwner := Self;
@@ -6466,7 +6466,7 @@ end;
 
 constructor TSEVMCoroutine.Create(const AVM: TSEVM; const Fn: TSEValue; const Args: PSEValue; const ArgCount, AStackSize: Cardinal);
 var
-  I: Integer;
+  I: NativeInt;
 begin
   inherited Create;
   Self.VM := AVM.Fork(AStackSize);
@@ -6507,7 +6507,7 @@ end;
 
 procedure TSEVMCoroutine.Reset(const Fn: TSEValue; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue);
 var
-  I: Integer;
+  I: NativeInt;
 begin
   if Self.VM = nil then
     Exit;
@@ -6750,7 +6750,7 @@ end;
 
 destructor TEvilC.Destroy;
 var
-  I: Integer;
+  I: NativeInt;
 begin
   for I := 0 to Self.FuncScriptList.Count - 1 do
     Self.FuncScriptList[I].VarSymbols.Free;
@@ -6786,19 +6786,19 @@ begin
   Self.SetConst('false', False);
   Self.SetConst('null', SENull);
   Self.SetConst('os', GetOS);
-  Self.SetConst('sevkNumber', TSENumber(Integer(sevkNumber)));
-  Self.SetConst('sevkString', TSENumber(Integer(sevkString)));
-  Self.SetConst('sevkPascalObject', TSENumber(Integer(sevkPascalObject)));
-  Self.SetConst('sevkBuffer', TSENumber(Integer(sevkBuffer)));
-  Self.SetConst('sevkMap', TSENumber(Integer(sevkMap)));
-  Self.SetConst('sevkNull', TSENumber(Integer(sevkNull)));
-  Self.SetConst('sevkFunction', TSENumber(Integer(sevkFunction)));
-  Self.SetConst('sevkPointer', TSENumber(Integer(sevkPointer)));
+  Self.SetConst('sevkNumber', TSENumber(NativeInt(sevkNumber)));
+  Self.SetConst('sevkString', TSENumber(NativeInt(sevkString)));
+  Self.SetConst('sevkPascalObject', TSENumber(NativeInt(sevkPascalObject)));
+  Self.SetConst('sevkBuffer', TSENumber(NativeInt(sevkBuffer)));
+  Self.SetConst('sevkMap', TSENumber(NativeInt(sevkMap)));
+  Self.SetConst('sevkNull', TSENumber(NativeInt(sevkNull)));
+  Self.SetConst('sevkFunction', TSENumber(NativeInt(sevkFunction)));
+  Self.SetConst('sevkPointer', TSENumber(NativeInt(sevkPointer)));
   {$ifdef SE_THREADS}
-  Self.SetConst('wrSignaled', TSENumber(Integer(wrSignaled)));
-  Self.SetConst('wrTimeout', TSENumber(Integer(wrTimeout)));
-  Self.SetConst('wrAbandoned', TSENumber(Integer(wrAbandoned)));
-  Self.SetConst('wrError', TSENumber(Integer(wrError)));
+  Self.SetConst('wrSignaled', TSENumber(NativeInt(wrSignaled)));
+  Self.SetConst('wrTimeout', TSENumber(NativeInt(wrTimeout)));
+  Self.SetConst('wrAbandoned', TSENumber(NativeInt(wrAbandoned)));
+  Self.SetConst('wrError', TSENumber(NativeInt(wrError)));
   {$endif}
 end;
 
@@ -6831,15 +6831,15 @@ end;
 
 procedure TEvilC.Lex(const IsIncluded: Boolean = False);
 var
-  Ln, Col: Integer;
-  Pos: Integer = 0;
+  Ln, Col: NativeInt;
+  Pos: NativeInt = 0;
   Token: TSEToken;
   C, PC, NC: Char;
   IsScientificNotation: Boolean;
 
   function PeekAtNextChar: Char; inline;
   var
-    P: Integer;
+    P: NativeInt;
   begin
     P := Pos + 1;
     if P > Length(Self.Source) then
@@ -7408,7 +7408,7 @@ end;
 
 function TEvilC.FindFunc(const Name: String): Pointer; inline; overload;
 var
-  I: Integer;
+  I: NativeInt;
 begin
   for I := Self.FuncScriptList.Count - 1 downto 0 do
   begin
@@ -7431,9 +7431,9 @@ begin
   Exit(nil);
 end;
 
-function TEvilC.FindFuncNative(const Name: String; var Ind: Integer): PSEFuncNativeInfo; inline;
+function TEvilC.FindFuncNative(const Name: String; var Ind: NativeInt): PSEFuncNativeInfo; inline;
 var
-  I: Integer;
+  I: NativeInt;
 begin
   for I := Self.FuncNativeList.Count - 1 downto 0 do
   begin
@@ -7447,9 +7447,9 @@ begin
   Exit(nil);
 end;
 
-function TEvilC.FindFuncScript(const Name: String; var Ind: Integer): PSEFuncScriptInfo; inline;
+function TEvilC.FindFuncScript(const Name: String; var Ind: NativeInt): PSEFuncScriptInfo; inline;
 var
-  I: Integer;
+  I: NativeInt;
 begin
   for I := Self.FuncScriptList.Count - 1 downto 0 do
   begin
@@ -7463,9 +7463,9 @@ begin
   Exit(nil);
 end;
 
-function TEvilC.FindFuncImport(const Name: String; var Ind: Integer): PSEFuncImportInfo; inline;
+function TEvilC.FindFuncImport(const Name: String; var Ind: NativeInt): PSEFuncImportInfo; inline;
 var
-  I: Integer;
+  I: NativeInt;
 begin
   for I := Self.FuncImportList.Count - 1 downto 0 do
   begin
@@ -7479,7 +7479,7 @@ begin
   Exit(nil);
 end;
 
-function TEvilC.FindFunc(const Name: String; var Kind: TSEFuncKind; var Ind: Integer): Pointer; inline; overload;
+function TEvilC.FindFunc(const Name: String; var Kind: TSEFuncKind; var Ind: NativeInt): Pointer; inline; overload;
 begin
   Result := FindFuncScript(Name, Ind);
   if Result = nil then
@@ -7498,7 +7498,7 @@ end;
 
 procedure TEvilC.SetConst(const Name: String; const Value: TSEValue);
 var
-  Index: Integer;
+  Index: NativeInt;
 begin
   if not Self.ConstLookup.TryGetValue(Name, Index) then
   begin
@@ -7513,8 +7513,8 @@ end;
 
 procedure TEvilC.Parse;
 var
-  Pos: Integer = -1;
-  CurrentLine: Integer = -1;
+  Pos: NativeInt = -1;
+  CurrentLine: NativeInt = -1;
   Token: TSEToken;
   ContinueStack: TSEListStack;
   BreakStack: TSEListStack;
@@ -7533,7 +7533,7 @@ var
 
   function FindVar(const Name: String; const IsSameLocal: Boolean = False): PSEIdent; inline;
   var
-    I: Integer;
+    I: NativeInt;
   begin
     for I := Self.VarList.Count - 1 downto 0 do
     begin
@@ -7547,7 +7547,7 @@ var
 
   function PeekAtNextToken: TSEToken; inline;
   var
-    P: Integer;
+    P: NativeInt;
   begin
     P := Pos + 1;
     if P >= Self.TokenList.Count then
@@ -7557,7 +7557,7 @@ var
 
   function PeekAtNextNextToken: TSEToken; inline;
   var
-    P: Integer;
+    P: NativeInt;
   begin
     P := Pos + 2;
     if P >= Self.TokenList.Count then
@@ -7614,9 +7614,9 @@ var
     Error(Format('Expected %s but got "%s"', [TokenTypeString(Expected), TokenNames[Result.Kind]]), Result);
   end;
 
-  function PeekAtPrevOp(const Ind: Integer): PSEOpcodeInfo; inline;
+  function PeekAtPrevOp(const Ind: NativeInt): PSEOpcodeInfo; inline;
   var
-    I: Integer;
+    I: NativeInt;
   begin
     I := Self.OpcodeInfoList.Count - 1 - Ind;
     if I >= 0 then
@@ -7625,7 +7625,7 @@ var
       Result := nil;
   end;
 
-  function PeekAtPrevOpExpected(const Ind: Integer; const Expected: TSEOpcodeSet): PSEOpcodeInfo; inline;
+  function PeekAtPrevOpExpected(const Ind: NativeInt; const Expected: TSEOpcodeSet): PSEOpcodeInfo; inline;
   var
     Op: TSEOpcode;
   begin
@@ -7636,10 +7636,10 @@ var
     Result := nil;
   end;
 
-  procedure DeleteOps(const Count: Integer);
+  procedure DeleteOps(const Count: NativeInt);
   var
-    I: Integer;
-    Size: Integer = 0;
+    I: NativeInt;
+    Size: NativeInt = 0;
   begin
     for I := Self.OpcodeInfoList.Count - Count - 1 to Count - 1 do
       Size := Size + Self.OpcodeInfoList.Ptr(I)^.Size;
@@ -7695,9 +7695,9 @@ var
     Result.VarConstStringIndex := CreateConstString(S);
   end;
 
-  procedure Rewind(const StartAddr, Count: Integer); inline;
+  procedure Rewind(const StartAddr, Count: NativeInt); inline;
   var
-    Addr, I: Integer;
+    Addr, I: NativeInt;
   begin
     for I := 0 to Count - 1 do
     begin
@@ -7707,9 +7707,9 @@ var
     Self.Binary.DeleteRange(StartAddr, Count);
   end;
 
-  function Emit(const Data: array of TSEValue): Integer; inline;
+  function Emit(const Data: array of TSEValue): NativeInt; inline;
   var
-    I: Integer;
+    I: NativeInt;
     OpcodeInfo: TSEOpcodeInfo;
   begin
     if not CanEmit then
@@ -7717,7 +7717,7 @@ var
     OpcodeInfo.Pos := Self.Binary.Count;
     OpcodeInfo.Size := Length(Data);
     OpcodeInfo.Binary := Self.Binary;
-    if (Integer(Data[0].VarPointer) = Integer(opPushConst)) and (Data[1].Kind = sevkString) then
+    if (NativeInt(Data[0].VarPointer) = NativeInt(opPushConst)) and (Data[1].Kind = sevkString) then
     begin
       // Use EmitConstString() instead
       OpcodeInfo.Op := opPushConstString;
@@ -7725,7 +7725,7 @@ var
       Self.Binary.Add(Pointer(CreateConstString(Data[1].VarString^)));
     end else
     begin
-      OpcodeInfo.Op := TSEOpcode(Integer(Data[0].VarPointer));
+      OpcodeInfo.Op := TSEOpcode(NativeInt(Data[0].VarPointer));
       for I := Low(Data) to High(Data) do
       begin
         Self.Binary.Add(Data[I]);
@@ -7735,7 +7735,7 @@ var
     Exit(Self.Binary.Count);
   end;
 
-  function EmitConstString(const AString: String): Integer; inline;
+  function EmitConstString(const AString: String): NativeInt; inline;
   var
     OpcodeInfo: TSEOpcodeInfo;
   begin
@@ -7762,7 +7762,7 @@ var
   function PeepholePushVar2Optimization: Boolean;
   var
     A, B: TSEValue;
-    I: Integer;
+    I: NativeInt;
     P, PP: Pointer;
     OpInfoPrev1,
     OpInfoPrev2: PSEOpcodeInfo;
@@ -7788,12 +7788,12 @@ var
       B := Self.Binary[OpInfoPrev1^.Pos + 1];
       Self.Binary.DeleteRange(Self.Binary.Count - (OpInfoPrev1^.Size + OpInfoPrev2^.Size), OpInfoPrev1^.Size + OpInfoPrev2^.Size);
       Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 2);
-      Emit([Pointer(Integer(opPushVar2)), A.VarPointer, B.VarPointer, Pointer(P), Pointer(PP)]);
+      Emit([Pointer(NativeInt(opPushVar2)), A.VarPointer, B.VarPointer, Pointer(P), Pointer(PP)]);
       Result := True;
     end;
   end;
 
-  function EmitPushVar(const Ident: TSEIdent; const IsPotentialRewind: Boolean = False): Integer; inline;
+  function EmitPushVar(const Ident: TSEIdent; const IsPotentialRewind: Boolean = False): NativeInt; inline;
   begin
     if Ident.Local > 0 then
       Result := Emit([Pointer(opPushLocalVar), Pointer(Ident.Addr), Pointer(Self.FuncTraversal - Ident.Local)])
@@ -7803,7 +7803,7 @@ var
       PeepholePushVar2Optimization;
   end;
 
-  function EmitAssignVar(const Ident: TSEIdent): Integer; inline;
+  function EmitAssignVar(const Ident: TSEIdent): NativeInt; inline;
   begin
     if Ident.Local > 0 then
       Result := Emit([Pointer(opAssignLocalVar), Pointer(Ident.Addr), Pointer(Self.FuncTraversal - Ident.Local)])
@@ -7811,7 +7811,7 @@ var
       Result := Emit([Pointer(opAssignGlobalVar), Pointer(Ident.Addr)]);
   end;
 
-  function EmitAssignArray(const Ident: TSEIdent; const ArgCount: Integer): Integer; inline;
+  function EmitAssignArray(const Ident: TSEIdent; const ArgCount: NativeInt): NativeInt; inline;
   begin
     if Ident.Local > 0 then
       Result := Emit([Pointer(opAssignLocalArray), Ident.Addr, ArgCount, Pointer(Self.FuncTraversal - Ident.Local)])
@@ -7819,14 +7819,14 @@ var
       Result := Emit([Pointer(opAssignGlobalArray), Ident.Addr, ArgCount]);
   end;
 
-  procedure Patch(const Addr: Integer; const Data: TSEValue); inline;
+  procedure Patch(const Addr: NativeInt; const Data: TSEValue); inline;
   begin
     Self.Binary[Addr] := Data;
   end;
 
-  function PatchRange(const Addr: Integer; const Data: array of TSEValue): Integer; inline;
+  function PatchRange(const Addr: NativeInt; const Data: array of TSEValue): NativeInt; inline;
   var
-    I: Integer;
+    I: NativeInt;
   begin
     for I := Low(Data) to High(Data) do
     begin
@@ -7879,7 +7879,7 @@ var
   var
     A: TSEValue;
     Size,
-    I: Integer;
+    I: NativeInt;
     P: Pointer;
     OpInfoPrev1,
     OpInfoPrev2: PSEOpcodeInfo;
@@ -7904,7 +7904,7 @@ var
   var
     A: TSEValue;
     Size,
-    I: Integer;
+    I: NativeInt;
     P: Pointer;
     VarBase, VarAddr, VarBasePush, VarBaseAddr: Pointer;
     OpInfoPrev1,
@@ -7951,7 +7951,7 @@ var
   function PeepholeOp0Optimization(Op: TSEOpcode): Boolean;
   var
     A, B: TSEValue;
-    I: Integer;
+    I: NativeInt;
     P: Pointer;
     OpInfoPrev1,
     OpInfoPrev2: PSEOpcodeInfo;
@@ -7980,9 +7980,9 @@ var
             Self.Binary.DeleteRange(Self.Binary.Count - 2, 2);
             Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 1, 1);
             if Op = opOperatorAdd then
-              Emit([Pointer(Integer(opOperatorAdd0)), A.VarNumber])
+              Emit([Pointer(NativeInt(opOperatorAdd0)), A.VarNumber])
             else
-              Emit([Pointer(Integer(opOperatorAdd0)), -A.VarNumber]);
+              Emit([Pointer(NativeInt(opOperatorAdd0)), -A.VarNumber]);
             Result := True;
           end else
           begin
@@ -8000,7 +8000,7 @@ var
                 Exit;
               Self.Binary.DeleteRange(Self.Binary.Count - (OpInfoPrev1^.Size + OpInfoPrev2^.Size), 2);
               Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 1);
-              Emit([Pointer(Integer(opOperatorAdd0)), A.VarNumber]);
+              Emit([Pointer(NativeInt(opOperatorAdd0)), A.VarNumber]);
               Result := True;
             end;
           end;
@@ -8023,7 +8023,7 @@ var
               Exit;
             Self.Binary.DeleteRange(Self.Binary.Count - 2, 2);
             Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 1, 1);
-            Emit([Pointer(Integer(opOperatorMul0)), A.VarNumber]);
+            Emit([Pointer(NativeInt(opOperatorMul0)), A.VarNumber]);
             Result := True;
           end else
           begin
@@ -8038,7 +8038,7 @@ var
                 Exit;
               Self.Binary.DeleteRange(Self.Binary.Count - (OpInfoPrev1^.Size + OpInfoPrev2^.Size), 2);
               Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 1);
-              Emit([Pointer(Integer(opOperatorMul0)), A.VarNumber]);
+              Emit([Pointer(NativeInt(opOperatorMul0)), A.VarNumber]);
               Result := True;
             end;
           end;
@@ -8061,7 +8061,7 @@ var
               Exit;
             Self.Binary.DeleteRange(Self.Binary.Count - 2, 2);
             Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 1, 1);
-            Emit([Pointer(Integer(opOperatorDiv0)), A.VarNumber]);
+            Emit([Pointer(NativeInt(opOperatorDiv0)), A.VarNumber]);
             Result := True;
           end;
         end;
@@ -8071,7 +8071,7 @@ var
   function PeepholeOp1Optimization(Op: TSEOpcode): Boolean;
   var
     A: TSEValue;
-    I: Integer;
+    I: NativeInt;
     P: Pointer;
     OpInfoPrev1,
     OpInfoPrev2: PSEOpcodeInfo;
@@ -8098,7 +8098,7 @@ var
             Op := OpToOp1(Op);
             Self.Binary.DeleteRange(Self.Binary.Count - OpInfoPrev1^.Size, OpInfoPrev1^.Size);
             Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 1, 1);
-            Emit([Pointer(Integer(Op)), A.VarPointer, Pointer(P)]);
+            Emit([Pointer(NativeInt(Op)), A.VarPointer, Pointer(P)]);
             Result := True;
           end;
         end;
@@ -8133,16 +8133,16 @@ var
   type
     TProc = TSENestedProc;
   var
-    PushConstCount: Integer = 0;
-    OpCountStart: Integer;
+    PushConstCount: NativeInt = 0;
+    OpCountStart: NativeInt;
     IsTailed: Boolean = False;
     FuncRefIdent: TSEIdent;
     FuncRefToken: TSEToken;
-    AssignReturnFuncRefCount: Integer = 0;
+    AssignReturnFuncRefCount: NativeInt = 0;
     AssignReturnFuncRefOpStart,
     AssignReturnFuncRefOpEnd,
     AssignReturnFuncRefStart,
-    AssignReturnFuncRefEnd: Integer;
+    AssignReturnFuncRefEnd: NativeInt;
 
     procedure Logic; forward;
 
@@ -8238,17 +8238,17 @@ var
             opOperatorAnd:
               begin
                 Pop2;
-                Emit([Pointer(opPushConst), Integer(V1) and Integer(V2)]);
+                Emit([Pointer(opPushConst), NativeInt(V1) and NativeInt(V2)]);
               end;
             opOperatorOr:
               begin
                 Pop2;
-                Emit([Pointer(opPushConst), Integer(V1) or Integer(V2)]);
+                Emit([Pointer(opPushConst), NativeInt(V1) or NativeInt(V2)]);
               end;
             opOperatorXor:
               begin
                 Pop2;
-                Emit([Pointer(opPushConst), Integer(V1) xor Integer(V2)]);
+                Emit([Pointer(opPushConst), NativeInt(V1) xor NativeInt(V2)]);
               end;
             opOperatorGreater:
               begin
@@ -8314,8 +8314,8 @@ var
         OpInfoPrev2: PSEOpcodeInfo;
         function SameKind: Boolean; inline;
         begin
-          S2 := ConstStrings[Integer(Self.Binary[Self.Binary.Count - 1].VarPointer)];
-          S1 := ConstStrings[Integer(Self.Binary[Self.Binary.Count - 3].VarPointer)];
+          S2 := ConstStrings[NativeInt(Self.Binary[Self.Binary.Count - 1].VarPointer)];
+          S1 := ConstStrings[NativeInt(Self.Binary[Self.Binary.Count - 3].VarPointer)];
           Result := True;
         end;
 
@@ -8342,7 +8342,7 @@ var
 
     begin
       try
-        Op := TSEOpcode(Integer(Data[0].VarPointer));
+        Op := TSEOpcode(NativeInt(Data[0].VarPointer));
         if Op = opPushConst then
         begin
           Emit(Data);
@@ -8408,7 +8408,7 @@ var
       Ident: PSEIdent;
       V,
       FuncValue: TSEValue;
-      Ind: Integer;
+      Ind: NativeInt;
       P: Pointer;
 
       procedure FuncTail(IsFirst: Boolean = True);
@@ -8627,7 +8627,7 @@ var
     var
       Token: TSEToken;
       FuncInfo: PSEFuncNativeInfo;
-      FuncIndex: Integer;
+      FuncIndex: NativeInt;
     begin
       SignedFactor;
       while True do
@@ -8745,7 +8745,7 @@ var
     Expr2Block,
     EndBlock,
     JumpEnd,
-    JumpExpr2: Integer;
+    JumpExpr2: NativeInt;
 
   begin
     Result := [];
@@ -8773,11 +8773,11 @@ var
     end;
   end;
 
-  procedure ParseFuncRefCallByMapRewind(const Ident: TSEIdent; const DeepCount, RewindStartAdd: Integer; const ThisRefIdent: PSEIdent = nil);
+  procedure ParseFuncRefCallByMapRewind(const Ident: TSEIdent; const DeepCount, RewindStartAdd: NativeInt; const ThisRefIdent: PSEIdent = nil);
   var
     Token: TSEToken;
-    ArgCount: Integer = 1;
-    RewindCount: Integer;
+    ArgCount: NativeInt = 1;
+    RewindCount: NativeInt;
     This: PSEIdent;
   begin
     RewindCount := Self.Binary.Count - RewindStartAdd;
@@ -8817,7 +8817,7 @@ var
     FuncIdent: TSEIdent;
     FuncToken: TSEToken;
     Token: TSEToken;
-    ArgCount: Integer = 1;
+    ArgCount: NativeInt = 1;
     This: PSEIdent;
   begin
     FuncToken.Value := '___fn' + Self.InternalIdent;
@@ -8856,7 +8856,7 @@ var
   procedure ParseFuncRefCallByName(const Name: String);
   var
     Token: TSEToken;
-    ArgCount: Integer = 1;
+    ArgCount: NativeInt = 1;
     This: PSEIdent;
   begin
     NextTokenExpected([tkBracketOpen]);
@@ -8889,9 +8889,9 @@ var
     FuncNativeInfo: PSEFuncNativeInfo = nil;
     FuncScriptInfo: PSEFuncScriptInfo = nil;
     FuncImportInfo: PSEFuncImportInfo = nil;
-    I, Ind: Integer;
-    DefinedArgCount: Integer;
-    ArgCount: Integer = 0;
+    I, Ind: NativeInt;
+    DefinedArgCount: NativeInt;
+    ArgCount: NativeInt = 0;
     Token: TSEToken;
     This: PSEIdent;
   begin
@@ -8971,14 +8971,14 @@ var
   var
     Token, TokenResult: TSEToken;
     Name: String;
-    OldFuncCurrent: Integer;
-    ArgCount: Integer = 0;
-    I: Integer;
+    OldFuncCurrent: NativeInt;
+    ArgCount: NativeInt = 0;
+    I: NativeInt;
     FuncIndex: Cardinal;
     ReturnList: TList;
     Func: PSEFuncScriptInfo;
     ParentBinary: TSEBinary;
-    ParentBinaryPos: Integer;
+    ParentBinaryPos: NativeInt;
     VarSymbols: TStrings;
     This: PSEIdent;
     HasOverride: Boolean = False;
@@ -9044,7 +9044,7 @@ var
 
       ReturnList := ReturnStack.Pop;
       for I := 0 to ReturnList.Count - 1 do
-        Patch(Integer(ReturnList[I]), Pointer(Self.Binary.Count) - (Integer(ReturnList[I]) - 2));
+        Patch(NativeInt(ReturnList[I]), Pointer(Self.Binary.Count) - (NativeInt(ReturnList[I]) - 2));
       Emit([Pointer(opPopFrame)]);
 
       // The pointer may be changed due to reallocation, need to query for it again
@@ -9061,9 +9061,9 @@ var
 
   procedure ParseFuncAnonDecl(const ATraversal: Cardinal = 1);
   var
-    I, J: Integer;
+    I, J: NativeInt;
     FuncValue: TSEValue;
-    Ind: Integer;
+    Ind: NativeInt;
     P: Pointer;
   begin
     Inc(Self.FuncTraversal, ATraversal);
@@ -9089,7 +9089,7 @@ var
       sefkScript, sefkImport:
         FuncValue.VarFuncIndx := Ind;
       sefkNative:
-        FuncValue.VarFuncIndx := QWord(P);
+        FuncValue.VarFuncIndx := NativeUInt(P);
     end;
     FuncValue.Kind := sevkFunction;
     Emit([Pointer(opPushConst), FuncValue]);
@@ -9218,7 +9218,7 @@ var
           if Lib <> 0 then
             DynlibMap.Add(LibName, Lib);
           {$ifdef SE_LOG}
-          Writeln(' - Library''s pointer: ', QWord(Lib));
+          Writeln(' - Library''s pointer: ', NativeUInt(Lib));
           {$endif}
         end;
         if Lib <> 0 then
@@ -9251,12 +9251,12 @@ var
     StartBlock,
     EndBlock,
     JumpBlock,
-    JumpEnd: Integer;
+    JumpEnd: NativeInt;
     BreakList,
     ContinueList: TList;
-    I: Integer;
+    I: NativeInt;
     IsComparison: Boolean = True;
-    OpCount: Integer;
+    OpCount: NativeInt;
   begin
     ContinueList := TList.Create;
     BreakList := TList.Create;
@@ -9287,9 +9287,9 @@ var
       ContinueList := ContinueStack.Pop;
       BreakList := BreakStack.Pop;
       for I := 0 to ContinueList.Count - 1 do
-        Patch(Integer(ContinueList[I]), Pointer(StartBlock) - (Integer(ContinueList[I]) - 1));
+        Patch(NativeInt(ContinueList[I]), Pointer(StartBlock) - (NativeInt(ContinueList[I]) - 1));
       for I := 0 to BreakList.Count - 1 do
-        Patch(Integer(BreakList[I]), Pointer(EndBlock) - (Integer(BreakList[I]) - 1));
+        Patch(NativeInt(BreakList[I]), Pointer(EndBlock) - (NativeInt(BreakList[I]) - 1));
       Patch(JumpBlock - 1, Pointer(StartBlock) - (JumpBlock - 2));
       if IsComparison then
         Patch(JumpEnd - 1, Pointer(EndBlock) - (JumpEnd - 3));
@@ -9305,12 +9305,12 @@ var
     ContinueBlock,
     EndBlock,
     JumpBlock,
-    JumpEnd: Integer;
+    JumpEnd: NativeInt;
     BreakList,
     ContinueList: TList;
-    I: Integer;
+    I: NativeInt;
     IsComparison: Boolean = True;
-    OpCount: Integer;
+    OpCount: NativeInt;
   begin
     ContinueList := TList.Create;
     BreakList := TList.Create;
@@ -9343,9 +9343,9 @@ var
       ContinueList := ContinueStack.Pop;
       BreakList := BreakStack.Pop;
       for I := 0 to ContinueList.Count - 1 do
-        Patch(Integer(ContinueList[I]), Pointer(ContinueBlock) - (Integer(ContinueList[I]) - 1));
+        Patch(NativeInt(ContinueList[I]), Pointer(ContinueBlock) - (NativeInt(ContinueList[I]) - 1));
       for I := 0 to BreakList.Count - 1 do
-        Patch(Integer(BreakList[I]), Pointer(EndBlock) - (Integer(BreakList[I]) - 1));
+        Patch(NativeInt(BreakList[I]), Pointer(EndBlock) - (NativeInt(BreakList[I]) - 1));
       Patch(JumpBlock - 1, Pointer(StartBlock) - (JumpBlock - 2));
       if IsComparison then
         Patch(JumpEnd - 1, Pointer(EndBlock) - (JumpEnd - 3));
@@ -9361,10 +9361,10 @@ var
     ContinueBlock,
     EndBlock,
     JumpBlock,
-    JumpEnd: Integer;
+    JumpEnd: NativeInt;
     BreakList,
     ContinueList: TList;
-    I: Integer;
+    I: NativeInt;
     Token: TSEToken;
     VarIdent,
     VarHiddenTargetIdent,
@@ -9373,7 +9373,7 @@ var
     VarHiddenTargetName,
     VarHiddenCountName,
     VarHiddenArrayName: String;
-    Ind: Integer;
+    Ind: NativeInt;
     Step: Single = 1;
   begin
     ContinueList := TList.Create;
@@ -9486,9 +9486,9 @@ var
       ContinueList := ContinueStack.Pop;
       BreakList := BreakStack.Pop;
       for I := 0 to ContinueList.Count - 1 do
-        Patch(Integer(ContinueList[I]), Pointer(ContinueBlock) - (Integer(ContinueList[I]) - 1));
+        Patch(NativeInt(ContinueList[I]), Pointer(ContinueBlock) - (NativeInt(ContinueList[I]) - 1));
       for I := 0 to BreakList.Count - 1 do
-        Patch(Integer(BreakList[I]), Pointer(EndBlock) - (Integer(BreakList[I]) - 1));
+        Patch(NativeInt(BreakList[I]), Pointer(EndBlock) - (NativeInt(BreakList[I]) - 1));
       Patch(JumpBlock - 1, Pointer(StartBlock) - (JumpBlock - 2));
       Patch(JumpEnd - 1, Pointer(EndBlock) - (JumpEnd - 6));
     finally
@@ -9504,7 +9504,7 @@ var
     EndBlock2,
     JumpBlock1,
     JumpBlock2,
-    JumpEnd: Integer;
+    JumpEnd: NativeInt;
   begin
     ParseExpr(False);
     JumpBlock1 := Emit([Pointer(opJumpEqual1Rel), True, Pointer(0)]);
@@ -9538,7 +9538,7 @@ var
     EndCaseBlock,
     JumpNextBlock,
     EndBlock,
-    I: Integer;
+    I: NativeInt;
   begin
     Token.Kind := tkIdent;
     Token.Value := '___s' + Self.InternalIdent;
@@ -9586,7 +9586,7 @@ var
       BreakList := BreakStack.Pop;
 
       for I := 0 to BreakList.Count - 1 do
-        Patch(Integer(BreakList[I]), Pointer(EndBlock) - (Integer(BreakList[I]) - 1));
+        Patch(NativeInt(BreakList[I]), Pointer(EndBlock) - (NativeInt(BreakList[I]) - 1));
     finally
       BreakList.Free;
     end;
@@ -9595,8 +9595,8 @@ var
   procedure ParseArrayAssign;
   var
     FuncNativeInfo: PSEFuncNativeInfo;
-    I, Ind: Integer;
-    ArgCount: Integer = 0;
+    I, Ind: NativeInt;
+    ArgCount: NativeInt = 0;
     Token: TSEToken;
   begin
     I := 0;
@@ -9628,11 +9628,11 @@ var
   var
     Token, FuncRefToken: TSEToken;
     FuncRefIdent: TSEIdent;
-    AssignReturnFuncRefCount: Integer = 0;
+    AssignReturnFuncRefCount: NativeInt = 0;
     AssignReturnFuncRefOpStart,
     AssignReturnFuncRefOpEnd,
     AssignReturnFuncRefStart,
-    AssignReturnFuncRefEnd: Integer;
+    AssignReturnFuncRefEnd: NativeInt;
 
     procedure AssignReturnFuncRef;
     begin
@@ -9699,13 +9699,13 @@ var
   var
     Ident: PSEIdent;
     Token, Token2: TSEToken;
-    ArgCount: Integer = 0;
+    ArgCount: NativeInt = 0;
     I, J,
     RewindStartAddr,
     OpBinaryStart,
     OpBinaryEnd,
     VarStartTokenPos,
-    VarEndTokenPos: Integer;
+    VarEndTokenPos: NativeInt;
     AccessNumber: TSEValue;
     AccessString: String;
     OpInfoPrev1: PSEOpcodeInfo;
@@ -9802,7 +9802,7 @@ var
     I,
     JumpCatchBlock,
     CatchBlock,
-    JumpFinallyBlock: Integer;
+    JumpFinallyBlock: NativeInt;
   begin
     JumpCatchBlock := Emit([Pointer(opPushTrap), Pointer(0)]);
     ParseBlock;
@@ -9839,7 +9839,7 @@ var
   procedure ParseIdent(const Token: TSEToken; const IsConst, IsLocal: Boolean);
   var
     OpCountBefore,
-    OpCountAfter: Integer;
+    OpCountAfter: NativeInt;
     Ident: TSEIdent;
   begin
     case IdentifyIdent(Token.Value, IsLocal) of
@@ -9931,7 +9931,7 @@ var
     Token: TSEToken;
     Ident: TSEIdent;
     List: TList;
-    I, J: Integer;
+    I, J: NativeInt;
   begin
     Inc(Self.BlockTraversal);
     Token := PeekAtNextToken;
@@ -10148,7 +10148,7 @@ end;
 procedure TEvilC.Reset;
 var
   Ident: TSEIdent;
-  I: Integer;
+  I: NativeInt;
 begin
   Self.GlobalVarCount := 2;
   Self.GlobalVarSymbols.Clear;
@@ -10221,7 +10221,7 @@ end;
 }
 function TEvilC.ExecFuncOnly(const Name: String; const Args: array of TSEValue): TSEValue;
 var
-  I: Integer;
+  I: NativeInt;
 begin
   for I := Self.FuncScriptList.Count - 1 downto 0 do
   begin
@@ -10233,9 +10233,9 @@ begin
   Exit(SENull);
 end;
 
-function TEvilC.ExecFuncOnly(const AIndex: Integer; const Args: array of TSEValue): TSEValue;
+function TEvilC.ExecFuncOnly(const AIndex: NativeInt; const Args: array of TSEValue): TSEValue;
 var
-  I: Integer;
+  I: NativeInt;
   Stack: PSEValue;
   Func: PSEFuncScriptInfo;
 begin
@@ -10281,7 +10281,7 @@ end;
 
 function TEvilC.ExecFunc(const Name: String; const Args: array of TSEValue): TSEValue;
 var
-  I: Integer;
+  I: NativeInt;
 begin
   for I := Self.FuncScriptList.Count - 1 downto 0 do
   begin
@@ -10293,9 +10293,9 @@ begin
   Exit(SENull);
 end;
 
-function TEvilC.ExecFunc(const AIndex: Integer; const Args: array of TSEValue): TSEValue;
+function TEvilC.ExecFunc(const AIndex: NativeInt; const Args: array of TSEValue): TSEValue;
 var
-  I: Integer;
+  I: NativeInt;
   Stack: PSEValue;
   Func: PSEFuncScriptInfo;
   V: TSEValue;
@@ -10354,7 +10354,7 @@ begin
   end;
 end;
 
-procedure TEvilC.RegisterFunc(const Name: String; const Func: TSEFunc; const ArgCount: Integer);
+procedure TEvilC.RegisterFunc(const Name: String; const Func: TSEFunc; const ArgCount: NativeInt);
 var
   FuncNativeInfo: TSEFuncNativeInfo;
 begin
@@ -10365,7 +10365,7 @@ begin
   Self.FuncNativeList.Add(FuncNativeInfo);
 end;
 
-function TEvilC.RegisterScriptFunc(const Name: String; const ArgCount: Integer; var AIndex: Cardinal; const IsOverride: Boolean = False): PSEFuncScriptInfo;
+function TEvilC.RegisterScriptFunc(const Name: String; const ArgCount: NativeInt; var AIndex: Cardinal; const IsOverride: Boolean = False): PSEFuncScriptInfo;
 var
   P: PSEFuncScriptInfo;
   FuncScriptInfo: TSEFuncScriptInfo;
@@ -10421,7 +10421,7 @@ begin
     Lib := LoadLibrary(LibName);
     DynlibMap.Add(LibName, Lib);
     {$ifdef SE_LOG}
-    Writeln(' - Library''s pointer: ', QWord(Lib));
+    Writeln(' - Library''s pointer: ', NativeUInt(Lib));
     {$endif}
   end;
 
@@ -10440,7 +10440,7 @@ end;
 
 function TEvilC.Backup: TSECache;
 var
-  I, J: Integer;
+  I, J: NativeInt;
   BackupBinary, SrcBinary: TSEBinary;
   FuncScriptInfo: TSEFuncScriptInfo;
 begin
@@ -10480,7 +10480,7 @@ end;
 
 procedure TEvilC.Restore(const Cache: TSECache);
 var
-  I, J: Integer;
+  I, J: NativeInt;
   BackupBinary, DstBinary: TSEBinary;
   FuncScriptInfo: TSEFuncScriptInfo;
 begin
@@ -10517,7 +10517,7 @@ end;
 procedure TSECacheMap.ClearSingle(const AName: String);
 var
   Cache: TSECache;
-  I: Integer;
+  I: NativeInt;
 begin
   try
     Cache := Self[AName];
@@ -10538,7 +10538,7 @@ procedure TSECacheMap.Clear;
 var
   S: String;
   Cache: TSECache;
-  I: Integer;
+  I: NativeInt;
 begin
   for S in Self.Keys do
   begin
@@ -10554,7 +10554,7 @@ begin
 end;
 
 var
-  I: Integer;
+  I: NativeInt;
 
 initialization
   SEStackSize := 2048;
