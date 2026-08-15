@@ -1,0 +1,63 @@
+fastfunction A(i, j) {
+  return 1.0 / (((i + j) * (i + j + 1) / 2) + i + 1);
+}
+
+fastfunction multiplyAv(n, v, Av) {
+  for (let i = 0; i < n; i++) {
+    let s = 0.0;
+    for (let j = 0; j < n; j++) {
+      s += A(i, j) * v[j];
+    }
+    Av[i] = s;
+  }
+}
+
+fastfunction multiplyAtv(n, v, Atv) {
+  for (let i = 0; i < n; i++) {
+    let s = 0.0;
+    for (let j = 0; j < n; j++) {
+      s += A(j, i) * v[j];
+    }
+    Atv[i] = s;
+  }
+}
+
+fastfunction multiplyAtAv(n, v, AtAv) {
+  let u = new Array(n);
+  multiplyAv(n, v, u);
+  multiplyAtv(n, u, AtAv);
+}
+
+function spectralNorm(n) {
+  n = +n;
+  let u = new Array(n);
+  let v = new Array(n);
+
+  for (let i = 0; i < n; i++) {
+    u[i] = 1.0;
+    v[i] = 0.0;
+  }
+
+  for (let i = 0; i < 10; i++) {
+    multiplyAtAv(n, u, v);
+    multiplyAtAv(n, v, u);
+  }
+
+  let vBv = 0.0;
+  let vv = 0.0;
+  for (let i = 0; i < n; i++) {
+    vBv += u[i] * v[i];
+    vv += v[i] * v[i];
+  }
+
+  return Math.sqrt(vBv / vv);
+}
+
+// ---------- main ----------
+let N = 1000;
+let ta = DateTime.now();
+let result = spectralNorm(N);
+let tb = DateTime.now();
+
+puts(result);
+puts("Time: ", Math.round(DateTime.milliseconds(tb - ta)), " ms");
