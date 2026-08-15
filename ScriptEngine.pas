@@ -2510,7 +2510,7 @@ end;
 class function TBuiltInFunction.SEStringDelete(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   {$ifdef SE_STRING_UTF8}
-  UTF8Delete(Args[0].VarString^, Round(Args[1].VarNumber + 1), Round(Args[2].VarNumber));
+  UTF8Delete(AnsiString(Args[0].VarString^), Round(Args[1].VarNumber + 1), Round(Args[2].VarNumber));
   {$else}
   Delete(Args[0].VarString^, Round(Args[1].VarNumber + 1), Round(Args[2].VarNumber));
   {$endif}
@@ -2525,7 +2525,7 @@ end;
 class function TBuiltInFunction.SEStringInsert(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   {$ifdef SE_STRING_UTF8}
-  UTF8Insert(Args[1].VarString^, Args[0].VarString^, Round(Args[2].VarNumber + 1));
+  UTF8Insert(AnsiString(Args[1].VarString^), AnsiString(Args[0].VarString^), Round(Args[2].VarNumber + 1));
   {$else}
   Insert(Args[1].VarString^, Args[0].VarString^, Round(Args[2].VarNumber + 1));
   {$endif}
@@ -5095,7 +5095,7 @@ var
   A, B, C, V,
   OA, OB, OC, OV: PSEValue;
   TV, TV2: TSEValue;
-  S, S1, S2: RawByteString;
+  S, S1, S2: String;
   WS, WS1, WS2: UnicodeString;
   FuncNativeInfo: PSEFuncNativeInfo;
   FuncScriptInfo: PSEFuncScriptInfo;
@@ -6300,9 +6300,9 @@ labelStart:
                   begin
                     {$ifdef SE_STRING_UTF8}
                       S2 := B^.VarString^;
-                      UTF8Delete(TV.VarString^, NativeInt(C^) + 1, 1);
+                      UTF8Delete(AnsiString(TV.VarString^), NativeInt(C^) + 1, 1);
                       S := UTF8Copy(S2, 1, 1);
-                      UTF8Insert(S, TV.VarString^, NativeInt(C^) + 1);
+                      UTF8Insert(S, AnsiString(TV.VarString^), NativeInt(C^) + 1);
                     {$else}
                       TV.VarString^[NativeInt(C^) + 1] := B^.VarString^[1];
                     {$endif}
@@ -6310,9 +6310,9 @@ labelStart:
                 sevkNumber:
                   begin
                     {$ifdef SE_STRING_UTF8}
-                      UTF8Delete(TV.VarString^, NativeInt(C^) + 1, 1);
+                      UTF8Delete(AnsiString(TV.VarString^), NativeInt(C^) + 1, 1);
                       S := Char(Round(B^.VarNumber));
-                      UTF8Insert(S, TV.VarString^, NativeInt(C^) + 1);
+                      UTF8Insert(S, AnsiString(TV.VarString^), NativeInt(C^) + 1);
                     {$else}
                       TV.VarString^[NativeInt(C^) + 1] := Char(Round(B^.VarNumber));
                     {$endif}
