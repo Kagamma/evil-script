@@ -5477,7 +5477,7 @@ var
     case FuncImportInfo^.Return of
       seakI8, seakI16, seakI32:
         begin
-          TV := Int64(LongInt(ImportResult));
+          TV := NativeInt(LongInt(ImportResult));
         end;
       seakI64:
         begin
@@ -5489,7 +5489,7 @@ var
         end;
       seakU64:
         begin
-          TV := NativeUInt(ImportResult);
+          TV := UInt64(ImportResult);
         end;
       seakBuffer, seakWBuffer:
         begin
