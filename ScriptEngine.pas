@@ -5781,8 +5781,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorDiv:{$endif}
         begin
         labelOperatorDiv:
-          B := Pop;
-          SEValueDiv(Self.StackPtr^, {A}Pop^, B^);
+          SEValueDiv(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -5799,8 +5798,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorEqual:{$endif}
         begin
         labelOperatorEqual:
-          B := Pop;
-          SEValueEqual(Self.StackPtr^, {A}Pop^, B^);
+          SEValueEqual(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -5808,8 +5806,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorNotEqual:{$endif}
         begin
         labelOperatorNotEqual:
-          B := Pop;
-          SEValueNotEqual(Self.StackPtr^, {A}Pop^, B^);
+          SEValueNotEqual(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -5817,8 +5814,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorShiftLeft:{$endif}
         begin
         labelOperatorShiftLeft:
-          B := Pop;
-          SEValueShiftLeft(Self.StackPtr^, {A}Pop^, B^);
+          SEValueShiftLeft(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -5826,8 +5822,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorShiftRight:{$endif}
         begin
         labelOperatorShiftRight:
-          B := Pop;
-          SEValueShiftRight(Self.StackPtr^, {A}Pop^, B^);
+          SEValueShiftRight(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -5835,8 +5830,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorLesser:{$endif}
         begin
         labelOperatorLesser:
-          B := Pop;
-          SEValueLesser(Self.StackPtr^, {A}Pop^, B^);
+          SEValueLesser(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -5844,8 +5838,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorLesserOrEqual:{$endif}
         begin
         labelOperatorLesserOrEqual:
-          B := Pop;
-          SEValueLesserOrEqual(Self.StackPtr^, {A}Pop^, B^);
+          SEValueLesserOrEqual(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -5853,8 +5846,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorGreater:{$endif}
         begin
         labelOperatorGreater:
-          B := Pop;
-          SEValueGreater(Self.StackPtr^, {A}Pop^, B^);
+          SEValueGreater(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -5862,8 +5854,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorGreaterOrEqual:{$endif}
         begin
         labelOperatorGreaterOrEqual:
-          B := Pop;
-          SEValueGreaterOrEqual(Self.StackPtr^, {A}Pop^, B^);
+          SEValueGreaterOrEqual(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -5871,32 +5862,28 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorAnd:{$endif}
         begin
         labelOperatorAnd:
-          B := Pop;
-          Push(Integer({A}Pop^) and Integer(B^));
+          Push(Integer({A}Pop^) and Integer(Pop^));
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorOr:{$endif}
         begin
         labelOperatorOr:
-          B := Pop;
-          Push(Integer({A}Pop^) or Integer(B^));
+          Push(Integer({A}Pop^) or Integer(Pop^));
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorXor:{$endif}
         begin
         labelOperatorXor:
-          B := Pop;
-          Push(Integer({A}Pop^) xor Integer(B^));
+          Push(Integer({A}Pop^) xor Integer(Pop^));
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorNot:{$endif}
         begin
         labelOperatorNot:
-          A := Pop;
-          SEValueNot(Self.StackPtr^, A^);
+          SEValueNot(Self.StackPtr^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -5904,8 +5891,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorNegative:{$endif}
         begin
         labelOperatorNegative:
-          A := Pop;
-          SEValueNeg(Self.StackPtr^, A^);
+          SEValueNeg(Self.StackPtr^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -5947,8 +5933,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOperatorDiv1:{$endif}
         begin
         labelOperatorDiv1:
-          A := Pop;
-          SEValueDiv(Self.StackPtr^, A^, {B}GetVariable(BinaryLocal[CodePtrLocal + 1], {P}BinaryLocal[CodePtrLocal + 2].VarPointer)^);
+          SEValueDiv(Self.StackPtr^, Pop^, {B}GetVariable(BinaryLocal[CodePtrLocal + 1], {P}BinaryLocal[CodePtrLocal + 2].VarPointer)^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 3);
           DispatchGoto;
@@ -6024,8 +6009,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opJumpEqualRel:{$endif}
         begin
         labelJumpEqualRel:
-          B := Pop;
-          if SEValueEqual(Pop^, B^) then
+          if SEValueEqual(Pop^, Pop^) then
             CodePtrLocal := CodePtrLocal + Integer(BinaryLocal[CodePtrLocal + 1].VarPointer)
           else
             Inc(CodePtrLocal, 2);
