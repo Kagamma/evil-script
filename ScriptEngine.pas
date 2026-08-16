@@ -1535,7 +1535,7 @@ type
     procedure MulSDMem(Dst: TXMMReg; const M: TX64Mem);
     procedure DivSDMem(Dst: TXMMReg; const M: TX64Mem);
 
-    procedure ComISD(Dst, Src: TXMMReg; Predicate: Byte);
+    procedure ComISD(Dst, Src: TXMMReg);
 
     procedure Cvtsi2SD(Dst: TXMMReg; Src: TX64Reg);
 
@@ -3004,14 +3004,9 @@ begin
   EmitSSEMem($F2, $0F, $5E, Dst, M);
 end;
 
-procedure TX64Emitter.ComISD(Dst, Src: TXMMReg; Predicate: Byte);
+procedure TX64Emitter.ComISD(Dst, Src: TXMMReg);
 begin
-  EmitSSEMemImm8(
-    $F2, $0F, $2E,
-    Dst,
-    TX64Emitter.MemIndex(regRAX, regRAX, 1, 0),
-    Predicate
-    );
+  EmitSSEReg($F2, $0F, $2E, Dst, Src);
 end;
 
 procedure TX64Emitter.Cvtsi2SD(Dst: TXMMReg; Src: TX64Reg);
