@@ -5875,8 +5875,8 @@ var
                 Move(Pointer(DispatchTable[OpList[J]])^, P^, BlockSize);
                 Inc(P, BlockSize);
               end;
-              FlushInstructionCache(GetCurrentProcess, Mem, MemSize);
               P^ := $C3; // ret
+              FlushInstructionCache(GetCurrentProcess, Mem, MemSize);
             end;
             MemSize := 0;
             OpList.Clear;
