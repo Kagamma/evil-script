@@ -5764,9 +5764,9 @@ var
     nil,//@labelPushArrayPopEnd,
     @labelPopConstEnd,
     nil,
-    nil,//@labelAssignGlobalVarEnd,
+    @labelAssignGlobalVarEnd,
     nil,//@labelAssignGlobalArrayEnd,
-    nil,//@labelAssignLocalVarEnd,
+    @labelAssignLocalVarEnd,
     nil,//@labelAssignLocalArrayEnd,
     nil,
     nil,
@@ -5861,9 +5861,12 @@ var
             begin
               // Qualify for JIT
               //Writeln('JIT: ', BStart, ',', OpList.Count);
-              Mem := VirtualAlloc(nil, MemSize + 1, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+              Mem := VirtualAlloc(nil, (MemSize + 4095) and not NativeUInt(4095), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
               Binary.JITBlockList.Add(Mem);
               P := Mem;
+              // Patch the code to call the memory block instead
+              CodePtr := Binary.Ptr(BStart);
+              CodePtr[0] := Pointer((NativeUInt(P) shl 8) + Byte(opJITBlock));
               // Copy code
               for J := 0 to OpList.Count - 1 do
               begin
@@ -5872,12 +5875,8 @@ var
                 Move(Pointer(DispatchTable[OpList[J]])^, P^, BlockSize);
                 Inc(P, BlockSize);
               end;
+              FlushInstructionCache(GetCurrentProcess, Mem, MemSize);
               P^ := $C3; // ret
-              // Patch the code to call the memory block instead
-              CodePtr := Binary.Ptr(BStart);
-              //Writeln('MEM1: ', NativeUInt(Mem));
-              CodePtr[0] := Pointer((NativeUInt(Mem) shl 8) + Byte(opJITBlock));
-              //Writeln('MEM2: ', NativeUInt(Pointer(NativeUInt(CodePtr[0].VarPointer) shr 8)));
             end;
             MemSize := 0;
             OpList.Clear;
