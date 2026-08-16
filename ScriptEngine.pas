@@ -35,7 +35,7 @@ unit ScriptEngine;
 // enable this to replace FP's TDirectory with avk959's TGChainHashMap. It is a lot faster than TDirectory.
 // requires https://github.com/avk959/LGenerics
 // note: enable this will undef SE_MAP_SHORTSTRING, because this optimization is not necessary for TGChainHashMap
-{.$define SE_MAP_AVK959}
+{$define SE_MAP_AVK959}
 {$ifdef SE_MAP_AVK959}
   {$undef SE_MAP_SHORTSTRING}
 {$endif}
@@ -50,10 +50,14 @@ unit ScriptEngine;
   {$align 4}
 {$endif}
 {$packenum 4}
+{$optimization REGVAR}
 
 interface
 
 uses
+  {$ifdef WINDOWS}
+  Windows,
+  {$endif}
   SysUtils, Classes, Generics.Collections, StrUtils, Types, DateUtils, RegExpr, {$ifdef SE_THREADS}syncobjs,{$endif}
   contnrs, Rtti, TypInfo,
   {$ifdef SE_PROFILER}
@@ -146,7 +150,9 @@ type
     {$endif}
     opPushTrap,
     opPopTrap,
-    opThrow
+    opThrow,
+
+    opJITBlock
   );
   TSEOpcodeSet = set of TSEOpcode;
   TSEOpcodeInfo = record
@@ -164,6 +170,7 @@ type
     function Ptr(const Index: SizeInt): PTT; inline;
   end;
 
+  TSEOpcodeList = class(specialize TSEListPtr<TSEOpcode>);
   TSEOpcodeInfoList = class(specialize TSEListPtr<TSEOpcodeInfo>);
 
   TSENestedProc = procedure is nested;
@@ -324,13 +331,14 @@ type
   TSEValueArray = array of TSEValue;
   PPSEValue = ^PSEValue;
 
-  TSEValueListAncestor = specialize TList<TSEValue>;
-  TSEValueList = class(specialize TSEListPtr<TSEValue>);
+  TSEValueList = specialize TSEListPtr<TSEValue>;
+  TSEJITBlockList = specialize TList<Pointer>;
 
   TSEBinary = class(TSEValueList)
   public
     BinaryName: String;
-    IsComputedGotoPatched: Boolean;
+    JITBlockList: TSEJITBlockList;
+    IsJITTEd: Boolean;
     constructor Create;
     destructor Destroy; override;
   end;
@@ -489,7 +497,7 @@ type
   TSELineOfCodeList = specialize TList<TSELineOfCode>;
 
   TSEConstLookup = specialize TSEDictionary<String, NativeInt>;
-  TSEStack = TSEValueListAncestor;
+  TSEStack = TSEValueList;
   TSEVarMap = TSEValue;
   TSEFrame = record
     CodePtr: PSEValue;
@@ -563,8 +571,6 @@ type
 
   TEvilC = class;
   TSEVM = class
-  private
-    IsComputedGotoPatched: Boolean;
   public
     Name: String;
     Owner: TSEVM;
@@ -572,6 +578,7 @@ type
     ThreadOwner: TSEVMThread;
     {$endif}
     CoroutineOwner: TSEVMCoroutine;
+    EnableJIT: Boolean;
     IsPaused: Boolean;
     IsDone: Boolean;
     IsYielded: Boolean;
@@ -770,7 +777,8 @@ const
     {$endif}
     2, // opPushTrap,
     1, // opPopTrap,
-    1  // opThrow
+    1, // opThrow
+    0  // opJITBlock
   );
 
 type
@@ -1474,7 +1482,10 @@ begin
             SB.Append(',');
         end;
         SB.Append(#10);
-        Inc(I, OpcodeSizes[Op]);
+        if Op = opJITBlock then
+          Inc(I, NativeUInt(Binary[I + 2].VarPointer))
+        else
+          Inc(I, OpcodeSizes[Op]);
       end;
       SB.Append(#10);
     end;
@@ -1581,10 +1592,20 @@ end;
 constructor TSEBinary.Create;
 begin
   inherited;
+  Self.JITBlockList := TSEJITBlockList.Create;
 end;
 
 destructor TSEBinary.Destroy;
+var
+  Mem: Pointer;
 begin
+  for Mem in Self.JITBlockList do
+  begin
+    {$ifdef WINDOWS}
+    VirtualFree(Mem, 0, MEM_RELEASE);
+    {$endif}
+  end;
+  Self.JITBlockList.Free;
   inherited;
 end;
 
@@ -4087,7 +4108,7 @@ end;
 function TSEValueMap.TryLock: Boolean;
 begin
   {$ifdef SE_THREADS}
-  Result := TryEnterCriticalSection(Self.FLock) <> 0;
+  Result := System.TryEnterCriticalSection(Self.FLock) <> 0;
   {$else}
   Result := True;
   {$endif}
@@ -4678,7 +4699,7 @@ begin
   if IsThread > 0 then
     Exit;
   {$ifdef SE_THREADS}
-  if TryEnterCriticalSection(CS) = 0 then
+  if System.TryEnterCriticalSection(CS) = 0 then
   begin
     Self.FTicks := GetTickCount64;
     Exit;
@@ -4907,7 +4928,6 @@ begin
     FreeAndNil(Self.Binaries.Value^.Data[I]);
   Self.Binaries.Alloc(1);
   Self.Binaries.Value^.Data[0] := TSEBinary.Create;
-  Self.IsComputedGotoPatched := False;
 end;
 
 procedure TSEValueArrayManaged.Alloc(const ASize: Cardinal);
@@ -5105,6 +5125,8 @@ begin
 end;
 
 procedure TSEVM.Exec;
+type
+  TSEJITCodeProc = procedure;
 var
   A, B, C, V,
   OA, OB, OC, OV: PSEValue;
@@ -5122,6 +5144,7 @@ var
   FuncImport, P, PP, PC: Pointer;
   LineOfCode: TSELineOfCode;
   IsScriptException: Boolean = False;
+  CodeProc: TSEJITCodeProc;
 
   procedure GetLineOfCode;
   var
@@ -5549,14 +5572,14 @@ var
 {$ifdef SE_COMPUTED_GOTO}
   {$if defined(CPUX86_64) or defined(CPUi386)}
     {$define DispatchGoto :=
-      P := CodePtrLocal^.VarPointer;
+      P := DispatchTable[TSEOpcode(Byte(CodePtrLocal^.VarPointer))];
       asm
         jmp P;
       end
     }
   {$elseif defined(CPUARM) or defined(CPUAARCH64)}
     {$define DispatchGoto :=
-      P := CodePtrLocal^.VarPointer;
+      P := DispatchTable[TSEOpcode(Byte(CodePtrLocal^.VarPointer))];
       asm
         ldr x16,P
         br  x16
@@ -5581,79 +5604,80 @@ var
 
 label
   labelStart,
-  labelPushConst,
-  labelPushConstString,
-  labelPushGlobalVar,
-  labelPushLocalVar,
-  labelPushVar2,
-  labelPushArrayPop,
-  labelPopConst,
+  labelPushConst, labelPushConstEnd,
+  labelPushConstString, labelPushConstStringEnd,
+  labelPushGlobalVar, labelPushGlobalVarEnd,
+  labelPushLocalVar, labelPushLocalVarEnd,
+  labelPushVar2, labelPushVar2End,
+  labelPushArrayPop, labelPushArrayPopEnd,
+  labelPopConst, labelPopConstEnd,
   labelPopFrame,
-  labelAssignGlobalVar,
-  labelAssignGlobalArray,
-  labelAssignLocalVar,
-  labelAssignLocalArray,
+  labelAssignGlobalVar, labelAssignGlobalVarEnd,
+  labelAssignGlobalArray, labelAssignGlobalArrayEnd,
+  labelAssignLocalVar, labelAssignLocalVarEnd,
+  labelAssignLocalArray, labelAssignLocalArrayEnd,
   labelJumpEqualRel,
   labelJumpEqual1Rel,
   labelJumpUnconditionalRel,
   labelJumpEqualOrGreater2Rel,
   labelJumpEqualOrLesser2Rel,
 
-  labelOperatorInc,
+  labelOperatorInc, labelOperatorIncEnd,
 
-  labelOperatorAdd0,
-  labelOperatorMul0,
-  labelOperatorDiv0,
+  labelOperatorAdd0, labelOperatorAdd0End,
+  labelOperatorMul0, labelOperatorMul0End,
+  labelOperatorDiv0, labelOperatorDiv0End,
 
-  labelOperatorAdd1,
-  labelOperatorSub1,
-  labelOperatorMul1,
-  labelOperatorDiv1,
+  labelOperatorAdd1, labelOperatorAdd1End,
+  labelOperatorSub1, labelOperatorSub1End,
+  labelOperatorMul1, labelOperatorMul1End,
+  labelOperatorDiv1, labelOperatorDiv1End,
 
-  labelOperatorAdd,
-  labelOperatorSub,
-  labelOperatorMul,
-  labelOperatorDiv,
-  labelOperatorMod,
-  labelOperatorNegative,
+  labelOperatorAdd, labelOperatorAddEnd,
+  labelOperatorSub, labelOperatorSubEnd,
+  labelOperatorMul, labelOperatorMulEnd,
+  labelOperatorDiv, labelOperatorDivEnd,
+  labelOperatorMod, labelOperatorModEnd,
+  labelOperatorNegative, labelOperatorNegativeEnd,
 
-  labelOperatorLesser0,
-  labelOperatorLesserOrEqual0,
-  labelOperatorGreater0,
-  labelOperatorGreaterOrEqual0,
-  labelOperatorEqual0,
-  labelOperatorNotEqual0,
-  labelOperatorAnd0,
-  labelOperatorOr0,
+  labelOperatorLesser0, labelOperatorLesser0End,
+  labelOperatorLesserOrEqual0, labelOperatorLesserOrEqual0End,
+  labelOperatorGreater0, labelOperatorGreater0End,
+  labelOperatorGreaterOrEqual0, labelOperatorGreaterOrEqual0End,
+  labelOperatorEqual0, labelOperatorEqual0End,
+  labelOperatorNotEqual0, labelOperatorNotEqual0End,
+  labelOperatorAnd0, labelOperatorAnd0End,
+  labelOperatorOr0, labelOperatorOr0End,
 
-  labelOperatorLesser,
-  labelOperatorLesserOrEqual,
-  labelOperatorGreater,
-  labelOperatorGreaterOrEqual,
-  labelOperatorEqual,
-  labelOperatorNotEqual,
-  labelOperatorAnd,
-  labelOperatorOr,
-  labelOperatorXor,
-  labelOperatorNot,
-  labelOperatorShiftLeft,
-  labelOperatorShiftRight,
-  labelPushConstFromConstList,
+  labelOperatorLesser, labelOperatorLesserEnd,
+  labelOperatorLesserOrEqual, labelOperatorLesserOrEqualEnd,
+  labelOperatorGreater, labelOperatorGreaterEnd,
+  labelOperatorGreaterOrEqual, labelOperatorGreaterOrEqualEnd,
+  labelOperatorEqual, labelOperatorEqualEnd,
+  labelOperatorNotEqual, labelOperatorNotEqualEnd,
+  labelOperatorAnd, labelOperatorAndEnd,
+  labelOperatorOr, labelOperatorOrEnd,
+  labelOperatorXor, labelOperatorXorEnd,
+  labelOperatorNot, labelOperatorNotEnd,
+  labelOperatorShiftLeft, labelOperatorShiftLeftEnd,
+  labelOperatorShiftRight, labelOperatorShiftRightEnd,
+  labelPushConstFromConstList, labelPushConstFromConstListEnd,
 
   labelCallRef,
-  labelCallNative,
+  labelCallNative, labelCallNativeEnd,
   labelCallScript,
-  labelCallImport,
+  labelCallImport, labelCallImportEnd,
   labelYield,
   labelHlt,
+
   {$ifdef UNIX}
   labelBlockCleanup,
   {$endif}
   labelPushTrap,
   labelPopTrap,
-  labelThrow;
+  labelThrow,
+  labelJITBlock;
 
-{$ifdef SE_COMPUTED_GOTO}
 var
   DispatchTable: array[TSEOpcode] of Pointer = (
     @labelPushConst,
@@ -5727,35 +5751,149 @@ var
     {$endif}
     @labelPushTrap,
     @labelPopTrap,
-    @labelThrow
+    @labelThrow,
+    @labelJITBlock
   );
-{$endif}
 
-  // Prepare for direct threading
-  procedure ComputedGotoPatcher;
+  DispatchTableEnd: array[TSEOpcode] of Pointer = (
+    @labelPushConstEnd,
+    nil,
+    @labelPushGlobalVarEnd,
+    @labelPushLocalVarEnd,
+    @labelPushVar2End,
+    nil,//@labelPushArrayPopEnd,
+    @labelPopConstEnd,
+    nil,
+    nil,//@labelAssignGlobalVarEnd,
+    nil,//@labelAssignGlobalArrayEnd,
+    nil,//@labelAssignLocalVarEnd,
+    nil,//@labelAssignLocalArrayEnd,
+    nil,
+    nil,
+    nil,
+    nil,
+    nil,
+
+    @labelOperatorIncEnd,
+
+    @labelOperatorAdd0End,
+    @labelOperatorMul0End,
+    @labelOperatorDiv0End,
+
+    @labelOperatorAdd1End,
+    @labelOperatorSub1End,
+    @labelOperatorMul1End,
+    @labelOperatorDiv1End,
+
+    @labelOperatorAddEnd,
+    @labelOperatorSubEnd,
+    @labelOperatorMulEnd,
+    @labelOperatorDivEnd,
+    nil,//@labelOperatorModEnd,
+    nil,//@labelOperatorNegativeEnd,
+
+    @labelOperatorLesser0End,
+    @labelOperatorLesserOrEqual0End,
+    @labelOperatorGreater0End,
+    @labelOperatorGreaterOrEqual0End,
+    @labelOperatorEqual0End,
+    @labelOperatorNotEqual0End,
+    @labelOperatorAnd0End,
+    @labelOperatorOr0End,
+
+    @labelOperatorLesserEnd,
+    @labelOperatorLesserOrEqualEnd,
+    @labelOperatorGreaterEnd,
+    @labelOperatorGreaterOrEqualEnd,
+    @labelOperatorEqualEnd,
+    @labelOperatorNotEqualEnd,
+    @labelOperatorAndEnd,
+    @labelOperatorOrEnd,
+    @labelOperatorXorEnd,
+    @labelOperatorNotEnd,
+    @labelOperatorShiftLeftEnd,
+    @labelOperatorShiftRightEnd,
+    @labelPushConstFromConstListEnd,
+
+    nil,
+    nil,
+    nil,
+    nil,
+    nil,
+    nil,
+
+    {$ifdef UNIX}
+    nil,
+    {$endif}
+    nil,
+    nil,
+    nil,
+    nil
+  );
+
+  procedure JITPatcher;
   var
-    I, BIndex: NativeInt;
+    I, J, BIndex, BStart: NativeInt;
     Binary: TSEBinary;
     Op: TSEOpcode;
+    Mem, P: PByte;
+    MemSize, BlockSize: NativeUInt;
+    CodePtr: PSEValue;
+    OpList: TSEOpcodeList;
   begin
-    {$ifndef SE_COMPUTED_GOTO}
-    Exit;
-    {$endif}
-    if Self.IsComputedGotoPatched then
-      Exit;
-    for I := 0 to Length(Self.Binaries.Value^.Data) - 1 do
-    begin
-      Binary := Self.Binaries.Value^.Data[I];
-      if Binary.IsComputedGotoPatched then
-        continue;
-      BIndex := 0;
-      while BIndex <= Binary.Count - 1 do
+    OpList := TSEOpcodeList.Create;
+    try
+      for I := 0 to Length(Self.Binaries.Value^.Data) - 1 do
       begin
-        Op := TSEOpcode(NativeUInt(Binary.Ptr(BIndex)^.VarPointer));
-        Binary.Ptr(BIndex)^.VarPointer := DispatchTable[Op];
-        Inc(BIndex, OpcodeSizes[Op]);
+        Binary := Self.Binaries.Value^.Data[I];
+        if Binary.IsJITTEd then
+          continue;
+        BIndex := 0;
+        BStart := 0;
+        MemSize := 0;
+        OpList.Clear;
+        while BIndex <= Binary.Count - 1 do
+        begin
+          Op := TSEOpcode(NativeUInt(Binary.Ptr(BIndex)^.VarPointer));
+          if DispatchTableEnd[Op] = nil then // Meet an non-JIT opcode
+          begin
+            if OpList.Count >= 4 then
+            begin
+              // Qualify for JIT
+              //Writeln('JIT: ', BStart, ',', OpList.Count);
+              Mem := VirtualAlloc(nil, MemSize + 1, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+              Binary.JITBlockList.Add(Mem);
+              P := Mem;
+              // Copy code
+              for J := 0 to OpList.Count - 1 do
+              begin
+                //Writeln(' - ', OpList[J]);
+                BlockSize := NativeUInt(DispatchTableEnd[OpList[J]]) - NativeUInt(DispatchTable[OpList[J]]);
+                Move(Pointer(DispatchTable[OpList[J]])^, P^, BlockSize);
+                Inc(P, BlockSize);
+              end;
+              P^ := $C3; // ret
+              // Patch the code to call the memory block instead
+              CodePtr := Binary.Ptr(BStart);
+              //Writeln('MEM1: ', NativeUInt(Mem));
+              CodePtr[0] := Pointer((NativeUInt(Mem) shl 8) + Byte(opJITBlock));
+              //Writeln('MEM2: ', NativeUInt(Pointer(NativeUInt(CodePtr[0].VarPointer) shr 8)));
+            end;
+            MemSize := 0;
+            OpList.Clear;
+          end else
+          begin
+            if OpList.Count = 0 then
+              BStart := BIndex;
+            OpList.Add(Op);
+            MemSize := MemSize + (NativeUInt(DispatchTableEnd[Op]) - NativeUInt(DispatchTable[Op]));
+          end;
+          Inc(BIndex, OpcodeSizes[Op]);
+        end;
+        Binary.IsJITTEd := True;
       end;
-      Binary.IsComputedGotoPatched := True;
+    finally
+      OpList.Free;
     end;
   end;
 
@@ -5772,7 +5910,9 @@ begin
   else
     CodePtrLocal := Self.Binaries.Value^.Data[Self.CodeSegmentIndex].Ptr(0);
   GC.CheckForGC;
-  ComputedGotoPatcher;
+  {$ifdef WINDOWS}
+  JITPatcher;
+  {$endif}
 
 labelStart:
   while True do
@@ -5783,12 +5923,20 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}
       case TSEOpcode(NativeUInt(CodePtrLocal^.VarPointer)) of
       {$endif}
+      {$ifndef SE_COMPUTED_GOTO}opJITBlock:{$endif}
+        begin
+        labelJITBlock:
+          CodeProc := TSEJITCodeProc(Pointer(NativeUInt(CodePtrLocal[0].VarPointer) shr 8));
+          CodeProc();
+          DispatchGoto;
+        end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorInc:{$endif}
         begin
         labelOperatorInc:
           V  := GetVariable(CodePtrLocal[1].VarPointer, CodePtrLocal[2].VarPointer);
           V^.VarNumber := V^.VarNumber + CodePtrLocal[3].VarNumber;
           Inc(CodePtrLocal, 4);
+        labelOperatorIncEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorAdd0:{$endif}
@@ -5801,6 +5949,7 @@ labelStart:
             SEValueAdd(Self.StackPtr^, A^, CodePtrLocal[1]);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
+        labelOperatorAdd0End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorMul0:{$endif}
@@ -5809,6 +5958,7 @@ labelStart:
           Self.StackPtr^.VarNumber := Pop^.VarNumber * CodePtrLocal[1].VarNumber;
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
+        labelOperatorMul0End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorDiv0:{$endif}
@@ -5817,6 +5967,7 @@ labelStart:
           Self.StackPtr^.VarNumber := Pop^.VarNumber / CodePtrLocal[1].VarNumber;
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
+        labelOperatorDiv0End:
           DispatchGoto;
         end;
 
@@ -5826,6 +5977,7 @@ labelStart:
           Self.StackPtr^ := Pop^.VarNumber < CodePtrLocal[1].VarNumber;
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
+        labelOperatorLesser0End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorLesserOrEqual0:{$endif}
@@ -5834,6 +5986,7 @@ labelStart:
           Self.StackPtr^ := Pop^.VarNumber <= CodePtrLocal[1].VarNumber;
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
+        labelOperatorLesserOrEqual0End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorGreater0:{$endif}
@@ -5842,6 +5995,7 @@ labelStart:
           Self.StackPtr^ := Pop^.VarNumber > CodePtrLocal[1].VarNumber;
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
+        labelOperatorGreater0End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorGreaterOrEqual0:{$endif}
@@ -5850,6 +6004,7 @@ labelStart:
           Self.StackPtr^ := Pop^.VarNumber >= CodePtrLocal[1].VarNumber;
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
+        labelOperatorGreaterOrEqual0End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorEqual0:{$endif}
@@ -5862,6 +6017,7 @@ labelStart:
             SEValueEqual(Self.StackPtr^, A^, CodePtrLocal[1]);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
+        labelOperatorEqual0End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorNotEqual0:{$endif}
@@ -5874,6 +6030,7 @@ labelStart:
             SEValueNotEqual(Self.StackPtr^, A^, CodePtrLocal[1]);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
+        labelOperatorNotEqual0End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorAnd0:{$endif}
@@ -5882,6 +6039,7 @@ labelStart:
           Self.StackPtr^.VarNumber := NativeInt(Pop^) and NativeInt(CodePtrLocal[1]);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
+        labelOperatorAnd0End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorOr0:{$endif}
@@ -5890,6 +6048,7 @@ labelStart:
           Self.StackPtr^.VarNumber := NativeInt(Pop^) or NativeInt(CodePtrLocal[1]);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
+        labelOperatorOr0End:
           DispatchGoto;
         end;
 
@@ -5899,6 +6058,7 @@ labelStart:
           SEValueNeg(Self.StackPtr^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
+        labelOperatorNegativeEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorAdd:{$endif}
@@ -5912,6 +6072,7 @@ labelStart:
             SEValueAdd(Self.StackPtr^, A^, B^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
+        labelOperatorAddEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorSub:{$endif}
@@ -5925,6 +6086,7 @@ labelStart:
             SEValueSub(Self.StackPtr^, A^, B^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
+        labelOperatorSubEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorMul:{$endif}
@@ -5933,6 +6095,7 @@ labelStart:
           SEValueMul(Self.StackPtr^, {B}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
+        labelOperatorMulEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorDiv:{$endif}
@@ -5941,6 +6104,7 @@ labelStart:
           SEValueDiv(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
+        labelOperatorDivEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorMod:{$endif}
@@ -5950,6 +6114,7 @@ labelStart:
           A := Pop;
           Push(A^.VarNumber - B^.VarNumber * Int(A^.VarNumber / B^.VarNumber));
           Inc(CodePtrLocal);
+        labelOperatorModEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorLesser:{$endif}
@@ -5958,6 +6123,7 @@ labelStart:
           SEValueLesser(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
+        labelOperatorLesserEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorLesserOrEqual:{$endif}
@@ -5966,6 +6132,7 @@ labelStart:
           SEValueLesserOrEqual(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
+        labelOperatorLesserOrEqualEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorGreater:{$endif}
@@ -5974,6 +6141,7 @@ labelStart:
           SEValueGreater(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
+        labelOperatorGreaterEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorGreaterOrEqual:{$endif}
@@ -5982,6 +6150,7 @@ labelStart:
           SEValueGreaterOrEqual(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
+        labelOperatorGreaterOrEqualEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorEqual:{$endif}
@@ -5990,6 +6159,7 @@ labelStart:
           SEValueEqual(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
+        labelOperatorEqualEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorNotEqual:{$endif}
@@ -5998,6 +6168,7 @@ labelStart:
           SEValueNotEqual(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
+        labelOperatorNotEqualEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorAnd:{$endif}
@@ -6005,6 +6176,7 @@ labelStart:
         labelOperatorAnd:
           Push(NativeInt({A}Pop^) and NativeInt(Pop^));
           Inc(CodePtrLocal);
+        labelOperatorAndEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorOr:{$endif}
@@ -6012,6 +6184,7 @@ labelStart:
         labelOperatorOr:
           Push(NativeInt({A}Pop^) or NativeInt(Pop^));
           Inc(CodePtrLocal);
+        labelOperatorOrEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorXor:{$endif}
@@ -6019,6 +6192,7 @@ labelStart:
         labelOperatorXor:
           Push(NativeInt({A}Pop^) xor NativeInt(Pop^));
           Inc(CodePtrLocal);
+        labelOperatorXorEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorNot:{$endif}
@@ -6027,6 +6201,7 @@ labelStart:
           SEValueNot(Self.StackPtr^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
+        labelOperatorNotEnd:
           DispatchGoto;
         end;
 
@@ -6041,6 +6216,7 @@ labelStart:
             SEValueAdd(Self.StackPtr^, A^, B^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 3);
+        labelOperatorAdd1End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorSub1:{$endif}
@@ -6054,6 +6230,7 @@ labelStart:
             SEValueSub(Self.StackPtr^, A^, B^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 3);
+        labelOperatorSub1End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorMul1:{$endif}
@@ -6062,6 +6239,7 @@ labelStart:
           SEValueMul(Self.StackPtr^, {B}GetVariable(CodePtrLocal[1], {P}CodePtrLocal[2].VarPointer)^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 3);
+        labelOperatorMul1End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorDiv1:{$endif}
@@ -6070,6 +6248,7 @@ labelStart:
           SEValueDiv(Self.StackPtr^, Pop^, {B}GetVariable(CodePtrLocal[1], {P}CodePtrLocal[2].VarPointer)^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 3);
+        labelOperatorDiv1End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorShiftLeft:{$endif}
@@ -6078,6 +6257,7 @@ labelStart:
           SEValueShiftLeft(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
+        labelOperatorShiftLeftEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorShiftRight:{$endif}
@@ -6086,6 +6266,7 @@ labelStart:
           SEValueShiftRight(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
+        labelOperatorShiftRightEnd:
           DispatchGoto;
         end;
 
@@ -6094,6 +6275,7 @@ labelStart:
         labelPushConst:
           Push(CodePtrLocal[1]);
           Inc(CodePtrLocal, 2);
+        labelPushConstEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opPushConstString:{$endif}
@@ -6101,6 +6283,7 @@ labelStart:
         labelPushConstString:
           Push(ConstStrings.Ptr(NativeInt(CodePtrLocal[1].VarPointer))^);
           Inc(CodePtrLocal, 2);
+        labelPushConstStringEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opPushGlobalVar:{$endif}
@@ -6108,6 +6291,7 @@ labelStart:
         labelPushGlobalVar:
           Push(GetGlobal(CodePtrLocal[1].VarPointer)^);
           Inc(CodePtrLocal, 2);
+        labelPushGlobalVarEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opPushLocalVar:{$endif}
@@ -6115,6 +6299,7 @@ labelStart:
         labelPushLocalVar:
           Push(GetLocal(CodePtrLocal[1].VarPointer, NativeInt(CodePtrLocal[2].VarPointer))^);
           Inc(CodePtrLocal, 3);
+        labelPushLocalVarEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opPushVar2:{$endif}
@@ -6123,6 +6308,7 @@ labelStart:
           Push(GetVariable(CodePtrLocal[1].VarPointer, CodePtrLocal[3].VarPointer)^);
           Push(GetVariable(CodePtrLocal[2].VarPointer, CodePtrLocal[4].VarPointer)^);
           Inc(CodePtrLocal, 5);
+        labelPushVar2End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opPushArrayPop:{$endif}
@@ -6147,6 +6333,7 @@ labelStart:
               Push(SENull);
           end;
           Inc(CodePtrLocal, 2);
+        labelPushArrayPopEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opPopConst:{$endif}
@@ -6154,6 +6341,7 @@ labelStart:
         labelPopConst:
           Dec(Self.StackPtr); // Pop;
           Inc(CodePtrLocal);
+        labelPopConstEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opJumpEqualRel:{$endif}
@@ -6306,6 +6494,7 @@ labelStart:
         labelAssignGlobalVar:
           AssignGlobal(CodePtrLocal[1], Pop);
           Inc(CodePtrLocal, 2);
+        labelAssignGlobalVarEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opAssignLocalVar:{$endif}
@@ -6313,6 +6502,7 @@ labelStart:
         labelAssignLocalVar:
           AssignLocal(CodePtrLocal[1], NativeInt(CodePtrLocal[2].VarPointer), Pop);
           Inc(CodePtrLocal, 3);
+        labelAssignLocalVarEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opAssignGlobalArray:{$endif}
@@ -6365,6 +6555,7 @@ labelStart:
               end;
           end;
           Inc(CodePtrLocal, 3);
+        labelAssignGlobalArrayEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opAssignLocalArray:{$endif}
@@ -6421,6 +6612,7 @@ labelStart:
               end;
           end;
           Inc(CodePtrLocal, 4);
+        labelAssignLocalArrayEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opPushConstFromConstList:{$endif}
@@ -6428,6 +6620,7 @@ labelStart:
         labelPushConstFromConstList:
           Push(Self.Parent.ConstList[NativeInt(CodePtrLocal[1].VarPointer)]);
           Inc(CodePtrLocal, 2);
+        labelPushConstFromConstListEnd:
           DispatchGoto;
         end;
       {$ifdef UNIX}
@@ -8964,6 +9157,8 @@ var
     // Handle ternary
     if PeekAtNextToken.Kind = tkQuestion then
     begin
+      // We consider jump block as sevkFunction, this will hel the JIT to ignore generate code for the block...
+      Result := Result + [sevkFunction];
       NextToken;
       JumpExpr2 := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]);
       Result := Result + ParseExpr(False);
@@ -10567,7 +10762,7 @@ begin
   FuncNativeInfo.ArgCount := ArgCount;
   FuncNativeInfo.Func := Func;
   FuncNativeInfo.Name := Name;
-  FuncNativeInfo.PossibleKinds := [sevkNumber, sevkString, sevkNull, sevkMap];
+  FuncNativeInfo.PossibleKinds := [sevkNumber, sevkString, sevkNull, sevkMap, sevkFunction];
   Self.FuncNativeList.Add(FuncNativeInfo);
 end;
 
@@ -10599,7 +10794,7 @@ begin
   FuncScriptInfo.CodeSegmentIndex := Self.VM.Binaries.Value^.Size - 1;
   FuncScriptInfo.Name := Name;
   FuncScriptInfo.VarSymbols := TStringList.Create;
-  FuncScriptInfo.PossibleKinds := [sevkNumber, sevkString, sevkNull, sevkMap];
+  FuncScriptInfo.PossibleKinds := [sevkNumber, sevkString, sevkNull, sevkMap, sevkFunction];
   FuncScriptInfo.HasSelf := True;
   FuncScriptInfo.HasOverride := IsOverride;
   Self.FuncScriptList.Add(FuncScriptInfo);
@@ -10636,7 +10831,7 @@ begin
   FuncImportInfo.Name := Name;
   FuncImportInfo.Func := nil;
   FuncImportInfo.CallingConvention := CC;
-  FuncImportInfo.PossibleKinds := [sevkNumber, sevkString, sevkNull, sevkMap];
+  FuncImportInfo.PossibleKinds := [sevkNumber, sevkString, sevkNull, sevkMap, sevkFunction];
   if Lib <> 0 then
   begin
     FuncImportInfo.Func := GetProcAddress(Lib, ActualName);
