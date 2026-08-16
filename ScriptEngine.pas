@@ -35,7 +35,7 @@ unit ScriptEngine;
 // enable this to replace FP's TDirectory with avk959's TGChainHashMap. It is a lot faster than TDirectory.
 // requires https://github.com/avk959/LGenerics
 // note: enable this will undef SE_MAP_SHORTSTRING, because this optimization is not necessary for TGChainHashMap
-{$define SE_MAP_AVK959}
+{.$define SE_MAP_AVK959}
 {$ifdef SE_MAP_AVK959}
   {$undef SE_MAP_SHORTSTRING}
 {$endif}
@@ -146,9 +146,7 @@ type
     {$endif}
     opPushTrap,
     opPopTrap,
-    opThrow,
-
-    opJITBlock
+    opThrow
   );
   TSEOpcodeSet = set of TSEOpcode;
   TSEOpcodeInfo = record
@@ -328,23 +326,14 @@ type
 
   TSEValueListAncestor = specialize TList<TSEValue>;
   TSEValueList = class(specialize TSEListPtr<TSEValue>);
-  TSEJITBlockList = specialize TList<Pointer>;
 
   TSEBinary = class(TSEValueList)
   public
     BinaryName: String;
-    JITBlockList: TSEJITBlockList;
     IsComputedGotoPatched: Boolean;
     constructor Create;
     destructor Destroy; override;
   end;
-
-  TSEJITBlockInfo = record
-    StartBlock,
-    EndBlock: NativeInt;
-    Binary: TSEBinary;
-  end;
-  TSEJITBlockInfoStack = specialize TList<TSEJITBlockInfo>;
 
   PSEGCNode = ^TSEGCNode;
   TSEGCNode = record
@@ -583,7 +572,6 @@ type
     ThreadOwner: TSEVMThread;
     {$endif}
     CoroutineOwner: TSEVMCoroutine;
-    EnableJIT: Boolean;
     IsPaused: Boolean;
     IsDone: Boolean;
     IsYielded: Boolean;
@@ -782,8 +770,7 @@ const
     {$endif}
     2, // opPushTrap,
     1, // opPopTrap,
-    1, // opThrow
-    1  // opJITBlock (the actual size is stored at Code + 3)
+    1  // opThrow
   );
 
 type
@@ -823,11 +810,8 @@ type
   private
     FSource: String;
     FInternalIdentCount: NativeUInt;
-    JITBlockInfoStack: TSEJITBlockInfoStack;
     procedure SetSource(V: String);
     function InternalIdent: String;
-    procedure CheckStartJITBlock;
-    procedure CheckEndJITBlock(const AKindSet: TSEValueKindSet);
   public
     Owner: TObject;
     OptimizeConstants,        // True = enable optimization for constant values stored in ConstList
@@ -1597,16 +1581,10 @@ end;
 constructor TSEBinary.Create;
 begin
   inherited;
-  Self.JITBlockList := TSEJITBlockList.Create;
 end;
 
 destructor TSEBinary.Destroy;
-var
-  Mem: Pointer;
 begin
-  for Mem in Self.JITBlockList do
-    FreeMem(Mem);
-  Self.JITBlockList.Free;
   inherited;
 end;
 
@@ -5673,8 +5651,7 @@ label
   {$endif}
   labelPushTrap,
   labelPopTrap,
-  labelThrow,
-  labelJITBlock;
+  labelThrow;
 
 {$ifdef SE_COMPUTED_GOTO}
 var
@@ -5750,8 +5727,7 @@ var
     {$endif}
     @labelPushTrap,
     @labelPopTrap,
-    @labelThrow,
-    @labelJITBlock
+    @labelThrow
   );
 {$endif}
 
@@ -6454,11 +6430,6 @@ labelStart:
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opJITBlock:{$endif}
-        begin
-        labelJITBlock:
-          // TODO: Implement JIT
-        end;
       {$ifdef UNIX}
       {$ifndef SE_COMPUTED_GOTO}opBlockCleanup:{$endif}
         begin
@@ -6742,7 +6713,6 @@ begin
   Self.IncludePathList := TStringList.Create;
   Self.CurrentFileList := TStringList.Create;
   Self.LocalVarCountList := TSEIntegerList.Create;
-  Self.JITBlockInfoStack := TSEJITBlockInfoStack.Create;
   //
   Self.OptimizeConstants := True;
   Self.OptimizeAsserts := True;
@@ -6963,7 +6933,6 @@ begin
   FreeAndNil(Self.CurrentFileList);
   FreeAndNil(Self.LocalVarCountList);
   FreeAndNil(Self.GlobalVarSymbols);
-  FreeAndNil(Self.JITBlockInfoStack);
   inherited;
 end;
 
@@ -7000,14 +6969,6 @@ function TEvilC.InternalIdent: String; inline;
 begin
   Inc(Self.FInternalIdentCount);
   Result := IntToStr(FInternalIdentCount);
-end;
-
-procedure TEvilC.CheckStartJITBlock;
-begin
-end;
-
-procedure TEvilC.CheckEndJITBlock(const AKindSet: TSEValueKindSet);
-begin
 end;
 
 function TEvilC.GetIsPaused: Boolean;
@@ -8991,7 +8952,6 @@ var
     JumpExpr2: NativeInt;
 
   begin
-    CheckStartJITBlock;
     Result := [];
     OpCountStart := Self.OpcodeInfoList.Count;
     Logic;
@@ -9015,7 +8975,6 @@ var
       Patch(JumpExpr2 - 1, Pointer(Expr2Block) - (JumpExpr2 - 3));
       Patch(JumpEnd - 1, Pointer(EndBlock) - (JumpEnd - 2));
     end;
-    CheckEndJITBlock(Result);
   end;
 
   procedure ParseFuncRefCallByMapRewind(const Ident: TSEIdent; const DeepCount, RewindStartAdd: NativeInt; const ThisRefIdent: PSEIdent = nil);
