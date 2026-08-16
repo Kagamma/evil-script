@@ -58,6 +58,9 @@ uses
   {$ifdef WINDOWS}
   Windows,
   {$endif}
+  {$ifdef UNIX}
+  BaseUnix, Unix,
+  {$endif}
   SysUtils, Classes, Generics.Collections, StrUtils, Types, DateUtils, RegExpr, {$ifdef SE_THREADS}syncobjs,{$endif}
   contnrs, Rtti, TypInfo,
   {$ifdef SE_PROFILER}
@@ -1152,6 +1155,1999 @@ var
   FunctionThrow: array of TSEValue;
   ConstStrings: TSEStringList;
   ConstStringsLookup: TSEStringLookupMap;
+
+{ ===============================
+  X64 emitter
+  =============================== }
+
+type
+  TX64Reg = (
+    regRAX = 0, regRCX = 1, regRDX = 2, regRBX = 3,
+    regRSP = 4, regRBP = 5, regRSI = 6, regRDI = 7,
+    regR8 = 8, regR9 = 9, regR10 = 10, regR11 = 11,
+    regR12 = 12, regR13 = 13, regR14 = 14, regR15 = 15
+  );
+
+  TXMMReg = (
+    regXMM0 = 0, regXMM1 = 1, regXMM2 = 2, regXMM3 = 3,
+    regXMM4 = 4, regXMM5 = 5, regXMM6 = 6, regXMM7 = 7,
+    regXMM8 = 8, regXMM9 = 9, regXMM10 = 10, regXMM11 = 11,
+    regXMM12 = 12, regXMM13 = 13, regXMM14 = 14, regXMM15 = 15
+  );
+
+  TX64Label = Integer;
+
+  TX64Condition = (
+    ccO = 0,   // overflow
+    ccNO = 1,  // not overflow
+    ccB = 2,   // below/carry
+    ccAE = 3,  // above/equal/not carry
+    ccE = 4,   // equal/zero
+    ccNE = 5,  // not equal/not zero
+    ccBE = 6,  // below/equal
+    ccA = 7,   // above
+    ccS = 8,   // sign
+    ccNS = 9,  // not sign
+    ccP = 10,  // parity
+    ccNP = 11, // not parity
+    ccL = 12,  // less
+    ccGE = 13, // greater/equal
+    ccLE = 14, // less/equal
+    ccG = 15   // greater
+  );
+
+  TLabelInfo = record
+    Bound: boolean;
+    Position: Integer;
+  end;
+
+  TJumpPatch = record
+    LabelID: TX64Label;
+    DisplacementOffset: Integer;
+  end;
+
+  { Base/Index = -1 means "not present". }
+  TX64Mem = record
+    Base: Integer;
+    Index: Integer;
+    Scale: Byte;
+    Disp: LongInt;
+  end;
+
+  TX64CodeList = specialize TSEListPtr<Byte>;
+  TX64LabelInfoList = specialize TSEListPtr<TLabelInfo>;
+  TX64JumpPatchList = specialize TSEListPtr<TJumpPatch>;
+
+  TX64Emitter = class
+  private
+    FCode: TX64CodeList;
+    FLabels: TX64LabelInfoList;
+    FJumps: TX64JumpPatchList;
+
+    FExecutableMemory: Pointer;
+    FExecutableSize: NativeUInt;
+
+    procedure EmitByte(B: Byte);
+    procedure EmitU16(V: Word);
+    procedure EmitU32(V: LongWord);
+    procedure EmitU64(V: QWord);
+    procedure EmitI8(V: shortint);
+
+    procedure EmitRex(W: boolean; RegField, IndexField, BaseField: Integer);
+    procedure EmitRexByte(RegField, IndexField, BaseField: Integer);
+
+    procedure EmitModRM(ModBits: Byte; RegField, RMField: Integer);
+
+    procedure EmitSIB(ScaleBits, IndexField, BaseField: Integer);
+
+    procedure EmitMemModRM(RegField: Integer; const M: TX64Mem);
+
+    procedure EmitRM(Opcode: Byte; W: boolean; RegField: Integer; const M: TX64Mem);
+
+    procedure EmitRM2(Opcode1, Opcode2: Byte; W: boolean; RegField: Integer; const M: TX64Mem);
+
+    procedure EmitRegReg(Opcode: Byte; W: boolean; Dst, Src: TX64Reg);
+
+    procedure EmitGroup1Imm(Group: Byte; Dst: TX64Reg; Value: LongInt);
+
+    procedure EmitGroup2Imm(Group: Byte; Dst: TX64Reg; Count: Byte);
+
+    procedure EmitGroup2CL(Group: Byte; Dst: TX64Reg);
+
+    procedure EmitSSEMem(Prefix: Byte; Opcode1, Opcode2: Byte; XMM: TXMMReg; const M: TX64Mem);
+
+    procedure EmitSSEReg(Prefix: Byte; Opcode1, Opcode2: Byte; Dst, Src: TXMMReg);
+
+    procedure EmitSSEMemImm8(Prefix: Byte; Opcode1, Opcode2: Byte; XMM: TXMMReg; const M: TX64Mem; Imm8: Byte);
+
+    procedure ResolveLabels;
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    { -----------------------------------------------------------------
+      Memory operands
+      ----------------------------------------------------------------- }
+
+    class function Mem(Base: TX64Reg; Disp: LongInt = 0): TX64Mem; static;
+
+    class function MemIndex(Base, Index: TX64Reg; Scale: Byte; Disp: LongInt = 0): TX64Mem; static;
+
+    class function MemAbsolute(Address: Pointer): TX64Mem; static;
+
+    { -----------------------------------------------------------------
+      Raw data / utility
+      ----------------------------------------------------------------- }
+
+    procedure DB(B: Byte);
+    procedure DW(V: Word);
+    procedure DD(V: LongWord);
+    procedure DQ(V: QWord);
+
+    procedure Nop;
+    procedure NopN(Count: Integer);
+    procedure Int3;
+    procedure Ud2;
+
+    { Align code to power-of-two boundary. }
+    procedure Align(Alignment: Integer; FillByte: Byte = $90);
+
+    { -----------------------------------------------------------------
+      Labels / branches
+      ----------------------------------------------------------------- }
+
+    function CreateLabel: TX64Label;
+    procedure BindLabel(L: TX64Label);
+
+    procedure Jmp(L: TX64Label);
+    procedure Jcc(Condition: TX64Condition; L: TX64Label);
+
+    procedure Je(L: TX64Label);
+    procedure Jne(L: TX64Label);
+    procedure Jg(L: TX64Label);
+    procedure Jge(L: TX64Label);
+    procedure Jl(L: TX64Label);
+    procedure Jle(L: TX64Label);
+    procedure Ja(L: TX64Label);
+    procedure Jae(L: TX64Label);
+    procedure Jb(L: TX64Label);
+    procedure Jbe(L: TX64Label);
+    procedure Jo(L: TX64Label);
+    procedure Jno(L: TX64Label);
+    procedure Js(L: TX64Label);
+    procedure Jns(L: TX64Label);
+
+    { -----------------------------------------------------------------
+      Integer moves
+      ----------------------------------------------------------------- }
+
+    procedure MovRegImm64(Dst: TX64Reg; Value: QWord);
+    procedure MovRegImm32(Dst: TX64Reg; Value: LongWord);
+    procedure MovRegImm32SExt(Dst: TX64Reg; Value: LongInt);
+
+    procedure MovRegReg(Dst, Src: TX64Reg);
+    procedure MovReg32Reg32(Dst, Src: TX64Reg);
+
+    procedure MovRegMem(Dst, Base: TX64Reg; Disp: LongInt);
+    procedure MovRegMemEx(Dst: TX64Reg; const M: TX64Mem);
+
+    procedure MovReg32Mem(Dst, Base: TX64Reg; Disp: LongInt);
+    procedure MovReg32MemEx(Dst: TX64Reg; const M: TX64Mem);
+
+    procedure MovMemReg(Base: TX64Reg; Disp: LongInt; Src: TX64Reg);
+    procedure MovMemRegEx(const M: TX64Mem; Src: TX64Reg);
+
+    procedure MovMem32Reg(Base: TX64Reg; Disp: LongInt; Src: TX64Reg);
+    procedure MovMem32RegEx(const M: TX64Mem; Src: TX64Reg);
+
+    procedure MovReg8Reg8(Dst, Src: TX64Reg);
+    procedure MovReg8Mem(Dst, Base: TX64Reg; Disp: LongInt);
+    procedure MovReg8MemEx(Dst: TX64Reg; const M: TX64Mem);
+    procedure MovMem8Reg(Base: TX64Reg; Disp: LongInt; Src: TX64Reg);
+    procedure MovMem8RegEx(const M: TX64Mem; Src: TX64Reg);
+    procedure MovMemImm8(const M: TX64Mem; Value: Byte);
+
+    procedure MovMemImm32(const M: TX64Mem; Value: LongWord);
+
+    procedure MovMemImm64(const M: TX64Mem; Value: QWord);
+
+    procedure MovZXReg8(Dst, Src: TX64Reg);
+    procedure MovZXReg16(Dst, Src: TX64Reg);
+    procedure MovSXReg8(Dst, Src: TX64Reg);
+    procedure MovSXReg16(Dst, Src: TX64Reg);
+
+    procedure MovZXReg8Mem(Dst: TX64Reg; const M: TX64Mem);
+    procedure MovZXReg16Mem(Dst: TX64Reg; const M: TX64Mem);
+
+    procedure MovSXReg8Mem(Dst: TX64Reg; const M: TX64Mem);
+    procedure MovSXReg16Mem(Dst: TX64Reg; const M: TX64Mem);
+
+    procedure LeaRegMem(Dst: TX64Reg; const M: TX64Mem);
+
+    procedure XchgRegReg(A, B: TX64Reg);
+
+    { -----------------------------------------------------------------
+      Integer arithmetic
+      ----------------------------------------------------------------- }
+
+    procedure AddRegReg(Dst, Src: TX64Reg);
+    procedure SubRegReg(Dst, Src: TX64Reg);
+    procedure AdcRegReg(Dst, Src: TX64Reg);
+    procedure SbbRegReg(Dst, Src: TX64Reg);
+
+    procedure AndRegReg(Dst, Src: TX64Reg);
+    procedure OrRegReg(Dst, Src: TX64Reg);
+    procedure XorRegReg(Dst, Src: TX64Reg);
+
+    procedure AddRegImm32(Dst: TX64Reg; Value: LongInt);
+    procedure SubRegImm32(Dst: TX64Reg; Value: LongInt);
+    procedure AndRegImm32(Dst: TX64Reg; Value: LongInt);
+    procedure OrRegImm32(Dst: TX64Reg; Value: LongInt);
+    procedure XorRegImm32(Dst: TX64Reg; Value: LongInt);
+
+    procedure AdcRegImm32(Dst: TX64Reg; Value: LongInt);
+    procedure SbbRegImm32(Dst: TX64Reg; Value: LongInt);
+
+    procedure IncReg(R: TX64Reg);
+    procedure DecReg(R: TX64Reg);
+    procedure NegReg(R: TX64Reg);
+    procedure NotReg(R: TX64Reg);
+
+    procedure IMulRegReg(Dst, Src: TX64Reg);
+    procedure IMulRegRegImm32(Dst, Src: TX64Reg; Value: LongInt);
+
+    procedure MulReg(Src: TX64Reg);
+    procedure DivReg(Src: TX64Reg);
+    procedure IDivReg(Src: TX64Reg);
+
+    procedure Cqo;
+
+    { -----------------------------------------------------------------
+      Compare / test
+      ----------------------------------------------------------------- }
+
+    procedure CmpRegReg(A, B: TX64Reg);
+    procedure CmpRegImm32(A: TX64Reg; Value: LongInt);
+
+    procedure TestRegReg(A, B: TX64Reg);
+    procedure TestRegImm32(A: TX64Reg; Value: LongInt);
+
+    procedure Setcc(Condition: TX64Condition; Dst: TX64Reg);
+
+    procedure Sete(Dst: TX64Reg);
+    procedure Setne(Dst: TX64Reg);
+    procedure Setg(Dst: TX64Reg);
+    procedure Setge(Dst: TX64Reg);
+    procedure Setl(Dst: TX64Reg);
+    procedure Setle(Dst: TX64Reg);
+
+    procedure Cmovcc(Condition: TX64Condition; Dst, Src: TX64Reg);
+
+    procedure Cmove(Dst, Src: TX64Reg);
+    procedure Cmovne(Dst, Src: TX64Reg);
+    procedure Cmovg(Dst, Src: TX64Reg);
+    procedure Cmovge(Dst, Src: TX64Reg);
+    procedure Cmovl(Dst, Src: TX64Reg);
+    procedure Cmovle(Dst, Src: TX64Reg);
+
+    { -----------------------------------------------------------------
+      Shifts / rotates
+      ----------------------------------------------------------------- }
+
+    procedure ShlRegImm(Dst: TX64Reg; Count: Byte);
+    procedure ShrRegImm(Dst: TX64Reg; Count: Byte);
+    procedure SarRegImm(Dst: TX64Reg; Count: Byte);
+
+    procedure ShlRegCL(Dst: TX64Reg);
+    procedure ShrRegCL(Dst: TX64Reg);
+    procedure SarRegCL(Dst: TX64Reg);
+
+    procedure RolRegImm(Dst: TX64Reg; Count: Byte);
+    procedure RorRegImm(Dst: TX64Reg; Count: Byte);
+
+    procedure RolRegCL(Dst: TX64Reg);
+    procedure RorRegCL(Dst: TX64Reg);
+
+    { -----------------------------------------------------------------
+      Bit operations
+      ----------------------------------------------------------------- }
+
+    procedure BTRegReg(Base, Bit: TX64Reg);
+    procedure BTSRegReg(Base, Bit: TX64Reg);
+    procedure BTRRegReg(Base, Bit: TX64Reg);
+    procedure BTCRegReg(Base, Bit: TX64Reg);
+
+    procedure BTRegImm(Base: TX64Reg; Bit: Byte);
+    procedure BTSRegImm(Base: TX64Reg; Bit: Byte);
+    procedure BTRRegImm(Base: TX64Reg; Bit: Byte);
+    procedure BTCRegImm(Base: TX64Reg; Bit: Byte);
+
+    procedure BsfRegReg(Dst, Src: TX64Reg);
+    procedure BsrRegReg(Dst, Src: TX64Reg);
+
+    procedure Bswap(R: TX64Reg);
+
+    { -----------------------------------------------------------------
+      Stack
+      ----------------------------------------------------------------- }
+
+    procedure PushReg(R: TX64Reg);
+    procedure PopReg(R: TX64Reg);
+
+    procedure PushImm32(Value: LongInt);
+
+    procedure PushFlags;
+    procedure PopFlags;
+
+    procedure Enter(StackSize: Word; NestingLevel: Byte);
+    procedure Leave;
+
+    { -----------------------------------------------------------------
+      Calls / returns
+      ----------------------------------------------------------------- }
+
+    procedure CallReg(R: TX64Reg);
+    procedure CallAbsolute(R: TX64Reg; Address: Pointer);
+
+    procedure JmpReg(R: TX64Reg);
+    procedure JmpAbsolute(R: TX64Reg; Address: Pointer);
+
+    procedure Ret;
+    procedure RetImm16(Value: Word);
+
+    { -----------------------------------------------------------------
+      System / CPU
+      ----------------------------------------------------------------- }
+
+    procedure Syscall;
+    procedure Sysret;
+    procedure Cpuid;
+    procedure Rdtsc;
+    procedure Rdtscp;
+
+    { -----------------------------------------------------------------
+      SSE2 scalar double
+      ----------------------------------------------------------------- }
+
+    procedure MovSDXMMFromMem(Dst: TXMMReg; Base: TX64Reg;
+      Disp: LongInt);
+
+    procedure MovSDXMMFromMemEx(Dst: TXMMReg; const M: TX64Mem);
+
+    procedure MovSDMemFromXMM(Base: TX64Reg; Disp: LongInt;
+      Src: TXMMReg);
+
+    procedure MovSDMemFromXMMEx(const M: TX64Mem; Src: TXMMReg);
+
+    procedure MovSDXMM(Dst, Src: TXMMReg);
+
+    procedure AddSD(Dst, Src: TXMMReg);
+    procedure SubSD(Dst, Src: TXMMReg);
+    procedure MulSD(Dst, Src: TXMMReg);
+    procedure DivSD(Dst, Src: TXMMReg);
+
+    procedure SqrtSD(Dst, Src: TXMMReg);
+    procedure MinSD(Dst, Src: TXMMReg);
+    procedure MaxSD(Dst, Src: TXMMReg);
+
+    procedure AddSDMem(Dst: TXMMReg; const M: TX64Mem);
+    procedure SubSDMem(Dst: TXMMReg; const M: TX64Mem);
+    procedure MulSDMem(Dst: TXMMReg; const M: TX64Mem);
+    procedure DivSDMem(Dst: TXMMReg; const M: TX64Mem);
+
+    procedure ComISD(Dst, Src: TXMMReg; Predicate: Byte);
+
+    procedure Cvtsi2SD(Dst: TXMMReg; Src: TX64Reg);
+
+    procedure CvttSD2SI(Dst: TX64Reg; Src: TXMMReg);
+
+    procedure Cvtsd2si(Dst: TX64Reg; Src: TXMMReg);
+
+    { -----------------------------------------------------------------
+      SSE2 packed Integer / double operations
+      ----------------------------------------------------------------- }
+
+    procedure MovDQU(Dst, Src: TXMMReg);
+    procedure MovDQUFromMem(Dst: TXMMReg; const M: TX64Mem);
+    procedure MovDQUMem(const M: TX64Mem; Src: TXMMReg);
+
+    procedure Pxor(Dst, Src: TXMMReg);
+    procedure Pand(Dst, Src: TXMMReg);
+    procedure Por(Dst, Src: TXMMReg);
+
+    procedure PaddQ(Dst, Src: TXMMReg);
+    procedure PsubQ(Dst, Src: TXMMReg);
+
+    { -----------------------------------------------------------------
+      Finalization
+      ----------------------------------------------------------------- }
+
+    function MakeExecutable: Pointer;
+
+    property Code: TX64CodeList read FCode;
+  end;
+{ =====================================================================
+  Basic Byte emission
+  ===================================================================== }
+
+constructor TX64Emitter.Create;
+begin
+  inherited Create;
+
+  FExecutableMemory := nil;
+  FExecutableSize := 0;
+
+  Self.FCode := TX64CodeList.Create;
+  Self.FCode.Capacity := 512;
+  Self.FLabels := TX64LabelInfoList.Create;
+  Self.FJumps := TX64JumpPatchList.Create;
+end;
+
+destructor TX64Emitter.Destroy;
+begin
+  if FExecutableMemory <> nil then
+    VirtualFree(FExecutableMemory, 0, MEM_RELEASE);
+  Self.FJumps.Free;
+  Self.FLabels.Free;
+  Self.FCode.Free;
+  inherited Destroy;
+end;
+
+procedure TX64Emitter.EmitByte(B: Byte);
+begin
+  Self.FCode.Add(B);
+end;
+
+procedure TX64Emitter.EmitU16(V: Word);
+begin
+  EmitByte(Byte(V));
+  EmitByte(Byte(V shr 8));
+end;
+
+procedure TX64Emitter.EmitU32(V: LongWord);
+begin
+  EmitByte(Byte(V));
+  EmitByte(Byte(V shr 8));
+  EmitByte(Byte(V shr 16));
+  EmitByte(Byte(V shr 24));
+end;
+
+procedure TX64Emitter.EmitU64(V: QWord);
+begin
+  EmitByte(Byte(V));
+  EmitByte(Byte(V shr 8));
+  EmitByte(Byte(V shr 16));
+  EmitByte(Byte(V shr 24));
+  EmitByte(Byte(V shr 32));
+  EmitByte(Byte(V shr 40));
+  EmitByte(Byte(V shr 48));
+  EmitByte(Byte(V shr 56));
+end;
+
+procedure TX64Emitter.EmitI8(V: shortint);
+begin
+  EmitByte(Byte(V));
+end;
+
+procedure TX64Emitter.DB(B: Byte);
+begin
+  EmitByte(B);
+end;
+
+procedure TX64Emitter.DW(V: Word);
+begin
+  EmitU16(V);
+end;
+
+procedure TX64Emitter.DD(V: LongWord);
+begin
+  EmitU32(V);
+end;
+
+procedure TX64Emitter.DQ(V: QWord);
+begin
+  EmitU64(V);
+end;
+
+procedure TX64Emitter.Nop;
+begin
+  EmitByte($90);
+end;
+
+procedure TX64Emitter.NopN(Count: Integer);
+begin
+  while Count > 0 do
+  begin
+    EmitByte($90);
+    Dec(Count);
+  end;
+end;
+
+procedure TX64Emitter.Int3;
+begin
+  EmitByte($CC);
+end;
+
+procedure TX64Emitter.Ud2;
+begin
+  EmitByte($0F);
+  EmitByte($0B);
+end;
+
+procedure TX64Emitter.Align(Alignment: Integer; FillByte: Byte);
+var
+  N: Integer;
+begin
+  if Alignment <= 0 then
+    raise Exception.Create('Invalid alignment');
+
+  if (Alignment and (Alignment - 1)) <> 0 then
+    raise Exception.Create('Alignment must be a power of two');
+
+  while (Self.FCode.Count and (Alignment - 1)) <> 0 do
+    EmitByte(FillByte);
+
+  N := Self.FCode.Count;
+  if N < 0 then
+    raise Exception.Create('Code size overflow');
+end;
+
+{ =====================================================================
+  Memory operands
+  ===================================================================== }
+
+class function TX64Emitter.Mem(Base: TX64Reg; Disp: LongInt): TX64Mem;
+begin
+  Result.Base := Ord(Base);
+  Result.Index := -1;
+  Result.Scale := 1;
+  Result.Disp := Disp;
+end;
+
+class function TX64Emitter.MemIndex(Base, Index: TX64Reg; Scale: Byte;
+  Disp: LongInt): TX64Mem;
+begin
+  if not (Scale in [1, 2, 4, 8]) then
+    raise Exception.Create('Scale must be 1, 2, 4 or 8');
+
+  if (Ord(Index) and 7) = 4 then
+    raise Exception.Create('RSP/R12 cannot be used as SIB index');
+
+  Result.Base := Ord(Base);
+  Result.Index := Ord(Index);
+  Result.Scale := Scale;
+  Result.Disp := Disp;
+end;
+
+class function TX64Emitter.MemAbsolute(Address: Pointer): TX64Mem;
+begin
+  { Encoded as [disp32] by the normal memory encoder.
+    Therefore the address must fit the x64 absolute disp32 encoding
+    used by the chosen addressing form. For arbitrary 64-bit absolute
+    addresses, load the address into a register and use [reg]. }
+
+  if PtrUInt(Address) > $FFFFFFFF then
+    raise Exception.Create(
+      'MemAbsolute requires a 32-bit address; use a register for arbitrary addresses');
+
+  Result.Base := -1;
+  Result.Index := -1;
+  Result.Scale := 1;
+  Result.Disp := LongInt(PtrUInt(Address));
+end;
+
+{ =====================================================================
+  REX / ModRM / SIB
+  ===================================================================== }
+
+procedure TX64Emitter.EmitRex(W: boolean; RegField, IndexField, BaseField: Integer);
+var
+  R, X, B, V: Byte;
+begin
+  R := 0;
+  X := 0;
+  B := 0;
+
+  if RegField >= 8 then
+    R := 1;
+
+  if IndexField >= 8 then
+    X := 1;
+
+  if BaseField >= 8 then
+    B := 1;
+
+  V := $40;
+
+  if W then
+    V := V or $08;
+
+  if R <> 0 then
+    V := V or $04;
+
+  if X <> 0 then
+    V := V or $02;
+
+  if B <> 0 then
+    V := V or $01;
+
+  if V <> $40 then
+    EmitByte(V);
+end;
+
+procedure TX64Emitter.EmitRexByte(RegField, IndexField, BaseField: Integer);
+var
+  NeedRex: Boolean;
+begin
+  NeedRex :=
+    (RegField >= 4) or
+    (IndexField >= 8) or
+    (BaseField >= 8);
+
+  if NeedRex then
+  begin
+    if RegField >= 8 then
+      EmitRex(False, RegField, IndexField, BaseField)
+    else
+    begin
+      { RegField 4..7 needs a REX prefix, but has no R bit. }
+      EmitRex(False, 0, IndexField, BaseField);
+    end;
+  end
+  else
+    EmitRex(False, RegField, IndexField, BaseField);
+end;
+
+procedure TX64Emitter.EmitModRM(ModBits: Byte; RegField, RMField: Integer);
+begin
+  EmitByte(
+    (ModBits shl 6) or ((RegField and 7) shl 3) or (RMField and 7)
+    );
+end;
+
+procedure TX64Emitter.EmitSIB(ScaleBits, IndexField, BaseField: Integer);
+begin
+  EmitByte(
+    ((ScaleBits and 3) shl 6) or ((IndexField and 7) shl 3) or (BaseField and 7)
+    );
+end;
+
+procedure TX64Emitter.EmitMemModRM(RegField: Integer; const M: TX64Mem);
+var
+  ModBits: Byte;
+  RMField: Integer;
+  BaseLow, IndexLow: Integer;
+  NeedSIB: boolean;
+  ScaleBits: Integer;
+begin
+  if M.Index < -1 then
+    raise Exception.Create('Invalid memory index');
+
+  if (M.Index >= 0) and ((M.Index and 7) = 4) then
+    raise Exception.Create('RSP/R12 cannot be SIB index');
+
+  BaseLow := 0;
+  IndexLow := 4;
+
+  if M.Base >= 0 then
+    BaseLow := M.Base and 7;
+
+  if M.Index >= 0 then
+    IndexLow := M.Index and 7;
+
+  NeedSIB :=
+    (M.Base < 0) or (BaseLow = 4) or (M.Index >= 0);
+
+  if M.Base < 0 then
+  begin
+    { No base: SIB base=101, mod=00, disp32. }
+    EmitModRM(0, RegField, 4);
+
+    if M.Scale = 1 then ScaleBits := 0
+    else if M.Scale = 2 then ScaleBits := 1
+    else if M.Scale = 4 then ScaleBits := 2
+    else if M.Scale = 8 then ScaleBits := 3
+    else
+      raise Exception.Create('Invalid SIB scale');
+
+    EmitSIB(ScaleBits, IndexLow, 5);
+    EmitU32(LongWord(M.Disp));
+    Exit;
+  end;
+
+  if M.Disp = 0 then
+  begin
+    { regRBP/R13 require a displacement even when it is zero. }
+    if BaseLow = 5 then
+      ModBits := 1
+    else
+      ModBits := 0;
+  end
+  else if (M.Disp >= -128) and (M.Disp <= 127) then
+    ModBits := 1
+  else
+    ModBits := 2;
+
+  if NeedSIB then
+    RMField := 4
+  else
+    RMField := BaseLow;
+
+  EmitModRM(ModBits, RegField, RMField);
+
+  if NeedSIB then
+  begin
+    if M.Scale = 1 then ScaleBits := 0
+    else if M.Scale = 2 then ScaleBits := 1
+    else if M.Scale = 4 then ScaleBits := 2
+    else if M.Scale = 8 then ScaleBits := 3
+    else
+      raise Exception.Create('Invalid SIB scale');
+
+    EmitSIB(ScaleBits, IndexLow, BaseLow);
+  end;
+
+  if ModBits = 1 then
+    EmitI8(shortint(M.Disp))
+  else if ModBits = 2 then
+    EmitU32(LongWord(M.Disp));
+end;
+
+procedure TX64Emitter.EmitRM(Opcode: Byte; W: boolean; RegField: Integer;
+  const M: TX64Mem);
+begin
+  EmitRex(W, RegField, M.Index, M.Base);
+  EmitByte(Opcode);
+  EmitMemModRM(RegField, M);
+end;
+
+procedure TX64Emitter.EmitRM2(Opcode1, Opcode2: Byte; W: boolean;
+  RegField: Integer; const M: TX64Mem);
+begin
+  EmitRex(W, RegField, M.Index, M.Base);
+  EmitByte(Opcode1);
+  EmitByte(Opcode2);
+  EmitMemModRM(RegField, M);
+end;
+
+procedure TX64Emitter.EmitRegReg(Opcode: Byte; W: boolean; Dst, Src: TX64Reg);
+begin
+  EmitRex(W, Ord(Src), -1, Ord(Dst));
+  EmitByte(Opcode);
+  EmitModRM(3, Ord(Src), Ord(Dst));
+end;
+
+procedure TX64Emitter.EmitGroup1Imm(Group: Byte; Dst: TX64Reg; Value: LongInt);
+begin
+  EmitRex(True, Group, -1, Ord(Dst));
+  EmitByte($81);
+  EmitModRM(3, Group, Ord(Dst));
+  EmitU32(LongWord(Value));
+end;
+
+procedure TX64Emitter.EmitGroup2Imm(Group: Byte; Dst: TX64Reg; Count: Byte);
+begin
+  EmitRex(True, Group, -1, Ord(Dst));
+
+  if Count = 1 then
+  begin
+    EmitByte($D1);
+    EmitModRM(3, Group, Ord(Dst));
+  end
+  else
+  begin
+    EmitByte($C1);
+    EmitModRM(3, Group, Ord(Dst));
+    EmitByte(Count);
+  end;
+end;
+
+procedure TX64Emitter.EmitGroup2CL(Group: Byte; Dst: TX64Reg);
+begin
+  EmitRex(True, Group, -1, Ord(Dst));
+  EmitByte($D3);
+  EmitModRM(3, Group, Ord(Dst));
+end;
+
+{ =====================================================================
+  Labels / jumps
+  ===================================================================== }
+
+function TX64Emitter.CreateLabel: TX64Label;
+var
+  Lbl: TLabelInfo;
+begin
+  Result := Self.FLabels.Count;
+
+  Lbl.Bound := False;
+  Lbl.Position := 0;
+  Self.FLabels.Add(Lbl);
+end;
+
+procedure TX64Emitter.BindLabel(L: TX64Label);
+begin
+  if (L < 0) or (L >= Self.FLabels.Count) then
+    raise Exception.Create('Invalid label');
+
+  if Self.FLabels.Ptr(L)^.Bound then
+    raise Exception.Create('Label already bound');
+
+  Self.FLabels.Ptr(L)^.Bound := True;
+  Self.FLabels.Ptr(L)^.Position := Self.FCode.Count;
+end;
+
+procedure TX64Emitter.Jmp(L: TX64Label);
+var
+  J: TJumpPatch;
+begin
+  EmitByte($E9);
+
+  J.LabelID := L;
+  J.DisplacementOffset := Self.FCode.Count;
+  Self.FJumps.Add(J);
+
+  EmitU32(0);
+end;
+
+procedure TX64Emitter.Jcc(Condition: TX64Condition; L: TX64Label);
+var
+  J: TJumpPatch;
+begin
+  EmitByte($0F);
+  EmitByte($80 + Ord(Condition));
+
+  J.LabelID := L;
+  J.DisplacementOffset := Self.FCode.Count;
+  Self.FJumps.Add(J);
+
+  EmitU32(0);
+end;
+
+procedure TX64Emitter.Je(L: TX64Label);
+begin
+  Jcc(ccE, L);
+end;
+
+procedure TX64Emitter.Jne(L: TX64Label);
+begin
+  Jcc(ccNE, L);
+end;
+
+procedure TX64Emitter.Jg(L: TX64Label);
+begin
+  Jcc(ccG, L);
+end;
+
+procedure TX64Emitter.Jge(L: TX64Label);
+begin
+  Jcc(ccGE, L);
+end;
+
+procedure TX64Emitter.Jl(L: TX64Label);
+begin
+  Jcc(ccL, L);
+end;
+
+procedure TX64Emitter.Jle(L: TX64Label);
+begin
+  Jcc(ccLE, L);
+end;
+
+procedure TX64Emitter.Ja(L: TX64Label);
+begin
+  Jcc(ccA, L);
+end;
+
+procedure TX64Emitter.Jae(L: TX64Label);
+begin
+  Jcc(ccAE, L);
+end;
+
+procedure TX64Emitter.Jb(L: TX64Label);
+begin
+  Jcc(ccB, L);
+end;
+
+procedure TX64Emitter.Jbe(L: TX64Label);
+begin
+  Jcc(ccBE, L);
+end;
+
+procedure TX64Emitter.Jo(L: TX64Label);
+begin
+  Jcc(ccO, L);
+end;
+
+procedure TX64Emitter.Jno(L: TX64Label);
+begin
+  Jcc(ccNO, L);
+end;
+
+procedure TX64Emitter.Js(L: TX64Label);
+begin
+  Jcc(ccS, L);
+end;
+
+procedure TX64Emitter.Jns(L: TX64Label);
+begin
+  Jcc(ccNS, L);
+end;
+
+procedure TX64Emitter.ResolveLabels;
+var
+  I: Integer;
+  L: TX64Label;
+  PatchPos: Integer;
+  TargetPos: Integer;
+  NextInstruction: Integer;
+  Rel: int64;
+  V: LongWord;
+begin
+  for I := 0 to Self.FJumps.Count - 1 do
+  begin
+    L := Self.FJumps.Ptr(I)^.LabelID;
+
+    if (L < 0) or (L >= Self.FLabels.Count) then
+      raise Exception.Create('Invalid jump label');
+
+    if not Self.FLabels.Ptr(L)^.Bound then
+      raise Exception.Create('Unbound label');
+
+    PatchPos := Self.FJumps.Ptr(I)^.DisplacementOffset;
+    NextInstruction := PatchPos + 4;
+    TargetPos := Self.FLabels.Ptr(L)^.Position;
+
+    Rel :=
+      int64(TargetPos) - int64(NextInstruction);
+
+    if (Rel < Low(LongInt)) or (Rel > High(LongInt)) then
+      raise Exception.Create('Jump out of rel32 range');
+
+    V := LongWord(LongInt(Rel));
+
+    Self.FCode[PatchPos + 0] := Byte(V);
+    Self.FCode[PatchPos + 1] := Byte(V shr 8);
+    Self.FCode[PatchPos + 2] := Byte(V shr 16);
+    Self.FCode[PatchPos + 3] := Byte(V shr 24);
+  end;
+end;
+
+{ =====================================================================
+  Moves
+  ===================================================================== }
+
+procedure TX64Emitter.MovRegImm64(Dst: TX64Reg; Value: QWord);
+var
+  R: Integer;
+begin
+  R := Ord(Dst);
+
+  if R >= 8 then
+    EmitByte($49)
+  else
+    EmitByte($48);
+
+  EmitByte($B8 + (R and 7));
+  EmitU64(Value);
+end;
+
+procedure TX64Emitter.MovRegImm32(Dst: TX64Reg; Value: LongWord);
+var
+  R: Integer;
+begin
+  R := Ord(Dst);
+
+  if R >= 8 then
+    EmitByte($41);
+
+  EmitByte($B8 + (R and 7));
+  EmitU32(Value);
+end;
+
+procedure TX64Emitter.MovRegImm32SExt(Dst: TX64Reg; Value: LongInt);
+begin
+  EmitRex(True, 0, -1, Ord(Dst));
+  EmitByte($C7);
+  EmitModRM(3, 0, Ord(Dst));
+  EmitU32(LongWord(Value));
+end;
+
+procedure TX64Emitter.MovRegReg(Dst, Src: TX64Reg);
+begin
+  EmitRegReg($89, True, Dst, Src);
+end;
+
+procedure TX64Emitter.MovReg32Reg32(Dst, Src: TX64Reg);
+begin
+  EmitRegReg($89, False, Dst, Src);
+end;
+
+procedure TX64Emitter.MovRegMem(Dst, Base: TX64Reg; Disp: LongInt);
+begin
+  MovRegMemEx(Dst, Mem(Base, Disp));
+end;
+
+procedure TX64Emitter.MovRegMemEx(Dst: TX64Reg; const M: TX64Mem);
+begin
+  EmitRM($8B, True, Ord(Dst), M);
+end;
+
+procedure TX64Emitter.MovReg32Mem(Dst, Base: TX64Reg; Disp: LongInt);
+begin
+  MovReg32MemEx(Dst, Mem(Base, Disp));
+end;
+
+procedure TX64Emitter.MovReg32MemEx(Dst: TX64Reg; const M: TX64Mem);
+begin
+  EmitRM($8B, False, Ord(Dst), M);
+end;
+
+procedure TX64Emitter.MovMemReg(Base: TX64Reg; Disp: LongInt; Src: TX64Reg);
+begin
+  MovMemRegEx(Mem(Base, Disp), Src);
+end;
+
+procedure TX64Emitter.MovMemRegEx(const M: TX64Mem; Src: TX64Reg);
+begin
+  EmitRM($89, True, Ord(Src), M);
+end;
+
+procedure TX64Emitter.MovMem32Reg(Base: TX64Reg; Disp: LongInt; Src: TX64Reg);
+begin
+  MovMem32RegEx(Mem(Base, Disp), Src);
+end;
+
+procedure TX64Emitter.MovMem32RegEx(const M: TX64Mem; Src: TX64Reg);
+begin
+  EmitRM($89, False, Ord(Src), M);
+end;
+
+procedure TX64Emitter.MovReg8Reg8(Dst, Src: TX64Reg);
+begin
+  { MOV r/m8, r8
+    88 /r
+
+    Dst is encoded in r/m.
+    Src is encoded in reg.
+  }
+  EmitRexByte(Ord(Src), -1, Ord(Dst));
+  EmitByte($88);
+  EmitModRM(3, Ord(Src), Ord(Dst));
+end;
+
+procedure TX64Emitter.MovReg8Mem(Dst, Base: TX64Reg; Disp: LongInt);
+begin
+  MovReg8MemEx(Dst, Mem(Base, Disp));
+end;
+
+procedure TX64Emitter.MovReg8MemEx(Dst: TX64Reg; const M: TX64Mem);
+begin
+  { MOV r8, r/m8
+    8A /r
+  }
+  EmitRexByte(Ord(Dst), M.Index, M.Base);
+  EmitByte($8A);
+  EmitMemModRM(Ord(Dst), M);
+end;
+
+procedure TX64Emitter.MovMem8Reg(Base: TX64Reg; Disp: LongInt; Src: TX64Reg);
+begin
+  MovMem8RegEx(Mem(Base, Disp), Src);
+end;
+
+procedure TX64Emitter.MovMem8RegEx(const M: TX64Mem; Src: TX64Reg);
+begin
+  { MOV r/m8, r8
+    88 /r
+  }
+  EmitRexByte(Ord(Src), M.Index, M.Base);
+  EmitByte($88);
+  EmitMemModRM(Ord(Src), M);
+end;
+
+procedure TX64Emitter.MovMemImm8(const M: TX64Mem; Value: Byte);
+begin
+  { MOV r/m8, imm8
+    C6 /0 ib
+  }
+  EmitRex(False, 0, M.Index, M.Base);
+  EmitByte($C6);
+  EmitMemModRM(0, M);
+  EmitByte(Value);
+end;
+
+procedure TX64Emitter.MovMemImm32(const M: TX64Mem; Value: LongWord);
+begin
+  EmitRex(False, 0, M.Index, M.Base);
+  EmitByte($C7);
+  EmitMemModRM(0, M);
+  EmitU32(Value);
+end;
+
+procedure TX64Emitter.MovMemImm64(const M: TX64Mem; Value: QWord);
+begin
+  { MOV r/m64,imm32 cannot represent arbitrary 64-bit constants.
+    Use regRAX as a temporary. }
+  MovRegImm64(regRAX, Value);
+  MovMemRegEx(M, regRAX);
+end;
+
+procedure TX64Emitter.MovZXReg8(Dst, Src: TX64Reg);
+begin
+  EmitRex(True, Ord(Dst), -1, Ord(Src));
+  EmitByte($0F);
+  EmitByte($B6);
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.MovZXReg16(Dst, Src: TX64Reg);
+begin
+  EmitRex(True, Ord(Dst), -1, Ord(Src));
+  EmitByte($0F);
+  EmitByte($B7);
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.MovSXReg8(Dst, Src: TX64Reg);
+begin
+  EmitRex(True, Ord(Dst), -1, Ord(Src));
+  EmitByte($0F);
+  EmitByte($BE);
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.MovSXReg16(Dst, Src: TX64Reg);
+begin
+  EmitRex(True, Ord(Dst), -1, Ord(Src));
+  EmitByte($0F);
+  EmitByte($BF);
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.MovZXReg8Mem(Dst: TX64Reg; const M: TX64Mem);
+begin
+  EmitRM2($0F, $B6, True, Ord(Dst), M);
+end;
+
+procedure TX64Emitter.MovZXReg16Mem(Dst: TX64Reg; const M: TX64Mem);
+begin
+  EmitRM2($0F, $B7, True, Ord(Dst), M);
+end;
+
+procedure TX64Emitter.MovSXReg8Mem(Dst: TX64Reg; const M: TX64Mem);
+begin
+  EmitRM2($0F, $BE, True, Ord(Dst), M);
+end;
+
+procedure TX64Emitter.MovSXReg16Mem(Dst: TX64Reg; const M: TX64Mem);
+begin
+  EmitRM2($0F, $BF, True, Ord(Dst), M);
+end;
+
+procedure TX64Emitter.LeaRegMem(Dst: TX64Reg; const M: TX64Mem);
+begin
+  EmitRM($8D, True, Ord(Dst), M);
+end;
+
+procedure TX64Emitter.XchgRegReg(A, B: TX64Reg);
+begin
+  EmitRex(True, Ord(B), -1, Ord(A));
+  EmitByte($87);
+  EmitModRM(3, Ord(B), Ord(A));
+end;
+
+{ =====================================================================
+  Arithmetic / logical
+  ===================================================================== }
+
+procedure TX64Emitter.AddRegReg(Dst, Src: TX64Reg);
+begin
+  EmitRegReg($01, True, Dst, Src);
+end;
+
+procedure TX64Emitter.SubRegReg(Dst, Src: TX64Reg);
+begin
+  EmitRegReg($29, True, Dst, Src);
+end;
+
+procedure TX64Emitter.AdcRegReg(Dst, Src: TX64Reg);
+begin
+  EmitRegReg($11, True, Dst, Src);
+end;
+
+procedure TX64Emitter.SbbRegReg(Dst, Src: TX64Reg);
+begin
+  EmitRegReg($19, True, Dst, Src);
+end;
+
+procedure TX64Emitter.AndRegReg(Dst, Src: TX64Reg);
+begin
+  EmitRegReg($21, True, Dst, Src);
+end;
+
+procedure TX64Emitter.OrRegReg(Dst, Src: TX64Reg);
+begin
+  EmitRegReg($09, True, Dst, Src);
+end;
+
+procedure TX64Emitter.XorRegReg(Dst, Src: TX64Reg);
+begin
+  EmitRegReg($31, True, Dst, Src);
+end;
+
+procedure TX64Emitter.AddRegImm32(Dst: TX64Reg; Value: LongInt);
+begin
+  EmitGroup1Imm(0, Dst, Value);
+end;
+
+procedure TX64Emitter.SubRegImm32(Dst: TX64Reg; Value: LongInt);
+begin
+  EmitGroup1Imm(5, Dst, Value);
+end;
+
+procedure TX64Emitter.AndRegImm32(Dst: TX64Reg; Value: LongInt);
+begin
+  EmitGroup1Imm(4, Dst, Value);
+end;
+
+procedure TX64Emitter.OrRegImm32(Dst: TX64Reg; Value: LongInt);
+begin
+  EmitGroup1Imm(1, Dst, Value);
+end;
+
+procedure TX64Emitter.XorRegImm32(Dst: TX64Reg; Value: LongInt);
+begin
+  EmitGroup1Imm(6, Dst, Value);
+end;
+
+procedure TX64Emitter.AdcRegImm32(Dst: TX64Reg; Value: LongInt);
+begin
+  EmitGroup1Imm(2, Dst, Value);
+end;
+
+procedure TX64Emitter.SbbRegImm32(Dst: TX64Reg; Value: LongInt);
+begin
+  EmitGroup1Imm(3, Dst, Value);
+end;
+
+procedure TX64Emitter.IncReg(R: TX64Reg);
+begin
+  EmitRex(True, 0, -1, Ord(R));
+  EmitByte($FF);
+  EmitModRM(3, 0, Ord(R));
+end;
+
+procedure TX64Emitter.DecReg(R: TX64Reg);
+begin
+  EmitRex(True, 1, -1, Ord(R));
+  EmitByte($FF);
+  EmitModRM(3, 1, Ord(R));
+end;
+
+procedure TX64Emitter.NegReg(R: TX64Reg);
+begin
+  EmitRex(True, 3, -1, Ord(R));
+  EmitByte($F7);
+  EmitModRM(3, 3, Ord(R));
+end;
+
+procedure TX64Emitter.NotReg(R: TX64Reg);
+begin
+  EmitRex(True, 2, -1, Ord(R));
+  EmitByte($F7);
+  EmitModRM(3, 2, Ord(R));
+end;
+
+procedure TX64Emitter.IMulRegReg(Dst, Src: TX64Reg);
+begin
+  EmitRex(True, Ord(Dst), -1, Ord(Src));
+  EmitByte($0F);
+  EmitByte($AF);
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.IMulRegRegImm32(Dst, Src: TX64Reg; Value: LongInt);
+begin
+  EmitRex(True, Ord(Dst), -1, Ord(Src));
+  EmitByte($69);
+  EmitModRM(3, Ord(Dst), Ord(Src));
+  EmitU32(LongWord(Value));
+end;
+
+procedure TX64Emitter.MulReg(Src: TX64Reg);
+begin
+  EmitRex(True, 4, -1, Ord(Src));
+  EmitByte($F7);
+  EmitModRM(3, 4, Ord(Src));
+end;
+
+procedure TX64Emitter.DivReg(Src: TX64Reg);
+begin
+  EmitRex(True, 6, -1, Ord(Src));
+  EmitByte($F7);
+  EmitModRM(3, 6, Ord(Src));
+end;
+
+procedure TX64Emitter.IDivReg(Src: TX64Reg);
+begin
+  EmitRex(True, 7, -1, Ord(Src));
+  EmitByte($F7);
+  EmitModRM(3, 7, Ord(Src));
+end;
+
+procedure TX64Emitter.Cqo;
+begin
+  EmitByte($48);
+  EmitByte($99);
+end;
+
+{ =====================================================================
+  Compare / test
+  ===================================================================== }
+
+procedure TX64Emitter.CmpRegReg(A, B: TX64Reg);
+begin
+  EmitRegReg($39, True, A, B);
+end;
+
+procedure TX64Emitter.CmpRegImm32(A: TX64Reg; Value: LongInt);
+begin
+  EmitGroup1Imm(7, A, Value);
+end;
+
+procedure TX64Emitter.TestRegReg(A, B: TX64Reg);
+begin
+  EmitRex(True, Ord(B), -1, Ord(A));
+  EmitByte($85);
+  EmitModRM(3, Ord(B), Ord(A));
+end;
+
+procedure TX64Emitter.TestRegImm32(A: TX64Reg; Value: LongInt);
+begin
+  EmitRex(True, 0, -1, Ord(A));
+  EmitByte($F7);
+  EmitModRM(3, 0, Ord(A));
+  EmitU32(LongWord(Value));
+end;
+
+procedure TX64Emitter.Setcc(Condition: TX64Condition; Dst: TX64Reg);
+begin
+  { SETcc r/m8.
+    This intentionally targets the low Byte of the GPR.
+    With a REX prefix, the low-Byte registers are AL/CL/DL/BL
+    and regR8B-R15B; AH/CH/DH/BH are not available. }
+
+  EmitRex(False, 0, -1, Ord(Dst));
+  EmitByte($0F);
+  EmitByte($90 + Ord(Condition));
+  EmitModRM(3, 0, Ord(Dst));
+end;
+
+procedure TX64Emitter.Sete(Dst: TX64Reg);
+begin
+  Setcc(ccE, Dst);
+end;
+
+procedure TX64Emitter.Setne(Dst: TX64Reg);
+begin
+  Setcc(ccNE, Dst);
+end;
+
+procedure TX64Emitter.Setg(Dst: TX64Reg);
+begin
+  Setcc(ccG, Dst);
+end;
+
+procedure TX64Emitter.Setge(Dst: TX64Reg);
+begin
+  Setcc(ccGE, Dst);
+end;
+
+procedure TX64Emitter.Setl(Dst: TX64Reg);
+begin
+  Setcc(ccL, Dst);
+end;
+
+procedure TX64Emitter.Setle(Dst: TX64Reg);
+begin
+  Setcc(ccLE, Dst);
+end;
+
+procedure TX64Emitter.Cmovcc(Condition: TX64Condition; Dst, Src: TX64Reg);
+begin
+  EmitRex(True, Ord(Dst), -1, Ord(Src));
+  EmitByte($0F);
+  EmitByte($40 + Ord(Condition));
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.Cmove(Dst, Src: TX64Reg);
+begin
+  Cmovcc(ccE, Dst, Src);
+end;
+
+procedure TX64Emitter.Cmovne(Dst, Src: TX64Reg);
+begin
+  Cmovcc(ccNE, Dst, Src);
+end;
+
+procedure TX64Emitter.Cmovg(Dst, Src: TX64Reg);
+begin
+  Cmovcc(ccG, Dst, Src);
+end;
+
+procedure TX64Emitter.Cmovge(Dst, Src: TX64Reg);
+begin
+  Cmovcc(ccGE, Dst, Src);
+end;
+
+procedure TX64Emitter.Cmovl(Dst, Src: TX64Reg);
+begin
+  Cmovcc(ccL, Dst, Src);
+end;
+
+procedure TX64Emitter.Cmovle(Dst, Src: TX64Reg);
+begin
+  Cmovcc(ccLE, Dst, Src);
+end;
+
+{ =====================================================================
+  Shifts / rotates
+  ===================================================================== }
+
+procedure TX64Emitter.ShlRegImm(Dst: TX64Reg; Count: Byte);
+begin
+  EmitGroup2Imm(4, Dst, Count);
+end;
+
+procedure TX64Emitter.ShrRegImm(Dst: TX64Reg; Count: Byte);
+begin
+  EmitGroup2Imm(5, Dst, Count);
+end;
+
+procedure TX64Emitter.SarRegImm(Dst: TX64Reg; Count: Byte);
+begin
+  EmitGroup2Imm(7, Dst, Count);
+end;
+
+procedure TX64Emitter.ShlRegCL(Dst: TX64Reg);
+begin
+  EmitGroup2CL(4, Dst);
+end;
+
+procedure TX64Emitter.ShrRegCL(Dst: TX64Reg);
+begin
+  EmitGroup2CL(5, Dst);
+end;
+
+procedure TX64Emitter.SarRegCL(Dst: TX64Reg);
+begin
+  EmitGroup2CL(7, Dst);
+end;
+
+procedure TX64Emitter.RolRegImm(Dst: TX64Reg; Count: Byte);
+begin
+  EmitGroup2Imm(0, Dst, Count);
+end;
+
+procedure TX64Emitter.RorRegImm(Dst: TX64Reg; Count: Byte);
+begin
+  EmitGroup2Imm(1, Dst, Count);
+end;
+
+procedure TX64Emitter.RolRegCL(Dst: TX64Reg);
+begin
+  EmitGroup2CL(0, Dst);
+end;
+
+procedure TX64Emitter.RorRegCL(Dst: TX64Reg);
+begin
+  EmitGroup2CL(1, Dst);
+end;
+
+{ =====================================================================
+  Bit operations
+  ===================================================================== }
+
+procedure TX64Emitter.BTRegReg(Base, Bit: TX64Reg);
+begin
+  EmitRex(True, Ord(Bit), -1, Ord(Base));
+  EmitByte($0F);
+  EmitByte($A3);
+  EmitModRM(3, Ord(Bit), Ord(Base));
+end;
+
+procedure TX64Emitter.BTSRegReg(Base, Bit: TX64Reg);
+begin
+  EmitRex(True, Ord(Bit), -1, Ord(Base));
+  EmitByte($0F);
+  EmitByte($AB);
+  EmitModRM(3, Ord(Bit), Ord(Base));
+end;
+
+procedure TX64Emitter.BTRRegReg(Base, Bit: TX64Reg);
+begin
+  EmitRex(True, Ord(Bit), -1, Ord(Base));
+  EmitByte($0F);
+  EmitByte($B3);
+  EmitModRM(3, Ord(Bit), Ord(Base));
+end;
+
+procedure TX64Emitter.BTCRegReg(Base, Bit: TX64Reg);
+begin
+  EmitRex(True, Ord(Bit), -1, Ord(Base));
+  EmitByte($0F);
+  EmitByte($BB);
+  EmitModRM(3, Ord(Bit), Ord(Base));
+end;
+
+procedure TX64Emitter.BTRegImm(Base: TX64Reg; Bit: Byte);
+begin
+  EmitRex(True, 4, -1, Ord(Base));
+  EmitByte($0F);
+  EmitByte($BA);
+  EmitModRM(3, 4, Ord(Base));
+  EmitByte(Bit);
+end;
+
+procedure TX64Emitter.BTSRegImm(Base: TX64Reg; Bit: Byte);
+begin
+  EmitRex(True, 5, -1, Ord(Base));
+  EmitByte($0F);
+  EmitByte($BA);
+  EmitModRM(3, 5, Ord(Base));
+  EmitByte(Bit);
+end;
+
+procedure TX64Emitter.BTRRegImm(Base: TX64Reg; Bit: Byte);
+begin
+  EmitRex(True, 6, -1, Ord(Base));
+  EmitByte($0F);
+  EmitByte($BA);
+  EmitModRM(3, 6, Ord(Base));
+  EmitByte(Bit);
+end;
+
+procedure TX64Emitter.BTCRegImm(Base: TX64Reg; Bit: Byte);
+begin
+  EmitRex(True, 7, -1, Ord(Base));
+  EmitByte($0F);
+  EmitByte($BA);
+  EmitModRM(3, 7, Ord(Base));
+  EmitByte(Bit);
+end;
+
+procedure TX64Emitter.BsfRegReg(Dst, Src: TX64Reg);
+begin
+  EmitRex(True, Ord(Dst), -1, Ord(Src));
+  EmitByte($0F);
+  EmitByte($BC);
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.BsrRegReg(Dst, Src: TX64Reg);
+begin
+  EmitRex(True, Ord(Dst), -1, Ord(Src));
+  EmitByte($0F);
+  EmitByte($BD);
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.Bswap(R: TX64Reg);
+begin
+  EmitRex(True, 0, -1, Ord(R));
+  EmitByte($0F);
+  EmitByte($C8 + (Ord(R) and 7));
+end;
+
+{ =====================================================================
+  Stack
+  ===================================================================== }
+
+procedure TX64Emitter.PushReg(R: TX64Reg);
+var
+  V: Integer;
+begin
+  V := Ord(R);
+
+  if V >= 8 then
+    EmitByte($41);
+
+  EmitByte($50 + (V and 7));
+end;
+
+procedure TX64Emitter.PopReg(R: TX64Reg);
+var
+  V: Integer;
+begin
+  V := Ord(R);
+
+  if V >= 8 then
+    EmitByte($41);
+
+  EmitByte($58 + (V and 7));
+end;
+
+procedure TX64Emitter.PushImm32(Value: LongInt);
+begin
+  EmitByte($68);
+  EmitU32(LongWord(Value));
+end;
+
+procedure TX64Emitter.PushFlags;
+begin
+  EmitByte($9C);
+end;
+
+procedure TX64Emitter.PopFlags;
+begin
+  EmitByte($9D);
+end;
+
+procedure TX64Emitter.Enter(StackSize: Word; NestingLevel: Byte);
+begin
+  EmitByte($C8);
+  EmitU16(StackSize);
+  EmitByte(NestingLevel);
+end;
+
+procedure TX64Emitter.Leave;
+begin
+  EmitByte($C9);
+end;
+
+{ =====================================================================
+  Calls / jumps
+  ===================================================================== }
+
+procedure TX64Emitter.CallReg(R: TX64Reg);
+begin
+  EmitRex(False, 2, -1, Ord(R));
+  EmitByte($FF);
+  EmitModRM(3, 2, Ord(R));
+end;
+
+procedure TX64Emitter.CallAbsolute(R: TX64Reg; Address: Pointer);
+begin
+  MovRegImm64(R, PtrUInt(Address));
+  CallReg(R);
+end;
+
+procedure TX64Emitter.JmpReg(R: TX64Reg);
+begin
+  EmitRex(False, 4, -1, Ord(R));
+  EmitByte($FF);
+  EmitModRM(3, 4, Ord(R));
+end;
+
+procedure TX64Emitter.JmpAbsolute(R: TX64Reg; Address: Pointer);
+begin
+  MovRegImm64(R, PtrUInt(Address));
+  JmpReg(R);
+end;
+
+procedure TX64Emitter.Ret;
+begin
+  EmitByte($C3);
+end;
+
+procedure TX64Emitter.RetImm16(Value: Word);
+begin
+  EmitByte($C2);
+  EmitU16(Value);
+end;
+
+{ =====================================================================
+  CPU/system
+  ===================================================================== }
+
+procedure TX64Emitter.Syscall;
+begin
+  EmitByte($0F);
+  EmitByte($05);
+end;
+
+procedure TX64Emitter.Sysret;
+begin
+  EmitByte($0F);
+  EmitByte($07);
+end;
+
+procedure TX64Emitter.Cpuid;
+begin
+  EmitByte($0F);
+  EmitByte($A2);
+end;
+
+procedure TX64Emitter.Rdtsc;
+begin
+  EmitByte($0F);
+  EmitByte($31);
+end;
+
+procedure TX64Emitter.Rdtscp;
+begin
+  EmitByte($0F);
+  EmitByte($01);
+  EmitByte($F9);
+end;
+
+{ =====================================================================
+  SSE helpers
+  ===================================================================== }
+
+procedure TX64Emitter.EmitSSEMem(Prefix: Byte; Opcode1, Opcode2: Byte;
+  XMM: TXMMReg; const M: TX64Mem);
+begin
+  if Prefix <> 0 then
+    EmitByte(Prefix);
+
+  EmitRex(False, Ord(XMM), M.Index, M.Base);
+
+  EmitByte(Opcode1);
+  EmitByte(Opcode2);
+
+  EmitMemModRM(Ord(XMM), M);
+end;
+
+procedure TX64Emitter.EmitSSEReg(Prefix: Byte; Opcode1, Opcode2: Byte;
+  Dst, Src: TXMMReg);
+begin
+  if Prefix <> 0 then
+    EmitByte(Prefix);
+
+  EmitRex(False, Ord(Dst), -1, Ord(Src));
+
+  EmitByte(Opcode1);
+  EmitByte(Opcode2);
+
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.EmitSSEMemImm8(Prefix: Byte; Opcode1, Opcode2: Byte;
+  XMM: TXMMReg; const M: TX64Mem; Imm8: Byte);
+begin
+  if Prefix <> 0 then
+    EmitByte(Prefix);
+
+  EmitRex(False, Ord(XMM), M.Index, M.Base);
+
+  EmitByte(Opcode1);
+  EmitByte(Opcode2);
+
+  EmitMemModRM(Ord(XMM), M);
+
+  EmitByte(Imm8);
+end;
+
+{ =====================================================================
+  SSE2 scalar double
+  ===================================================================== }
+
+procedure TX64Emitter.MovSDXMMFromMem(Dst: TXMMReg; Base: TX64Reg; Disp: LongInt);
+begin
+  MovSDXMMFromMemEx(Dst, Mem(Base, Disp));
+end;
+
+procedure TX64Emitter.MovSDXMMFromMemEx(Dst: TXMMReg; const M: TX64Mem);
+begin
+  EmitSSEMem($F2, $0F, $10, Dst, M);
+end;
+
+procedure TX64Emitter.MovSDMemFromXMM(Base: TX64Reg; Disp: LongInt; Src: TXMMReg);
+begin
+  MovSDMemFromXMMEx(Mem(Base, Disp), Src);
+end;
+
+procedure TX64Emitter.MovSDMemFromXMMEx(const M: TX64Mem; Src: TXMMReg);
+begin
+  EmitSSEMem($F2, $0F, $11, Src, M);
+end;
+
+procedure TX64Emitter.MovSDXMM(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($F2, $0F, $10, Dst, Src);
+end;
+
+procedure TX64Emitter.AddSD(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($F2, $0F, $58, Dst, Src);
+end;
+
+procedure TX64Emitter.SubSD(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($F2, $0F, $5C, Dst, Src);
+end;
+
+procedure TX64Emitter.MulSD(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($F2, $0F, $59, Dst, Src);
+end;
+
+procedure TX64Emitter.DivSD(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($F2, $0F, $5E, Dst, Src);
+end;
+
+procedure TX64Emitter.SqrtSD(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($F2, $0F, $51, Dst, Src);
+end;
+
+procedure TX64Emitter.MinSD(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($F2, $0F, $5D, Dst, Src);
+end;
+
+procedure TX64Emitter.MaxSD(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($F2, $0F, $5F, Dst, Src);
+end;
+
+procedure TX64Emitter.AddSDMem(Dst: TXMMReg; const M: TX64Mem);
+begin
+  EmitSSEMem($F2, $0F, $58, Dst, M);
+end;
+
+procedure TX64Emitter.SubSDMem(Dst: TXMMReg; const M: TX64Mem);
+begin
+  EmitSSEMem($F2, $0F, $5C, Dst, M);
+end;
+
+procedure TX64Emitter.MulSDMem(Dst: TXMMReg; const M: TX64Mem);
+begin
+  EmitSSEMem($F2, $0F, $59, Dst, M);
+end;
+
+procedure TX64Emitter.DivSDMem(Dst: TXMMReg; const M: TX64Mem);
+begin
+  EmitSSEMem($F2, $0F, $5E, Dst, M);
+end;
+
+procedure TX64Emitter.ComISD(Dst, Src: TXMMReg; Predicate: Byte);
+begin
+  EmitSSEMemImm8(
+    $F2, $0F, $2E,
+    Dst,
+    TX64Emitter.MemIndex(regRAX, regRAX, 1, 0),
+    Predicate
+    );
+end;
+
+procedure TX64Emitter.Cvtsi2SD(Dst: TXMMReg; Src: TX64Reg);
+begin
+  EmitByte($F2);
+  EmitRex(True, Ord(Dst), -1, Ord(Src));
+  EmitByte($0F);
+  EmitByte($2A);
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.CvttSD2SI(Dst: TX64Reg; Src: TXMMReg);
+begin
+  EmitByte($F2);
+  EmitRex(True, Ord(Dst), -1, Ord(Src));
+  EmitByte($0F);
+  EmitByte($2C);
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.Cvtsd2si(Dst: TX64Reg; Src: TXMMReg);
+begin
+  EmitByte($F2);
+  EmitRex(True, Ord(Dst), -1, Ord(Src));
+  EmitByte($0F);
+  EmitByte($2D);
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+{ =====================================================================
+  SSE2 packed operations
+  ===================================================================== }
+
+procedure TX64Emitter.MovDQU(Dst, Src: TXMMReg);
+begin
+  EmitByte($F3);
+  EmitRex(False, Ord(Dst), -1, Ord(Src));
+  EmitByte($0F);
+  EmitByte($6F);
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.MovDQUFromMem(Dst: TXMMReg; const M: TX64Mem);
+begin
+  EmitSSEMem($F3, $0F, $6F, Dst, M);
+end;
+
+procedure TX64Emitter.MovDQUMem(const M: TX64Mem; Src: TXMMReg);
+begin
+  EmitSSEMem($F3, $0F, $7F, Src, M);
+end;
+
+procedure TX64Emitter.Pxor(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($66, $0F, $EF, Dst, Src);
+end;
+
+procedure TX64Emitter.Pand(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($66, $0F, $DB, Dst, Src);
+end;
+
+procedure TX64Emitter.Por(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($66, $0F, $EB, Dst, Src);
+end;
+
+procedure TX64Emitter.PaddQ(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($66, $0F, $D4, Dst, Src);
+end;
+
+procedure TX64Emitter.PsubQ(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($66, $0F, $FB, Dst, Src);
+end;
+
+{ =====================================================================
+  Executable memory
+  ===================================================================== }
+
+function TX64Emitter.MakeExecutable: Pointer;
+var
+  Size: NativeUInt;
+  AllocSize: NativeUInt;
+  P: Pointer;
+{$ifdef WINDOWS}
+  OldProtect: DWord;
+{$endif}
+begin
+  if Self.FCode.Count = 0 then
+    raise Exception.Create('Cannot execute empty code');
+
+  if FExecutableMemory <> nil then
+    raise Exception.Create('Code is already executable');
+
+  ResolveLabels;
+  Size := NativeUInt(Self.FCode.Count);
+  { Round up to page size (normally 4 KiB). }
+  AllocSize := (Size + 4095) and not NativeUInt(4095);
+
+{$ifdef WINDOWS}
+  P := VirtualAlloc(nil, AllocSize, MEM_COMMIT or MEM_RESERVE, PAGE_READWRITE);
+
+  if P = nil then
+    RaiseLastOSError;
+
+  Move(Self.FCode.Ptr(0)^, P^, Size);
+  if not VirtualProtect(P, AllocSize, PAGE_EXECUTE_READ, OldProtect) then
+  begin
+    VirtualFree(P, 0, MEM_RELEASE);
+    RaiseLastOSError;
+  end;
+  FlushInstructionCache(GetCurrentProcess, P, Size);
+
+{$else}
+  { Unix / Linux path }
+  P := fpmmap(nil, AllocSize, PROT_READ or PROT_WRITE, MAP_PRIVATE or MAP_ANONYMOUS, -1, 0);
+
+  if P = MAP_FAILED then          { MAP_FAILED = Pointer(-1) }
+    RaiseLastOSError;
+
+  Move(Self.FCode.Ptr(0)^, P^, Size);
+  if FpMProtect(P, AllocSize, PROT_READ or PROT_EXEC) <> 0 then
+  begin
+    FpMunMap(P, AllocSize);
+    RaiseLastOSError;
+  end;
+  { Instruction cache is coherent on x86/x86-64; no explicit flush needed. }
+{$endif}
+
+  FExecutableMemory := P;
+  FExecutableSize := AllocSize;
+
+  Result := P;
+end;
 
 {$ifdef SE_THREADS}
 threadvar
