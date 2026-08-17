@@ -8318,18 +8318,17 @@ var
         // Check the next opcode to see if the next one is also a JITBlockPotential
         Inc(BIndex, OpcodeSizes[Op]);
         Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
-        Writeln(Op);
         if Op = opJITBlockPotential then
         begin
           Result := JITHandler(False, @JitCodePtrLocal[BIndex], E);
         end;
         //
-        if (Result = STATUS_INVALID) or (Result = STATUS_OVERFLOW) then
+        if IsRoot then
         begin
-          JitCodePtrLocal[1] := nil;
-        end else
-        begin
-          if IsRoot then
+          if (Result = STATUS_INVALID) or (Result = STATUS_OVERFLOW) then
+          begin
+            JitCodePtrLocal[1] := nil;
+          end else
           begin
             E.Ret;
             // Patch the code to pass the memory block
