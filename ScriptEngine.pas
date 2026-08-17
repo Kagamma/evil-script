@@ -7935,7 +7935,7 @@ var
     I, J, BIndex, BFinish: NativeInt;
     Op: TSEOpcode;
     IsInvalidOpcode: Boolean;
-    IsStackOverflow: Boolean; // Stack overflow when XMMStackPtr > 16
+    IsStackOverflow: Boolean; // Stack overflow when XMMStackPtr >= 15
     E: TX64Emitter;
     XMMStackPtr: Byte;
     P: Pointer;
@@ -8044,6 +8044,11 @@ var
       //Writeln('JIT from ', BIndex, ' to ', BFinish);
       while BIndex <= BFinish do
       begin
+        if XMMStackPtr >= 14 then
+        begin
+          IsStackOverflow := True;
+          break;
+        end;
         Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
         //Writeln(' - ', Op);
         case Op of
@@ -8290,7 +8295,7 @@ var
         end;
         Inc(BIndex, OpcodeSizes[Op]);
       end;
-      if IsInvalidOpcode then
+      if IsInvalidOpcode or IsStackOverflow then
       begin
         JitCodePtrLocal[1] := nil;
       end else
