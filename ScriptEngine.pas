@@ -1258,7 +1258,11 @@ type
 
     procedure EmitSSEReg(Prefix: Byte; Opcode1, Opcode2: Byte; Dst, Src: TXMMReg);
 
-    procedure EmitSSEMemImm8(Prefix: Byte; Opcode1, Opcode2: Byte; XMM: TXMMReg; const M: TX64Mem; Imm8: Byte);
+    procedure EmitSSEMemImm8(Prefix: Byte; Opcode1, Opcode2: Byte; XMM: TXMMReg; const M: TX64Mem; Imm8: Byte); overload;
+
+    procedure EmitSSEMemImm8(Prefix: Byte; Opcode1, Opcode2, Opcode3: Byte; XMM: TXMMReg; const M: TX64Mem; Imm8: Byte); overload;
+
+    procedure EmitSSERegImm8(Prefix: Byte; Opcode1, Opcode2, Opcode3: Byte; Dst, Src: TXMMReg; Imm8: Byte);
 
     procedure ResolveLabels;
   public
@@ -1542,6 +1546,9 @@ type
     procedure CvttSD2SI(Dst: TX64Reg; Src: TXMMReg);
 
     procedure CvtSD2SI(Dst: TX64Reg; Src: TXMMReg);
+
+    procedure RoundSD(Dst, Src: TXMMReg; Rounding: Byte);
+    procedure RoundSDMem(Dst: TXMMReg; const M: TX64Mem; Rounding: Byte);
 
     { -----------------------------------------------------------------
       SSE2 packed Integer / double operations
@@ -2920,6 +2927,39 @@ begin
   EmitByte(Imm8);
 end;
 
+procedure TX64Emitter.EmitSSEMemImm8(Prefix: Byte; Opcode1, Opcode2, Opcode3: Byte;
+  XMM: TXMMReg; const M: TX64Mem; Imm8: Byte);
+begin
+  if Prefix <> 0 then
+    EmitByte(Prefix);
+
+  EmitRex(False, Ord(XMM), M.Index, M.Base);
+
+  EmitByte(Opcode1);
+  EmitByte(Opcode2);
+  EmitByte(Opcode3);
+
+  EmitMemModRM(Ord(XMM), M);
+
+  EmitByte(Imm8);
+end;
+
+procedure TX64Emitter.EmitSSERegImm8(Prefix: Byte; Opcode1, Opcode2, Opcode3: Byte; Dst, Src: TXMMReg; Imm8: Byte);
+begin
+  if Prefix <> 0 then
+    EmitByte(Prefix);
+
+  EmitRex(False, Ord(Dst), -1, Ord(Src));
+
+  EmitByte(Opcode1);
+  EmitByte(Opcode2);
+  EmitByte(Opcode3);
+
+  EmitModRM(3, Ord(Dst), Ord(Src));
+
+  EmitByte(Imm8);
+end;
+
 { =====================================================================
   SSE2 scalar double
   ===================================================================== }
@@ -3034,6 +3074,16 @@ begin
   EmitByte($0F);
   EmitByte($2D);
   EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.RoundSD(Dst, Src: TXMMReg; Rounding: Byte);
+begin
+  EmitSSERegImm8($F2, $0F, $3A, $0B, Dst, Src, Rounding);
+end;
+
+procedure TX64Emitter.RoundSDMem(Dst: TXMMReg; const M: TX64Mem; Rounding: Byte);
+begin
+  EmitSSEMemImm8($F2, $0F, $3A, $0B, Dst, M, Rounding);
 end;
 
 { =====================================================================
