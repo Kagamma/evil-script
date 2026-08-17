@@ -1537,11 +1537,11 @@ type
 
     procedure ComISD(Dst, Src: TXMMReg);
 
-    procedure Cvtsi2SD(Dst: TXMMReg; Src: TX64Reg);
+    procedure CvtSI2SD(Dst: TXMMReg; Src: TX64Reg);
 
     procedure CvttSD2SI(Dst: TX64Reg; Src: TXMMReg);
 
-    procedure Cvtsd2si(Dst: TX64Reg; Src: TXMMReg);
+    procedure CvtSD2SI(Dst: TX64Reg; Src: TXMMReg);
 
     { -----------------------------------------------------------------
       SSE2 packed Integer / double operations
@@ -3009,7 +3009,7 @@ begin
   EmitSSEReg($F2, $0F, $2E, Dst, Src);
 end;
 
-procedure TX64Emitter.Cvtsi2SD(Dst: TXMMReg; Src: TX64Reg);
+procedure TX64Emitter.CvtSI2SD(Dst: TXMMReg; Src: TX64Reg);
 begin
   EmitByte($F2);
   EmitRex(True, Ord(Dst), -1, Ord(Src));
@@ -3027,7 +3027,7 @@ begin
   EmitModRM(3, Ord(Dst), Ord(Src));
 end;
 
-procedure TX64Emitter.Cvtsd2si(Dst: TX64Reg; Src: TXMMReg);
+procedure TX64Emitter.CvtSD2SI(Dst: TX64Reg; Src: TXMMReg);
 begin
   EmitByte($F2);
   EmitRex(True, Ord(Dst), -1, Ord(Src));
