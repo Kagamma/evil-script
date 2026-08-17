@@ -8132,6 +8132,8 @@ var
 
           opOperatorInc:
             begin
+              IsInvalidOpcode := True;
+              break;
               GenGetVariable(False);
               E.MovRegImm64(regR9, NativeUInt(JitCodePtrLocal[BIndex + 3].VarNumber));
               E.MovSDXMMFromReg(regXMM1, regR9);
@@ -8178,7 +8180,7 @@ var
             begin
               GenGetVariable;
               { Div }
-              E.MulSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              E.DivSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
               Dec(XMMStackPtr, 1);
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
