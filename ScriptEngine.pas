@@ -7937,6 +7937,7 @@ var
     E: TX64Emitter;
     XMMStackPtr: Byte;
     P: Pointer;
+    IsAssigned: Boolean;
     JITBlock: TSEJITBlock;
 
     procedure GenPing(Reg: TX64Reg);
@@ -7947,7 +7948,7 @@ var
       E.AddRegImm32(regRSP, 40);
     end;
 
-    procedure GenGetGlobalVariable;
+    procedure GenGetGlobalVariable(IsValueOnly: Boolean = True);
     begin
       { Load global variable index to R8 }
       // mov r8, qword ptr [r15 + code[1].VarPointer]
@@ -7955,10 +7956,13 @@ var
       { Load global variable to stack }
         // movsd xmm?, qword ptr [r12 + r8 + .VarNumber]
       E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.MemIndex(regR12, regR8, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
+      if not IsValueOnly then
+        { We get the address of the local variable }
+        E.LeaRegMem(regR8, E.MemIndex(regR12, regR8, 1, 0));
       Inc(XMMStackPtr);
     end;
 
-    procedure GenGetLocalVariable;
+    procedure GenGetLocalVariable(IsValueOnly: Boolean = True);
     begin
       { R8 = current frame }
       // mov r8, r11
@@ -7978,18 +7982,22 @@ var
       { R8 = current frame's stack pointer }
       // mov r8, qword ptr [r8 + .StackPtr]
       E.MovReg64Mem(regR8, E.Mem(regR8, NativeUInt(@TSEFrame(nil^).StackPtr)));
+      if IsValueOnly then
       { XMM? = local variable }
-      // mov xmm?, qword ptr [r8 + rax + .VarNumber]
+      // movsd xmm?, qword ptr [r8 + rax + .VarNumber]
       E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.MemIndex(regR8, regRAX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
+      if not IsValueOnly then
+        { We get the address of the local variable }
+        E.LeaRegMem(regR8, E.MemIndex(regR8, regRAX, 1, 0));
       Inc(XMMStackPtr);
     end;
 
-    procedure GenGetVariable;
+    procedure GenGetVariable(IsValueOnly: Boolean = True);
     begin
       if JitCodePtrLocal[BIndex + 2].VarPointer = Pointer(SE_REG_GLOBAL) then
-        GenGetGlobalVariable
+        GenGetGlobalVariable(IsValueOnly)
       else
-        GenGetLocalVariable;
+        GenGetLocalVariable(IsValueOnly);
     end;
 
   begin
@@ -8000,6 +8008,7 @@ var
 
       XMMStackPtr := 0;
       IsInvalidOpcode := False;
+      IsAssigned := False;
       {$ifdef WINDOWS}
       { R8, R9, R10 are for scratch }
       // R15 = CodePtrLocal
@@ -8123,17 +8132,20 @@ var
 
           opOperatorInc:
             begin
-              IsInvalidOpcode := True;
-              break;
-              GenGetVariable;
-              E.MovRegImm64(regR8, NativeUInt(JitCodePtrLocal[BIndex + 3].VarNumber));
-              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regR8);
-              Inc(XMMStackPtr);
+              GenGetVariable(False);
+              E.MovRegImm64(regR9, NativeUInt(JitCodePtrLocal[BIndex + 3].VarNumber));
+              E.MovSDXMMFromReg(regXMM1, regR9);
               { Add }
-              E.AddSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
-              Dec(XMMStackPtr, 1);
+              E.AddSD(regXMM0, regXMM1);
+              { Assign to address at R8 }
+              E.MovSDMemFromXMM(E.Mem(regR8, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM0);
+              { Mark as number }
+              E.MovRegImm32(regRAX, Cardinal(sevkNumber));
+              E.MovMem32Reg(E.Mem(regR8, NativeUInt(@TSEValue(nil^).Kind)), regRAX);
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              IsAssigned := True;
+              break;
             end;
           opOperatorAdd1:
             begin
@@ -8217,7 +8229,7 @@ var
             begin
               IsInvalidOpcode := True;
               break;
-              // TODO: Either roll back, or push the remaining XMM values to the stack
+              // TODO: Either roll back, or push the remaining XMM values to the stack and continue
             end;
         end;
         Inc(BIndex, OpcodeSizes[Op]);
@@ -8227,14 +8239,17 @@ var
         JitCodePtrLocal[1] := nil;
       end else
       begin
-        { Move XMM0 to the stack }
-        E.MovSDMemFromXMM(E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM0);
-        { Mark this as number }
-        E.MovRegImm32(regRAX, Cardinal(sevkNumber));
-        E.MovMem32Reg(E.Mem(regR14, NativeUInt(@TSEValue(nil^).Kind)), regRAX);
-        { Increase stack by 1 }
-        E.AddRegImm32(regR14, SizeOf(TSEValue));
-        E.MovMem64Reg(E.Mem(regR13, 0), regR14);
+        if not IsAssigned then
+        begin
+          { Move XMM0 to the stack }
+          E.MovSDMemFromXMM(E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM0);
+          { Mark this as number }
+          E.MovRegImm32(regRAX, Cardinal(sevkNumber));
+          E.MovMem32Reg(E.Mem(regR14, NativeUInt(@TSEValue(nil^).Kind)), regRAX);
+          { Increase stack by 1 }
+          E.AddRegImm32(regR14, SizeOf(TSEValue));
+          E.MovMem64Reg(E.Mem(regR13, 0), regR14);
+        end;
         { Increase CodePtr }
         E.MovRegImm64(regR14, NativeUInt(@CodePtrLocal));
         E.MovMem64Reg(E.Mem(regR14, 0), regR15);
