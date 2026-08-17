@@ -8189,10 +8189,8 @@ var
           opPushGlobalVar:
             begin
               { Load global variable index to R8 }
-              // mov r8, qword ptr [r15 + (1).VarPointer]
-              E.MovReg64Mem(regR8, E.Mem(regR15, SizeOf(TSEValue) + NativeUInt(@TSEValue(nil^).VarPointer)));
-              // shl r8, 4
-              E.ShlRegImm(regR8, 4);
+              // mov r8, qword ptr [r15 + code[1]]
+              E.MovRegImm64(regR8, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer) * SizeOf(TSEValue));
               { Load global variable to stack }
                 // movsd xmm?, qword ptr [r12 + r8 + .VarNumber]
               E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.MemIndex(regR12, regR8, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
@@ -8226,6 +8224,60 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Inc(XMMStackPtr);
+            end;
+          opAssignGlobalVar:
+            begin
+              { Load global variable index to R8 }
+              // mov r8, qword ptr [r15 + code[1]]
+              E.MovRegImm64(regR8, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer) * SizeOf(TSEValue));
+              { Assign value from stack to global variable }
+              // movsd qword ptr [r12 + r8 + .VarNumber], xmm0
+              E.MovSDMemFromXMM(E.MemIndex(regR12, regR8, 1, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM0);
+              { Mark as number }
+              // mov eax, sevkNumber
+              E.MovRegImm32(regRAX, Cardinal(sevkNumber));
+              // mov dword ptr [r12 + r8 + .Kind], rax
+              E.MovMem32Reg(E.MemIndex(regR12, regR8, 1, NativeUInt(@TSEValue(nil^).Kind)), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              IsAssigned := True;
+              break;
+            end;
+          opAssignLocalVar:
+            begin
+              { R8 = current frame }
+              // mov r8, r11
+              E.MovRegReg64(regR8, regR11);
+              if NativeUInt(JitCodePtrLocal[BIndex + 2].VarPointer) <> 0 then
+              begin
+                { Load frame relative index to RAX }
+                // mov rax, code[2].VarPointer
+                E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 2].VarPointer) * SizeOf(TSEFrame));
+                { R8 = current frame - relative index }
+                // sub r8, rax
+                E.SubRegReg(regR8, regRAX);
+              end;
+              { Load local variable index to RAX }
+              // mov rdx, code[1].VarPointer
+              E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer) * SizeOf(TSEValue));
+              { R8 = current frame's stack pointer }
+              // mov r8, qword ptr [r8 + .StackPtr]
+              E.MovReg64Mem(regR8, E.Mem(regR8, NativeUInt(@TSEFrame(nil^).StackPtr)));
+              { R8 = local variable address }
+              // lea r8, qword ptr [r8 + rax]
+              E.LeaRegMem(regR8, E.MemIndex(regR8, regRAX, 1, 0));
+              { Assign value from stack to local variable }
+              // movsd qword ptr [r8 + .VarNumber], xmm0
+              E.MovSDMemFromXMM(E.Mem(regR8, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM0);
+              { Mark as number }
+              // mov eax, sevkNumber
+              E.MovRegImm32(regRAX, Cardinal(sevkNumber));
+              // mov dword ptr [r8 + .Kind], rax
+              E.MovMem32Reg(E.Mem(regR8, NativeUInt(@TSEValue(nil^).Kind)), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              IsAssigned := True;
+              break;
             end;
           else
             begin
@@ -12527,9 +12579,9 @@ var
             EmitAssignArray(Ident^, ArgCount);
           end else
           begin
-            VerifyJITBlock(Ident^.PossibleKinds);
             EmitAssignVar(Ident^);
             PeepholeIncOptimization;
+            VerifyJITBlock(Ident^.PossibleKinds);
           end;
         end;
       tkBracketOpen:
