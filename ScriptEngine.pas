@@ -13,7 +13,7 @@ unit ScriptEngine;
 // use computed goto instead of case of
 // try-catch will not work without computed goto!
 {$ifndef WASI}
-  {$define SE_COMPUTED_GOTO}
+  {.$define SE_COMPUTED_GOTO}
 {$endif}
 // enable this if you want to use libffi to handle dynamic function calls
 {.$define SE_LIBFFI}
@@ -5740,7 +5740,7 @@ var
   begin
     {$ifndef SE_COMPUTED_GOTO}
     Exit;
-    {$endif}
+    {$else}
     if Self.IsComputedGotoPatched then
       Exit;
     for I := 0 to Length(Self.Binaries.Value^.Data) - 1 do
@@ -5757,6 +5757,7 @@ var
       end;
       Binary.IsComputedGotoPatched := True;
     end;
+    {$endif}
   end;
 
 begin
