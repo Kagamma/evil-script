@@ -7298,7 +7298,7 @@ end;
 
 procedure TSEVM.Exec;
 type
-  TSEJITCodeProc = procedure;
+  TSEJITCodeProc = procedure(A, B, C, D: Pointer);
 var
   A, B, C, V,
   OA, OB, OC, OV: PSEValue;
@@ -8000,29 +8000,41 @@ var
 
       XMMStackPtr := 0;
       IsInvalidOpcode := False;
+      {$ifdef WINDOWS}
       { R8, R9, R10 are for scratch }
       // R15 = CodePtrLocal
-      E.MovRegImm64(regR15, NativeUInt(@CodePtrLocal));
-      E.MovReg64Mem(regR15, E.Mem(regR15, 0));
+      E.MovReg64Mem(regR15, E.Mem(regRCX, 0));
       { R13 = @StackPtr }
-      E.MovRegImm64(regR13, NativeUInt(@Self.StackPtr));
+      E.MovRegReg64(regR13, regRDX);
       { R14 = StackPtr }
       E.MovReg64Mem(regR14, E.Mem(regR13, 0));
       { R12 = GlobalVar }
-      E.MovRegImm64(regR12, NativeUInt(@GlobalLocal));
-      E.MovReg64Mem(regR12, E.Mem(regR12, 0));
+      E.MovReg64Mem(regR12, E.Mem(regR8, 0));
       { R11 = FramePtr}
-      E.MovRegImm64(regR11, NativeUInt(@Self.FramePtr));
-      E.MovReg64Mem(regR11, E.Mem(regR11, 0));
+      E.MovReg64Mem(regR11, E.Mem(regR9, 0));
       { Move to the next opcode }
       E.AddRegImm32(regR15, OpcodeSizes[opJITBlock] * SizeOf(TSEValue));
+      {$else}
+      // R15 = CodePtrLocal
+      E.MovReg64Mem(regR15, E.Mem(regRDI, 0));
+      { R13 = @StackPtr }
+      E.MovRegReg64(regR13, regRSI);
+      { R14 = StackPtr }
+      E.MovReg64Mem(regR14, E.Mem(regR13, 0));
+      { R12 = GlobalVar }
+      E.MovReg64Mem(regR12, E.Mem(regRDX, 0));
+      { R11 = FramePtr}
+      E.MovReg64Mem(regR11, E.Mem(regRCX, 0));
+      { Move to the next opcode }
+      E.AddRegImm32(regR15, OpcodeSizes[opJITBlock] * SizeOf(TSEValue));
+      {$endif}
       //
       BIndex := BIndex + OpcodeSizes[opJITBlock];
-      Writeln('JIT from ', BIndex, ' to ', BFinish);
+      //Writeln('JIT from ', BIndex, ' to ', BFinish);
       while BIndex <= BFinish do
       begin
         Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
-        Writeln(' - ', Op);
+        //Writeln(' - ', Op);
         case Op of
           opPushConst:
             begin
@@ -8278,8 +8290,8 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opJITBlock:{$endif}
         begin
         labelJITBlock:
-          CodeProc := TSEJITCodeProc(CodePtrLocal[1].VarPointer);
-          CodeProc();
+          CodeProc := TSEJITCodeProc(CodePtrLocal[1].VarPointer);// R15 = CodePtrLocal
+          CodeProc(@CodePtrLocal, @StackPtr, @GlobalLocal, @FramePtr);
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorInc:{$endif}
