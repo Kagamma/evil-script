@@ -572,6 +572,8 @@ type
   end;
   TSEVMCoroutineList = specialize TList<TSEVMCoroutine>;
 
+  TSEJITBlockSignatureStack = specialize TStack<NativeInt>;
+
   TEvilC = class;
   TSEVM = class
   public
@@ -781,7 +783,7 @@ const
     2, // opPushTrap,
     1, // opPopTrap,
     1, // opThrow
-    0  // opJITBlock
+    2  // opJITBlock
   );
 
 type
@@ -821,6 +823,8 @@ type
   private
     FSource: String;
     FInternalIdentCount: NativeUInt;
+    JITBlockSignatureStack: TSEJITBlockSignatureStack;
+    JITBlockCount: NativeInt;
     procedure SetSource(V: String);
     function InternalIdent: String;
   public
@@ -934,12 +938,12 @@ type
     ccG = 15   // greater
   );
 
-  TX64LabelInfo = record
+  TLabelInfo = record
     Bound: boolean;
     Position: Integer;
   end;
 
-  TX64JumpPatch = record
+  TJumpPatch = record
     LabelID: TX64Label;
     DisplacementOffset: Integer;
   end;
@@ -952,22 +956,18 @@ type
     Disp: LongInt;
   end;
 
-  generic TX64ListPtr<TT> = class(specialize TList<TT>)
-  public
-    type
-      PTT = ^TT;
-    function Ptr(const Index: SizeInt): PTT; inline;
-  end;
-
-  TX64CodeList = specialize TX64ListPtr<Byte>;
-  TX64LabelInfoList = specialize TX64ListPtr<TX64LabelInfo>;
-  TX64JumpPatchList = specialize TX64ListPtr<TX64JumpPatch>;
+  TX64CodeList = specialize TSEListPtr<Byte>;
+  TX64LabelInfoList = specialize TSEListPtr<TLabelInfo>;
+  TX64JumpPatchList = specialize TSEListPtr<TJumpPatch>;
 
   TX64Emitter = class
   private
     FCode: TX64CodeList;
     FLabels: TX64LabelInfoList;
     FJumps: TX64JumpPatchList;
+
+    FExecutableMemory: Pointer;
+    FExecutableSize: NativeUInt;
 
     procedure EmitByte(B: Byte);
     procedure EmitU16(V: Word);
@@ -1005,6 +1005,8 @@ type
     procedure EmitSSEMemImm8(Prefix: Byte; Opcode1, Opcode2, Opcode3: Byte; XMM: TXMMReg; const M: TX64Mem; Imm8: Byte); overload;
 
     procedure EmitSSERegImm8(Prefix: Byte; Opcode1, Opcode2, Opcode3: Byte; Dst, Src: TXMMReg; Imm8: Byte);
+
+    procedure EmitArithMemImm(Group: Byte; W: Boolean; const M: TX64Mem; Imm: Int64);
 
     procedure ResolveLabels;
   public
@@ -1073,14 +1075,14 @@ type
     procedure MovRegImm32(Dst: TX64Reg; Value: LongWord);
     procedure MovRegImm32SExt(Dst: TX64Reg; Value: LongInt);
 
-    procedure MovRegReg(Dst, Src: TX64Reg);
-    procedure MovReg32Reg32(Dst, Src: TX64Reg);
+    procedure MovReg64Reg(Dst, Src: TX64Reg);
+    procedure MovReg32Reg(Dst, Src: TX64Reg);
 
-    procedure MovRegMem(Dst: TX64Reg; const M: TX64Mem);
+    procedure MovReg64Mem(Dst: TX64Reg; const M: TX64Mem);
 
     procedure MovReg32Mem(Dst: TX64Reg; const M: TX64Mem);
 
-    procedure MovMemReg(const M: TX64Mem; Src: TX64Reg);
+    procedure MovMem64Reg(const M: TX64Mem; Src: TX64Reg);
 
     procedure MovMem32Reg(const M: TX64Mem; Src: TX64Reg);
 
@@ -1143,6 +1145,20 @@ type
     procedure IDivReg(Src: TX64Reg);
 
     procedure Cqo;
+
+    procedure AddMem64Imm(const M: TX64Mem; Imm: LongInt);
+    procedure SubMem64Imm(const M: TX64Mem; Imm: LongInt);
+    procedure AndMem64Imm(const M: TX64Mem; Imm: LongInt);
+    procedure OrMem64Imm(const M: TX64Mem; Imm: LongInt);
+    procedure XorMem64Imm(const M: TX64Mem; Imm: LongInt);
+    procedure CmpMem64Imm(const M: TX64Mem; Imm: LongInt);
+
+    procedure AddMem32Imm(const M: TX64Mem; Imm: LongInt);
+    procedure SubMem32Imm(const M: TX64Mem; Imm: LongInt);
+    procedure AndMem32Imm(const M: TX64Mem; Imm: LongInt);
+    procedure OrMem32Imm(const M: TX64Mem; Imm: LongInt);
+    procedure XorMem32Imm(const M: TX64Mem; Imm: LongInt);
+    procedure CmpMem32Imm(const M: TX64Mem; Imm: LongInt);
 
     { -----------------------------------------------------------------
       Compare / test
@@ -1568,10 +1584,6 @@ var
   ConstStrings: TSEStringList;
   ConstStringsLookup: TSEStringLookupMap;
 
-function TX64ListPtr.Ptr(const Index: SizeInt): PTT;
-begin
-  Result := @FItems[Index];
-end;
 { =====================================================================
   Basic Byte emission
   ===================================================================== }
@@ -1965,7 +1977,7 @@ end;
 
 function TX64Emitter.CreateLabel: TX64Label;
 var
-  Lbl: TX64LabelInfo;
+  Lbl: TLabelInfo;
 begin
   Result := Self.FLabels.Count;
 
@@ -1988,7 +2000,7 @@ end;
 
 procedure TX64Emitter.Jmp(L: TX64Label);
 var
-  J: TX64JumpPatch;
+  J: TJumpPatch;
 begin
   EmitByte($E9);
 
@@ -2001,7 +2013,7 @@ end;
 
 procedure TX64Emitter.Jcc(Condition: TX64Condition; L: TX64Label);
 var
-  J: TX64JumpPatch;
+  J: TJumpPatch;
 begin
   EmitByte($0F);
   EmitByte($80 + Ord(Condition));
@@ -2162,17 +2174,17 @@ begin
   EmitU32(LongWord(Value));
 end;
 
-procedure TX64Emitter.MovRegReg(Dst, Src: TX64Reg);
+procedure TX64Emitter.MovReg64Reg(Dst, Src: TX64Reg);
 begin
   EmitRegReg($89, True, Dst, Src);
 end;
 
-procedure TX64Emitter.MovReg32Reg32(Dst, Src: TX64Reg);
+procedure TX64Emitter.MovReg32Reg(Dst, Src: TX64Reg);
 begin
   EmitRegReg($89, False, Dst, Src);
 end;
 
-procedure TX64Emitter.MovRegMem(Dst: TX64Reg; const M: TX64Mem);
+procedure TX64Emitter.MovReg64Mem(Dst: TX64Reg; const M: TX64Mem);
 begin
   EmitRM($8B, True, Ord(Dst), M);
 end;
@@ -2182,7 +2194,7 @@ begin
   EmitRM($8B, False, Ord(Dst), M);
 end;
 
-procedure TX64Emitter.MovMemReg(const M: TX64Mem; Src: TX64Reg);
+procedure TX64Emitter.MovMem64Reg(const M: TX64Mem; Src: TX64Reg);
 begin
   EmitRM($89, True, Ord(Src), M);
 end;
@@ -2249,7 +2261,7 @@ begin
   { MOV r/m64,imm32 cannot represent arbitrary 64-bit constants.
     Use regRAX as a temporary. }
   MovRegImm64(regRAX, Value);
-  MovMemReg(M, regRAX);
+  MovMem64Reg(M, regRAX);
 end;
 
 procedure TX64Emitter.MovZXReg8(Dst, Src: TX64Reg);
@@ -2459,6 +2471,66 @@ procedure TX64Emitter.Cqo;
 begin
   EmitByte($48);
   EmitByte($99);
+end;
+
+procedure TX64Emitter.AddMem64Imm(const M: TX64Mem; Imm: LongInt);
+begin
+  EmitArithMemImm(0, True, M, Imm);
+end;
+
+procedure TX64Emitter.SubMem64Imm(const M: TX64Mem; Imm: LongInt);
+begin
+  EmitArithMemImm(5, True, M, Imm);
+end;
+
+procedure TX64Emitter.AndMem64Imm(const M: TX64Mem; Imm: LongInt);
+begin
+  EmitArithMemImm(4, True, M, Imm);
+end;
+
+procedure TX64Emitter.OrMem64Imm(const M: TX64Mem; Imm: LongInt);
+begin
+  EmitArithMemImm(1, True, M, Imm);
+end;
+
+procedure TX64Emitter.XorMem64Imm(const M: TX64Mem; Imm: LongInt);
+begin
+  EmitArithMemImm(6, True, M, Imm);
+end;
+
+procedure TX64Emitter.CmpMem64Imm(const M: TX64Mem; Imm: LongInt);
+begin
+  EmitArithMemImm(7, True, M, Imm);
+end;
+
+procedure TX64Emitter.AddMem32Imm(const M: TX64Mem; Imm: LongInt);
+begin
+  EmitArithMemImm(0, False, M, Imm);
+end;
+
+procedure TX64Emitter.SubMem32Imm(const M: TX64Mem; Imm: LongInt);
+begin
+  EmitArithMemImm(5, False, M, Imm);
+end;
+
+procedure TX64Emitter.AndMem32Imm(const M: TX64Mem; Imm: LongInt);
+begin
+  EmitArithMemImm(4, False, M, Imm);
+end;
+
+procedure TX64Emitter.OrMem32Imm(const M: TX64Mem; Imm: LongInt);
+begin
+  EmitArithMemImm(1, False, M, Imm);
+end;
+
+procedure TX64Emitter.XorMem32Imm(const M: TX64Mem; Imm: LongInt);
+begin
+  EmitArithMemImm(6, False, M, Imm);
+end;
+
+procedure TX64Emitter.CmpMem32Imm(const M: TX64Mem; Imm: LongInt);
+begin
+  EmitArithMemImm(7, False, M, Imm);
 end;
 
 { =====================================================================
@@ -2933,6 +3005,30 @@ begin
   EmitByte(Imm8);
 end;
 
+procedure TX64Emitter.EmitArithMemImm(Group: Byte; W: Boolean; const M: TX64Mem; Imm: Int64);
+begin
+  if Group > 7 then
+    raise Exception.Create('Invalid arithmetic group');
+
+  EmitRex(W, 0, M.Index, M.Base);
+
+  if (Imm >= -128) and (Imm <= 127) then
+  begin
+    EmitByte($83);
+    EmitMemModRM(Group, M);
+    EmitI8(ShortInt(Imm));
+  end
+  else
+  begin
+    if (Imm < -2147483648) or (Imm > 2147483647) then
+      raise Exception.Create('Immediate does not fit signed 32-bit');
+
+    EmitByte($81);
+    EmitMemModRM(Group, M);
+    EmitU32(LongWord(Int32(Imm)));
+  end;
+end;
+
 { =====================================================================
   SSE2 scalar double
   ===================================================================== }
@@ -3112,6 +3208,9 @@ var
 begin
   if Self.FCode.Count = 0 then
     raise Exception.Create('Cannot execute empty code');
+
+  if FExecutableMemory <> nil then
+    raise Exception.Create('Code is already executable');
 
   ResolveLabels;
   Size := NativeUInt(Self.FCode.Count);
@@ -3482,10 +3581,7 @@ begin
             SB.Append(',');
         end;
         SB.Append(#10);
-        if Op = opJITBlock then
-          Inc(I, NativeUInt(Binary[I + 2].VarPointer))
-        else
-          Inc(I, OpcodeSizes[Op]);
+        Inc(I, OpcodeSizes[Op]);
       end;
       SB.Append(#10);
     end;
@@ -7581,14 +7677,14 @@ var
 {$ifdef SE_COMPUTED_GOTO}
   {$if defined(CPUX86_64) or defined(CPUi386)}
     {$define DispatchGoto :=
-      P := DispatchTable[TSEOpcode(Byte(CodePtrLocal^.VarPointer))];
+      P := DispatchTable[TSEOpcode(NativeUInt(CodePtrLocal^.VarPointer))];
       asm
         jmp P;
       end
     }
   {$elseif defined(CPUARM) or defined(CPUAARCH64)}
     {$define DispatchGoto :=
-      P := DispatchTable[TSEOpcode(Byte(CodePtrLocal^.VarPointer))];
+      P := DispatchTable[TSEOpcode(NativeUInt(CodePtrLocal^.VarPointer))];
       asm
         ldr x16,P
         br  x16
@@ -7633,49 +7729,49 @@ label
 
   labelOperatorInc, labelOperatorIncEnd,
 
-  labelOperatorAdd0, labelOperatorAdd0End,
-  labelOperatorMul0, labelOperatorMul0End,
-  labelOperatorDiv0, labelOperatorDiv0End,
+  labelOperatorAdd0,
+  labelOperatorMul0,
+  labelOperatorDiv0,
 
-  labelOperatorAdd1, labelOperatorAdd1End,
-  labelOperatorSub1, labelOperatorSub1End,
-  labelOperatorMul1, labelOperatorMul1End,
-  labelOperatorDiv1, labelOperatorDiv1End,
+  labelOperatorAdd1,
+  labelOperatorSub1,
+  labelOperatorMul1,
+  labelOperatorDiv1,
 
-  labelOperatorAdd, labelOperatorAddEnd,
-  labelOperatorSub, labelOperatorSubEnd,
-  labelOperatorMul, labelOperatorMulEnd,
-  labelOperatorDiv, labelOperatorDivEnd,
-  labelOperatorMod, labelOperatorModEnd,
-  labelOperatorNegative, labelOperatorNegativeEnd,
+  labelOperatorAdd,
+  labelOperatorSub,
+  labelOperatorMul,
+  labelOperatorDiv,
+  labelOperatorMod,
+  labelOperatorNegative,
 
-  labelOperatorLesser0, labelOperatorLesser0End,
-  labelOperatorLesserOrEqual0, labelOperatorLesserOrEqual0End,
-  labelOperatorGreater0, labelOperatorGreater0End,
-  labelOperatorGreaterOrEqual0, labelOperatorGreaterOrEqual0End,
-  labelOperatorEqual0, labelOperatorEqual0End,
-  labelOperatorNotEqual0, labelOperatorNotEqual0End,
-  labelOperatorAnd0, labelOperatorAnd0End,
-  labelOperatorOr0, labelOperatorOr0End,
+  labelOperatorLesser0,
+  labelOperatorLesserOrEqual0,
+  labelOperatorGreater0,
+  labelOperatorGreaterOrEqual0,
+  labelOperatorEqual0,
+  labelOperatorNotEqual0,
+  labelOperatorAnd0,
+  labelOperatorOr0,
 
-  labelOperatorLesser, labelOperatorLesserEnd,
-  labelOperatorLesserOrEqual, labelOperatorLesserOrEqualEnd,
-  labelOperatorGreater, labelOperatorGreaterEnd,
-  labelOperatorGreaterOrEqual, labelOperatorGreaterOrEqualEnd,
-  labelOperatorEqual, labelOperatorEqualEnd,
-  labelOperatorNotEqual, labelOperatorNotEqualEnd,
-  labelOperatorAnd, labelOperatorAndEnd,
-  labelOperatorOr, labelOperatorOrEnd,
-  labelOperatorXor, labelOperatorXorEnd,
-  labelOperatorNot, labelOperatorNotEnd,
-  labelOperatorShiftLeft, labelOperatorShiftLeftEnd,
-  labelOperatorShiftRight, labelOperatorShiftRightEnd,
-  labelPushConstFromConstList, labelPushConstFromConstListEnd,
+  labelOperatorLesser,
+  labelOperatorLesserOrEqual,
+  labelOperatorGreater,
+  labelOperatorGreaterOrEqual,
+  labelOperatorEqual,
+  labelOperatorNotEqual,
+  labelOperatorAnd,
+  labelOperatorOr,
+  labelOperatorXor,
+  labelOperatorNot,
+  labelOperatorShiftLeft,
+  labelOperatorShiftRight,
+  labelPushConstFromConstList,
 
   labelCallRef,
-  labelCallNative, labelCallNativeEnd,
+  labelCallNative,
   labelCallScript,
-  labelCallImport, labelCallImportEnd,
+  labelCallImport,
   labelYield,
   labelHlt,
 
@@ -7764,160 +7860,16 @@ var
     @labelJITBlock
   );
 
-  DispatchTableEnd: array[TSEOpcode] of Pointer = (
-    @labelPushConstEnd,
-    nil,
-    @labelPushGlobalVarEnd,
-    @labelPushLocalVarEnd,
-    @labelPushVar2End,
-    nil,//@labelPushArrayPopEnd,
-    nil,//@labelPopConstEnd,
-    nil,
-    nil,//@labelAssignGlobalVarEnd,
-    nil,//@labelAssignGlobalArrayEnd,
-    nil,//@labelAssignLocalVarEnd,
-    nil,//@labelAssignLocalArrayEnd,
-    nil,
-    nil,
-    nil,
-    nil,
-    nil,
-
-    @labelOperatorIncEnd,
-
-    @labelOperatorAdd0End,
-    @labelOperatorMul0End,
-    @labelOperatorDiv0End,
-
-    @labelOperatorAdd1End,
-    @labelOperatorSub1End,
-    @labelOperatorMul1End,
-    @labelOperatorDiv1End,
-
-    @labelOperatorAddEnd,
-    @labelOperatorSubEnd,
-    @labelOperatorMulEnd,
-    @labelOperatorDivEnd,
-    nil,//@labelOperatorModEnd,
-    nil,//@labelOperatorNegativeEnd,
-
-    @labelOperatorLesser0End,
-    @labelOperatorLesserOrEqual0End,
-    @labelOperatorGreater0End,
-    @labelOperatorGreaterOrEqual0End,
-    @labelOperatorEqual0End,
-    @labelOperatorNotEqual0End,
-    @labelOperatorAnd0End,
-    @labelOperatorOr0End,
-
-    @labelOperatorLesserEnd,
-    @labelOperatorLesserOrEqualEnd,
-    @labelOperatorGreaterEnd,
-    @labelOperatorGreaterOrEqualEnd,
-    @labelOperatorEqualEnd,
-    @labelOperatorNotEqualEnd,
-    @labelOperatorAndEnd,
-    @labelOperatorOrEnd,
-    @labelOperatorXorEnd,
-    @labelOperatorNotEnd,
-    @labelOperatorShiftLeftEnd,
-    @labelOperatorShiftRightEnd,
-    @labelPushConstFromConstListEnd,
-
-    nil,
-    nil,
-    nil,
-    nil,
-    nil,
-    nil,
-
-    {$ifdef UNIX}
-    nil,
-    {$endif}
-    nil,
-    nil,
-    nil,
-    nil
-  );
-
-  {procedure JITPatcher;
+  procedure JITHandler;
   var
-    I, J, BIndex, BStart: NativeInt;
-    Binary: TSEBinary;
-    Op: TSEOpcode;
-    Mem, P: PByte;
-    MemSize, BlockSize: NativeUInt;
-    CodePtr: PSEValue;
-    OpList: TSEOpcodeList;
-  begin
-    OpList := TSEOpcodeList.Create;
-    try
-      for I := 0 to Length(Self.Binaries.Value^.Data) - 1 do
-      begin
-        Binary := Self.Binaries.Value^.Data[I];
-        if Binary.IsJITTEd then
-          continue;
-        BIndex := 0;
-        BStart := 0;
-        MemSize := 0;
-        OpList.Clear;
-        while BIndex <= Binary.Count - 1 do
-        begin
-          Op := TSEOpcode(NativeUInt(Binary.Ptr(BIndex)^.VarPointer));
-          if DispatchTableEnd[Op] = nil then // Meet an non-JIT opcode
-          begin
-            if OpList.Count >= 4 then
-            begin
-              // Qualify for JIT
-              //Writeln('JIT: ', BStart, ',', OpList.Count);
-              Mem := VirtualAlloc(nil, (MemSize + 4095) and not NativeUInt(4095), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
-              Binary.JITBlockList.Add(Mem);
-              P := Mem;
-              // Patch the code to call the memory block instead
-              CodePtr := Binary.Ptr(BStart);
-              CodePtr[0] := Pointer((NativeUInt(P) shl 8) + Byte(opJITBlock));
-              // Copy code
-              for J := 0 to OpList.Count - 1 do
-              begin
-                //Writeln(' - ', OpList[J]);
-                BlockSize := NativeUInt(DispatchTableEnd[OpList[J]]) - NativeUInt(DispatchTable[OpList[J]]);
-                Move(Pointer(DispatchTable[OpList[J]])^, P^, BlockSize);
-                Inc(P, BlockSize);
-              end;
-              P^ := $C3; // ret
-              FlushInstructionCache(GetCurrentProcess, Mem, MemSize);
-            end;
-            MemSize := 0;
-            OpList.Clear;
-          end else
-          begin
-            if OpList.Count = 0 then
-              BStart := BIndex;
-            OpList.Add(Op);
-            MemSize := MemSize + (NativeUInt(DispatchTableEnd[Op]) - NativeUInt(DispatchTable[Op]));
-          end;
-          Inc(BIndex, OpcodeSizes[Op]);
-        end;
-        Binary.IsJITTEd := True;
-      end;
-    finally
-      OpList.Free;
-    end;
-  end;}
-
-  procedure JITPatcher;
-  var
-    I, J, BIndex, BStart: NativeInt;
-    ExecMem: Pointer;
+    I, J, BIndex, BIndex2, BFinish: NativeInt;
     Binary: TSEBinary;
     Op, Op2: TSEOpcode;
-    OpList: TSEOpcodeList;
-    CanJIT,
     IsStackOverflow: Boolean; // Stack overflow when XMMStackPtr > 16
     E: TX64Emitter;
     XMMStackPtr: Byte;
   begin
-    OpList := TSEOpcodeList.Create;
+    E := TX64Emitter.Create;
     try
       for I := 0 to Length(Self.Binaries.Value^.Data) - 1 do
       begin
@@ -7925,88 +7877,85 @@ var
         if Binary.IsJITTEd then
           continue;
         BIndex := 0;
-        BStart := 0;
-        OpList.Clear;
         while BIndex <= Binary.Count - 1 do
         begin
           Op := TSEOpcode(NativeUInt(Binary.Ptr(BIndex)^.VarPointer));
-          if DispatchTableEnd[Op] = nil then // Meet an non-JIT opcode
+          if Op = opJITBlock then
           begin
-            if OpList.Count >= 3 then
+            E.Clear;
+            BFinish := NativeInt(Binary.Ptr(BIndex + 1)^.VarPointer);
+            XMMStackPtr := 0;
+            // R15 = CodePtrLocal
+            E.MovRegImm64(regR15, NativeUInt(@CodePtrLocal));
+            E.MovReg64Mem(regR15, E.Mem(regR15, 0));
+            { R13 = @StackPtr }
+            E.MovRegImm64(regR13, NativeUInt(@Self.StackPtr));
+            { R14 = StackPtr }
+            E.MovReg64Mem(regR14, E.Mem(regR13, 0));
+            { R12 = GlobalVar }
+            E.MovRegImm64(regR12, NativeUInt(@GlobalLocal));
+            E.MovReg64Mem(regR12, E.Mem(regR12, 0));
+            { Move to the next opcode }
+            E.AddRegImm32(regR15, OpcodeSizes[opJITBlock] * SizeOf(TSEValue));
+            BIndex2 := BIndex + OpcodeSizes[opJITBlock];
+            while BIndex2 <= BFinish do
             begin
-              CanJIT := True;
-              IsStackOverflow := False;
-              for J := 0 to OpList.Count - 1 do
-              begin
-                if (OpList[J] <> opPushConst) and (OpList[J] <> opOperatorAdd) then
-                begin
-                  CanJIT := False;
-                  Break;
-                end;
-              end;
-              if CanJIT then
-              begin
-                E := TX64Emitter.Create;
-                try
-                  XMMStackPtr := 0;
-                  // R15 = CodePtrLocal
-                  E.MovRegImm64(regR15, NativeUInt(CodePtrLocal));
-                  for J := 0 to OpList.Count - 1 do
+              Op2 := TSEOpcode(NativeUInt(Binary.Ptr(BIndex2)^.VarPointer));
+              Writeln(' - ', Op2);
+              case Op2 of
+                opPushConst:
                   begin
-                    Op2 := OpList[J];
-                    case Op2 of
-                      opPushConst:
-                        begin
-                          E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.Mem(regR15, SizeOf(TSEValue) + NativeUInt(@TSEValue(nil^).VarNumber)));
-                          E.AddRegImm32(regR15, OpcodeSizes[Op2] * SizeOf(TSEValue));
-                          Inc(XMMStackPtr);
-                        end;
-                      opOperatorAdd:
-                        begin
-                          E.AddSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
-                          E.AddRegImm32(regR15, OpcodeSizes[Op2] * SizeOf(TSEValue));
-                          Dec(XMMStackPtr, 1);
-                        end;
-                    end;
+                    E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.Mem(regR15, SizeOf(TSEValue) + NativeUInt(@TSEValue(nil^).VarNumber)));
+                    //
+                    E.AddRegImm32(regR15, OpcodeSizes[Op2] * SizeOf(TSEValue));
+                    Inc(XMMStackPtr);
                   end;
-                  { R14 = StackPtr }
-                  { Move XMM0 to the stack }
-                  E.MovRegImm64(regR14, NativeUInt(Self.StackPtr));
-                  E.MovSDMemFromXMM(E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM0);
-                  { Mark this as number }
-                  E.MovRegImm32(regRAX, Cardinal(sevkNumber));
-                  E.MovMem32Reg(E.Mem(regR14, NativeUInt(@TSEValue(nil^).Kind)), regRAX);
-                  { R13 = @StackPtr }
-                  { Increase stack by 1 }
-                  E.MovRegImm64(regR13, NativeUInt(@Self.StackPtr));
-                  E.AddRegImm32(regR14, SizeOf(TSEValue));
-                  E.MovMemReg(E.Mem(regR13, 0), regR14);
-                  { Increase CodePtr }
-                  E.MovRegImm64(regR14, NativeUInt(@CodePtrLocal));
-                  E.MovMemReg(E.Mem(regR14, 0), regR15);
-                  E.Ret;
-                  ExecMem := E.MakeExecutable;
-                  // Patch the code to call the memory block instead
-                  CodePtr := Binary.Ptr(BStart);
-                  CodePtr[0] := Pointer((NativeUInt(ExecMem) shl 8) + Byte(opJITBlock));
-                finally
-                  E.Free;
-                end;
+                opOperatorAdd:
+                  begin
+                    E.AddSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+                    //
+                    E.AddRegImm32(regR15, OpcodeSizes[Op2] * SizeOf(TSEValue));
+                    Dec(XMMStackPtr, 1);
+                  end;
+                opPushGlobalVar:
+                  begin
+                    { Load global variable index to R8 }
+                    // mov r8, qword ptr [r15 + (1).VarPointer]
+                    E.MovReg64Mem(regR8, E.Mem(regR15, SizeOf(TSEValue) + NativeUInt(@TSEValue(nil^).VarPointer)));
+                    // shl r8, 4
+                    E.ShlRegImm(regR8, 4);
+                    { Load global variable to stack }
+                     // movsd xmm?, qword ptr [r12 + r8 + .VarPointer]
+                    E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.MemIndex(regR12, regR8, 1, NativeUInt(@TSEValue(nil^).VarPointer)));
+                    //
+                    E.AddRegImm32(regR15, OpcodeSizes[Op2] * SizeOf(TSEValue));
+                    Inc(XMMStackPtr);
+                  end;
               end;
+              Inc(BIndex2, OpcodeSizes[Op2]);
             end;
-            OpList.Clear;
-          end else
-          begin
-            if OpList.Count = 0 then
-              BStart := BIndex;
-            OpList.Add(Op);
+            { Move XMM0 to the stack }
+            E.MovSDMemFromXMM(E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM0);
+            { Mark this as number }
+            E.MovRegImm32(regRAX, Cardinal(sevkNumber));
+            E.MovMem32Reg(E.Mem(regR14, NativeUInt(@TSEValue(nil^).Kind)), regRAX);
+            { Increase stack by 1 }
+            E.AddRegImm32(regR14, SizeOf(TSEValue));
+            E.MovMem64Reg(E.Mem(regR13, 0), regR14);
+            { Increase CodePtr }
+            E.MovRegImm64(regR14, NativeUInt(@CodePtrLocal));
+            E.MovMem64Reg(E.Mem(regR14, 0), regR15);
+            E.Ret;
+            // Patch the code to pass the memory block
+            CodePtr := Binary.Ptr(BIndex);
+            CodePtr[1] := E.MakeExecutable;
           end;
           Inc(BIndex, OpcodeSizes[Op]);
         end;
         Binary.IsJITTEd := True;
       end;
     finally
-      OpList.Free;
+      E.Free;
     end;
   end;
 
@@ -8024,7 +7973,7 @@ begin
     CodePtrLocal := Self.Binaries.Value^.Data[Self.CodeSegmentIndex].Ptr(0);
   GC.CheckForGC;
   {$ifdef WINDOWS}
-  JITPatcher;
+  JITHandler;
   {$endif}
 
 labelStart:
@@ -8039,7 +7988,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opJITBlock:{$endif}
         begin
         labelJITBlock:
-          CodeProc := TSEJITCodeProc(Pointer(NativeUInt(CodePtrLocal[0].VarPointer) shr 8));
+          CodeProc := TSEJITCodeProc(CodePtrLocal[1].VarPointer);
           CodeProc();
           DispatchGoto;
         end;
@@ -8062,7 +8011,6 @@ labelStart:
             SEValueAdd(Self.StackPtr^, A^, CodePtrLocal[1]);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
-        labelOperatorAdd0End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorMul0:{$endif}
@@ -8071,7 +8019,6 @@ labelStart:
           Self.StackPtr^.VarNumber := Pop^.VarNumber * CodePtrLocal[1].VarNumber;
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
-        labelOperatorMul0End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorDiv0:{$endif}
@@ -8080,7 +8027,6 @@ labelStart:
           Self.StackPtr^.VarNumber := Pop^.VarNumber / CodePtrLocal[1].VarNumber;
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
-        labelOperatorDiv0End:
           DispatchGoto;
         end;
 
@@ -8090,7 +8036,6 @@ labelStart:
           Self.StackPtr^ := Pop^.VarNumber < CodePtrLocal[1].VarNumber;
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
-        labelOperatorLesser0End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorLesserOrEqual0:{$endif}
@@ -8099,7 +8044,6 @@ labelStart:
           Self.StackPtr^ := Pop^.VarNumber <= CodePtrLocal[1].VarNumber;
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
-        labelOperatorLesserOrEqual0End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorGreater0:{$endif}
@@ -8108,7 +8052,6 @@ labelStart:
           Self.StackPtr^ := Pop^.VarNumber > CodePtrLocal[1].VarNumber;
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
-        labelOperatorGreater0End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorGreaterOrEqual0:{$endif}
@@ -8117,7 +8060,6 @@ labelStart:
           Self.StackPtr^ := Pop^.VarNumber >= CodePtrLocal[1].VarNumber;
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
-        labelOperatorGreaterOrEqual0End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorEqual0:{$endif}
@@ -8130,7 +8072,6 @@ labelStart:
             SEValueEqual(Self.StackPtr^, A^, CodePtrLocal[1]);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
-        labelOperatorEqual0End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorNotEqual0:{$endif}
@@ -8143,7 +8084,6 @@ labelStart:
             SEValueNotEqual(Self.StackPtr^, A^, CodePtrLocal[1]);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 2);
-        labelOperatorNotEqual0End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorAnd0:{$endif}
@@ -8152,7 +8092,6 @@ labelStart:
           Self.StackPtr^.VarNumber := NativeInt(Pop^) and NativeInt(CodePtrLocal[1]);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
-        labelOperatorAnd0End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorOr0:{$endif}
@@ -8161,7 +8100,6 @@ labelStart:
           Self.StackPtr^.VarNumber := NativeInt(Pop^) or NativeInt(CodePtrLocal[1]);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
-        labelOperatorOr0End:
           DispatchGoto;
         end;
 
@@ -8171,7 +8109,6 @@ labelStart:
           SEValueNeg(Self.StackPtr^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
-        labelOperatorNegativeEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorAdd:{$endif}
@@ -8185,7 +8122,6 @@ labelStart:
             SEValueAdd(Self.StackPtr^, A^, B^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
-        labelOperatorAddEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorSub:{$endif}
@@ -8199,7 +8135,6 @@ labelStart:
             SEValueSub(Self.StackPtr^, A^, B^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
-        labelOperatorSubEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorMul:{$endif}
@@ -8208,7 +8143,6 @@ labelStart:
           SEValueMul(Self.StackPtr^, {B}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
-        labelOperatorMulEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorDiv:{$endif}
@@ -8217,7 +8151,6 @@ labelStart:
           SEValueDiv(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
-        labelOperatorDivEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorMod:{$endif}
@@ -8227,7 +8160,6 @@ labelStart:
           A := Pop;
           Push(A^.VarNumber - B^.VarNumber * Int(A^.VarNumber / B^.VarNumber));
           Inc(CodePtrLocal);
-        labelOperatorModEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorLesser:{$endif}
@@ -8236,7 +8168,6 @@ labelStart:
           SEValueLesser(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
-        labelOperatorLesserEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorLesserOrEqual:{$endif}
@@ -8245,7 +8176,6 @@ labelStart:
           SEValueLesserOrEqual(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
-        labelOperatorLesserOrEqualEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorGreater:{$endif}
@@ -8254,7 +8184,6 @@ labelStart:
           SEValueGreater(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
-        labelOperatorGreaterEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorGreaterOrEqual:{$endif}
@@ -8263,7 +8192,6 @@ labelStart:
           SEValueGreaterOrEqual(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
-        labelOperatorGreaterOrEqualEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorEqual:{$endif}
@@ -8272,7 +8200,6 @@ labelStart:
           SEValueEqual(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
-        labelOperatorEqualEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorNotEqual:{$endif}
@@ -8281,7 +8208,6 @@ labelStart:
           SEValueNotEqual(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
-        labelOperatorNotEqualEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorAnd:{$endif}
@@ -8289,7 +8215,6 @@ labelStart:
         labelOperatorAnd:
           Push(NativeInt({A}Pop^) and NativeInt(Pop^));
           Inc(CodePtrLocal);
-        labelOperatorAndEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorOr:{$endif}
@@ -8297,7 +8222,6 @@ labelStart:
         labelOperatorOr:
           Push(NativeInt({A}Pop^) or NativeInt(Pop^));
           Inc(CodePtrLocal);
-        labelOperatorOrEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorXor:{$endif}
@@ -8305,7 +8229,6 @@ labelStart:
         labelOperatorXor:
           Push(NativeInt({A}Pop^) xor NativeInt(Pop^));
           Inc(CodePtrLocal);
-        labelOperatorXorEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorNot:{$endif}
@@ -8314,7 +8237,6 @@ labelStart:
           SEValueNot(Self.StackPtr^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
-        labelOperatorNotEnd:
           DispatchGoto;
         end;
 
@@ -8329,7 +8251,6 @@ labelStart:
             SEValueAdd(Self.StackPtr^, A^, B^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 3);
-        labelOperatorAdd1End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorSub1:{$endif}
@@ -8343,7 +8264,6 @@ labelStart:
             SEValueSub(Self.StackPtr^, A^, B^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 3);
-        labelOperatorSub1End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorMul1:{$endif}
@@ -8352,7 +8272,6 @@ labelStart:
           SEValueMul(Self.StackPtr^, {B}GetVariable(CodePtrLocal[1], {P}CodePtrLocal[2].VarPointer)^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 3);
-        labelOperatorMul1End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorDiv1:{$endif}
@@ -8361,7 +8280,6 @@ labelStart:
           SEValueDiv(Self.StackPtr^, Pop^, {B}GetVariable(CodePtrLocal[1], {P}CodePtrLocal[2].VarPointer)^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 3);
-        labelOperatorDiv1End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorShiftLeft:{$endif}
@@ -8370,7 +8288,6 @@ labelStart:
           SEValueShiftLeft(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
-        labelOperatorShiftLeftEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorShiftRight:{$endif}
@@ -8379,7 +8296,6 @@ labelStart:
           SEValueShiftRight(Self.StackPtr^, {A}Pop^, Pop^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
-        labelOperatorShiftRightEnd:
           DispatchGoto;
         end;
 
@@ -8388,7 +8304,6 @@ labelStart:
         labelPushConst:
           Push(CodePtrLocal[1]);
           Inc(CodePtrLocal, 2);
-        labelPushConstEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opPushConstString:{$endif}
@@ -8396,7 +8311,6 @@ labelStart:
         labelPushConstString:
           Push(ConstStrings.Ptr(NativeInt(CodePtrLocal[1].VarPointer))^);
           Inc(CodePtrLocal, 2);
-        labelPushConstStringEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opPushGlobalVar:{$endif}
@@ -8404,7 +8318,6 @@ labelStart:
         labelPushGlobalVar:
           Push(GetGlobal(CodePtrLocal[1].VarPointer)^);
           Inc(CodePtrLocal, 2);
-        labelPushGlobalVarEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opPushLocalVar:{$endif}
@@ -8412,7 +8325,6 @@ labelStart:
         labelPushLocalVar:
           Push(GetLocal(CodePtrLocal[1].VarPointer, NativeInt(CodePtrLocal[2].VarPointer))^);
           Inc(CodePtrLocal, 3);
-        labelPushLocalVarEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opPushVar2:{$endif}
@@ -8421,7 +8333,6 @@ labelStart:
           Push(GetVariable(CodePtrLocal[1].VarPointer, CodePtrLocal[3].VarPointer)^);
           Push(GetVariable(CodePtrLocal[2].VarPointer, CodePtrLocal[4].VarPointer)^);
           Inc(CodePtrLocal, 5);
-        labelPushVar2End:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opPushArrayPop:{$endif}
@@ -8446,7 +8357,6 @@ labelStart:
               Push(SENull);
           end;
           Inc(CodePtrLocal, 2);
-        labelPushArrayPopEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opPopConst:{$endif}
@@ -8454,7 +8364,6 @@ labelStart:
         labelPopConst:
           Dec(Self.StackPtr); // Pop;
           Inc(CodePtrLocal);
-        labelPopConstEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opJumpEqualRel:{$endif}
@@ -8607,7 +8516,6 @@ labelStart:
         labelAssignGlobalVar:
           AssignGlobal(CodePtrLocal[1], Pop);
           Inc(CodePtrLocal, 2);
-        labelAssignGlobalVarEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opAssignLocalVar:{$endif}
@@ -8615,7 +8523,6 @@ labelStart:
         labelAssignLocalVar:
           AssignLocal(CodePtrLocal[1], NativeInt(CodePtrLocal[2].VarPointer), Pop);
           Inc(CodePtrLocal, 3);
-        labelAssignLocalVarEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opAssignGlobalArray:{$endif}
@@ -8668,7 +8575,6 @@ labelStart:
               end;
           end;
           Inc(CodePtrLocal, 3);
-        labelAssignGlobalArrayEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opAssignLocalArray:{$endif}
@@ -8725,7 +8631,6 @@ labelStart:
               end;
           end;
           Inc(CodePtrLocal, 4);
-        labelAssignLocalArrayEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opPushConstFromConstList:{$endif}
@@ -8733,7 +8638,6 @@ labelStart:
         labelPushConstFromConstList:
           Push(Self.Parent.ConstList[NativeInt(CodePtrLocal[1].VarPointer)]);
           Inc(CodePtrLocal, 2);
-        labelPushConstFromConstListEnd:
           DispatchGoto;
         end;
       {$ifdef UNIX}
@@ -9012,6 +8916,7 @@ begin
   Self.FuncImportList := TSEFuncImportList.Create;
   Self.ConstLookup := TSEConstLookup.Create;
   Self.ConstList := TSEValueList.Create;
+  Self.JITBlockSignatureStack := TSEJITBlockSignatureStack.Create;
   Self.ScopeStack := TSEScopeStack.Create;
   Self.ScopeFunc := TSEScopeStack.Create;
   Self.LineOfCodeList := TSELineOfCodeList.Create;
@@ -9033,6 +8938,7 @@ begin
   Self.ScopeStack.Capacity := 16;
   Self.LineOfCodeList.Capacity := 1024;
   //
+  Self.JITBlockCount := $1FFFF;
   Self.VM.Parent := Self;
   if CommonNativeFuncList.Count = 0 then
   begin
@@ -9239,6 +9145,7 @@ begin
   FreeAndNil(Self.CurrentFileList);
   FreeAndNil(Self.LocalVarCountList);
   FreeAndNil(Self.GlobalVarSymbols);
+  FreeAndNil(Self.JITBlockSignatureStack);
   inherited;
 end;
 
@@ -10220,6 +10127,49 @@ var
       Result := Pointer(Self.FuncTraversal - Ident.Local)
     else
       Result := Pointer(SE_REG_GLOBAL);
+  end;
+
+  procedure MarkJITBlock;
+  begin
+    Self.JITBlockSignatureStack.Push(Self.JITBlockCount);
+    Emit([Pointer(opJITBlock), Pointer(Self.JITBlockCount)]);
+    Inc(Self.JITBlockCount);
+  end;
+
+  procedure VerifyJITBlock(const APossibleKinds: TSEValueKindSet);
+  var
+    Sig: NativeInt;
+    BIndex, BIndex2, OpCount: NativeInt;
+    Op, Op2: TSEOpcode;
+  begin
+    Sig := Self.JITBlockSignatureStack.Pop;
+    BIndex := 0;
+    while BIndex <= Self.Binary.Count - 1 do
+    begin
+      Op := TSEOpcode(NativeInt(Self.Binary.Ptr(BIndex)^.VarPointer));
+      if (Op = opJITBlock) and (Self.Binary.Ptr(BIndex + 1)^.VarPointer = Pointer(Sig)) then
+      begin
+        OpCount := 0;
+        BIndex2 := BIndex;
+        //
+        while BIndex2 <= Self.Binary.Count - 1 do
+        begin
+          Op2 := TSEOpcode(NativeInt(Self.Binary.Ptr(BIndex2)^.VarPointer));
+          Inc(OpCount);
+          Inc(BIndex2, OpcodeSizes[Op2]);
+        end;
+        //
+        if (APossibleKinds <> [sevkNumber]) or (OpCount < 3) then
+        begin
+          Self.Binary.DeleteRange(BIndex, OpcodeSizes[Op]);
+        end else
+        begin
+          Self.Binary.Ptr(BIndex + 1)^.VarPointer := Pointer(Self.Binary.Count - 1);
+        end;
+        break;
+      end;
+      Inc(BIndex, OpcodeSizes[Op]);
+    end;
   end;
 
   function PeepholePushVar2Optimization: Boolean;
@@ -12257,6 +12207,8 @@ var
         begin
           VarEndTokenPos := Pos;
           NextToken;
+          if ArgCount = 0 then
+            MarkJITBlock;
           if Token.Kind = tkOpAssign then
           begin
             if ArgCount > 0 then
@@ -12293,6 +12245,7 @@ var
             EmitAssignArray(Ident^, ArgCount)
           else
           begin
+            VerifyJITBlock(Ident^.PossibleKinds);
             EmitAssignVar(Ident^);
             PeepholeIncOptimization;
           end;
