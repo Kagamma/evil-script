@@ -343,6 +343,7 @@ type
 
   TSEBinary = class(TSEValueList)
   public
+    JITBlockList: TSEJITBlockList;
     BinaryName: String;
     constructor Create;
     destructor Destroy; override;
@@ -579,7 +580,6 @@ type
   TEvilC = class;
   TSEVM = class
   private
-    JITBlockList: TSEJITBlockList;
   public
     Name: String;
     Owner: TSEVM;
@@ -3754,10 +3754,23 @@ end;
 constructor TSEBinary.Create;
 begin
   inherited;
+  Self.JITBlockList := TSEJITBlockList.Create;
 end;
 
 destructor TSEBinary.Destroy;
+var
+  I: Integer;
 begin
+  for I := 0 to Self.JITBlockList.Count - 1 do
+  begin
+    {$ifdef WINDOWS}
+    VirtualFree(Self.JITBlockList.Ptr(I)^.Code, 0, MEM_RELEASE);
+    {$endif}
+    {$ifdef UNIX}
+    munmap(Self.JITBlockList.Ptr(I)^.Code, Self.JITBlockList.Ptr(I)^.CodeSize);
+    {$endif}
+  end;
+  Self.JITBlockList.Free;
   inherited;
 end;
 
@@ -7169,7 +7182,6 @@ begin
   Self.Binaries.Alloc(1);
   Self.Binaries.Value^.Data[0] := TSEBinary.Create;
   Self.Global := Default(TSEValueArrayManaged);
-  Self.JITBlockList := TSEJITBlockList.Create;
 end;
 
 destructor TSEVM.Destroy;
@@ -7191,16 +7203,6 @@ begin
       end;
   end;
   Self.Global.Free;
-  for I := 0 to Self.JITBlockList.Count - 1 do
-  begin
-    {$ifdef WINDOWS}
-    VirtualFree(Self.JITBlockList.Ptr(I)^.Code, 0, MEM_RELEASE);
-    {$endif}
-    {$ifdef UNIX}
-    munmap(Self.JITBlockList.Ptr(I)^.Code, Self.JITBlockList.Ptr(I)^.CodeSize);
-    {$endif}
-  end;
-  Self.JITBlockList.Free;
   inherited;
 end;
 
@@ -8313,7 +8315,7 @@ var
         JITBlock.CodeSize := E.ExecutableSize;
         JitCodePtrLocal[0] := Pointer(opJITBlock);
         JitCodePtrLocal[1] := JITBlock.Code;
-        Self.JITBlockList.Add(JITBlock);
+        Self.Binaries.Value^.Data[Self.CodeSegmentIndex].JITBlockList.Add(JITBlock);
       end;
     finally
       E.Free;
