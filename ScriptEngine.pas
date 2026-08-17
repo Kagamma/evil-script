@@ -1574,9 +1574,11 @@ begin
   FExecutableSize := 0;
 
   Self.FCode := TX64CodeList.Create;
-  Self.FCode.Capacity := 512;
+  Self.FCode.Capacity := 4096;
   Self.FLabels := TX64LabelInfoList.Create;
+  Self.FLabels.Capacity := 16;
   Self.FJumps := TX64JumpPatchList.Create;
+  Self.FJumps.Capacity := 16;
 end;
 
 destructor TX64Emitter.Destroy;
