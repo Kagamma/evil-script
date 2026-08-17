@@ -7930,13 +7930,14 @@ var
     @labelJITBlockPotential
   );
 
-  procedure JITHandler(JitCodePtrLocal: PSEValue);
+  function JITHandler(IsRoot: Boolean; JitCodePtrLocal: PSEValue; E: TX64Emitter): Integer;
+  const
+    STATUS_OK = 0;
+    STATUS_OVERFLOW = 1;
+    STATUS_INVALID = 2;
   var
     I, J, BIndex, BFinish: NativeInt;
     Op: TSEOpcode;
-    IsInvalidOpcode: Boolean;
-    IsStackOverflow: Boolean; // Stack overflow when XMMStackPtr >= 15
-    E: TX64Emitter;
     XMMStackPtr: Byte;
     P: Pointer;
     IsAssigned: Boolean;
@@ -8003,50 +8004,52 @@ var
     end;
 
   begin
-    E := TX64Emitter.Create;
+    if IsRoot then
+      E := TX64Emitter.Create;
     try
       BIndex := 0;
       BFinish := NativeInt(JitCodePtrLocal[1].VarPointer);
 
       XMMStackPtr := 0;
-      IsInvalidOpcode := False;
+      Result := STATUS_OK;
       IsAssigned := False;
-      {$ifdef WINDOWS}
-      { R8, R9, R10 are for scratch }
-      // R15 = CodePtrLocal
-      E.MovReg64Mem(regR15, E.Mem(regRCX, 0));
-      { R13 = @StackPtr }
-      E.MovRegReg64(regR13, regRDX);
-      { R14 = StackPtr }
-      E.MovReg64Mem(regR14, E.Mem(regR13, 0));
-      { R12 = GlobalVar }
-      E.MovReg64Mem(regR12, E.Mem(regR8, 0));
-      { R11 = FramePtr}
-      E.MovReg64Mem(regR11, E.Mem(regR9, 0));
+      if IsRoot then
+      begin
+        {$ifdef WINDOWS}
+        { R8, R9, R10 are for scratch }
+        // R15 = CodePtrLocal
+        E.MovReg64Mem(regR15, E.Mem(regRCX, 0));
+        { R13 = @StackPtr }
+        E.MovRegReg64(regR13, regRDX);
+        { R14 = StackPtr }
+        E.MovReg64Mem(regR14, E.Mem(regR13, 0));
+        { R12 = GlobalVar }
+        E.MovReg64Mem(regR12, E.Mem(regR8, 0));
+        { R11 = FramePtr}
+        E.MovReg64Mem(regR11, E.Mem(regR9, 0));
+        {$else}
+        // R15 = CodePtrLocal
+        E.MovReg64Mem(regR15, E.Mem(regRDI, 0));
+        { R13 = @StackPtr }
+        E.MovRegReg64(regR13, regRSI);
+        { R14 = StackPtr }
+        E.MovReg64Mem(regR14, E.Mem(regR13, 0));
+        { R12 = GlobalVar }
+        E.MovReg64Mem(regR12, E.Mem(regRDX, 0));
+        { R11 = FramePtr}
+        E.MovReg64Mem(regR11, E.Mem(regRCX, 0));
+        {$endif}
+      end;
       { Move to the next opcode }
-      E.AddRegImm32(regR15, OpcodeSizes[opJITBlock] * SizeOf(TSEValue));
-      {$else}
-      // R15 = CodePtrLocal
-      E.MovReg64Mem(regR15, E.Mem(regRDI, 0));
-      { R13 = @StackPtr }
-      E.MovRegReg64(regR13, regRSI);
-      { R14 = StackPtr }
-      E.MovReg64Mem(regR14, E.Mem(regR13, 0));
-      { R12 = GlobalVar }
-      E.MovReg64Mem(regR12, E.Mem(regRDX, 0));
-      { R11 = FramePtr}
-      E.MovReg64Mem(regR11, E.Mem(regRCX, 0));
-      { Move to the next opcode }
-      E.AddRegImm32(regR15, OpcodeSizes[opJITBlock] * SizeOf(TSEValue));
-      {$endif}
+      E.AddRegImm32(regR15, OpcodeSizes[opJITBlockPotential] * SizeOf(TSEValue));
       //
-      BIndex := BIndex + OpcodeSizes[opJITBlock];
+      BIndex := BIndex + OpcodeSizes[opJITBlockPotential];
       //Writeln('JIT from ', BIndex, ' to ', BFinish);
       while BIndex <= BFinish do
       begin
         if XMMStackPtr >= 14 then
         begin
-          IsStackOverflow := True;
+          Result := STATUS_OVERFLOW;
           break;
         end;
         Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
@@ -8139,8 +8142,6 @@ var
 
           opOperatorInc:
             begin
-              IsInvalidOpcode := True;
-              break;
               GenGetVariable(False);
               E.MovRegImm64(regR9, NativeUInt(JitCodePtrLocal[BIndex + 3].VarNumber));
               E.MovSDXMMFromReg(regXMM1, regR9);
@@ -8288,14 +8289,14 @@ var
             end;
           else
             begin
-              IsInvalidOpcode := True;
+              Result := STATUS_INVALID;
               break;
               // TODO: Either roll back, or push the remaining XMM values to the stack and continue
             end;
         end;
         Inc(BIndex, OpcodeSizes[Op]);
       end;
-      if IsInvalidOpcode or IsStackOverflow then
+      if (Result = STATUS_INVALID) or (Result = STATUS_OVERFLOW) then
       begin
         JitCodePtrLocal[1] := nil;
       end else
@@ -8314,16 +8315,33 @@ var
         { Increase CodePtr }
         E.MovRegImm64(regR14, NativeUInt(@CodePtrLocal));
         E.MovMem64Reg(E.Mem(regR14, 0), regR15);
-        E.Ret;
-        // Patch the code to pass the memory block
-        JITBlock.Code := E.MakeExecutable;
-        JITBlock.CodeSize := E.ExecutableSize;
-        JitCodePtrLocal[0] := Pointer(opJITBlock);
-        JitCodePtrLocal[1] := JITBlock.Code;
-        Self.Binaries.Value^.Data[Self.CodeSegmentIndex].JITBlockList.Add(JITBlock);
+        // Check the next opcode to see if the next one is also a JITBlockPotential
+        Inc(BIndex, OpcodeSizes[Op]);
+        Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
+        Writeln(Op);
+        if Op = opJITBlockPotential then
+        begin
+          Result := JITHandler(False, @JitCodePtrLocal[BIndex], E);
+        end;
+        //
+        if (Result = STATUS_INVALID) or (Result = STATUS_OVERFLOW) then
+        begin
+          JitCodePtrLocal[1] := nil;
+        end else
+        begin
+          if IsRoot then
+            E.Ret;
+          // Patch the code to pass the memory block
+          JITBlock.Code := E.MakeExecutable;
+          JITBlock.CodeSize := E.ExecutableSize;
+          JitCodePtrLocal[0] := Pointer(opJITBlock);
+          JitCodePtrLocal[1] := JITBlock.Code;
+          Self.Binaries.Value^.Data[Self.CodeSegmentIndex].JITBlockList.Add(JITBlock);
+        end;
       end;
     finally
-      E.Free;
+      if IsRoot then
+        E.Free;
     end;
   end;
 
@@ -8353,11 +8371,10 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opJITBlockPotential:{$endif}
         begin
         labelJITBlockPotential:
-          P := CodePtrLocal[1].VarPointer;
           {$ifdef WINDOWS}
-          if P <> nil then
+          if CodePtrLocal[1].VarPointer <> nil then
           begin
-            JITHandler(CodePtrLocal);
+            JITHandler(True, CodePtrLocal, nil);
           end else
           {$endif}
             Inc(CodePtrLocal, 2);
