@@ -1332,23 +1332,17 @@ type
     procedure MovRegReg(Dst, Src: TX64Reg);
     procedure MovReg32Reg32(Dst, Src: TX64Reg);
 
-    procedure MovRegMem(Dst, Base: TX64Reg; Disp: LongInt);
-    procedure MovRegMemEx(Dst: TX64Reg; const M: TX64Mem);
+    procedure MovRegMem(Dst: TX64Reg; const M: TX64Mem);
 
-    procedure MovReg32Mem(Dst, Base: TX64Reg; Disp: LongInt);
-    procedure MovReg32MemEx(Dst: TX64Reg; const M: TX64Mem);
+    procedure MovReg32Mem(Dst: TX64Reg; const M: TX64Mem);
 
-    procedure MovMemReg(Base: TX64Reg; Disp: LongInt; Src: TX64Reg);
-    procedure MovMemRegEx(const M: TX64Mem; Src: TX64Reg);
+    procedure MovMemReg(const M: TX64Mem; Src: TX64Reg);
 
-    procedure MovMem32Reg(Base: TX64Reg; Disp: LongInt; Src: TX64Reg);
-    procedure MovMem32RegEx(const M: TX64Mem; Src: TX64Reg);
+    procedure MovMem32Reg(const M: TX64Mem; Src: TX64Reg);
 
     procedure MovReg8Reg8(Dst, Src: TX64Reg);
-    procedure MovReg8Mem(Dst, Base: TX64Reg; Disp: LongInt);
-    procedure MovReg8MemEx(Dst: TX64Reg; const M: TX64Mem);
-    procedure MovMem8Reg(Base: TX64Reg; Disp: LongInt; Src: TX64Reg);
-    procedure MovMem8RegEx(const M: TX64Mem; Src: TX64Reg);
+    procedure MovReg8Mem(Dst: TX64Reg; const M: TX64Mem);
+    procedure MovMem8Reg(const M: TX64Mem; Src: TX64Reg);
     procedure MovMemImm8(const M: TX64Mem; Value: Byte);
 
     procedure MovMemImm32(const M: TX64Mem; Value: LongWord);
@@ -1513,15 +1507,9 @@ type
       SSE2 scalar double
       ----------------------------------------------------------------- }
 
-    procedure MovSDXMMFromMem(Dst: TXMMReg; Base: TX64Reg;
-      Disp: LongInt);
+    procedure MovSDXMMFromMem(Dst: TXMMReg; const M: TX64Mem);
 
-    procedure MovSDXMMFromMemEx(Dst: TXMMReg; const M: TX64Mem);
-
-    procedure MovSDMemFromXMM(Base: TX64Reg; Disp: LongInt;
-      Src: TXMMReg);
-
-    procedure MovSDMemFromXMMEx(const M: TX64Mem; Src: TXMMReg);
+    procedure MovSDMemFromXMM(const M: TX64Mem; Src: TXMMReg);
 
     procedure MovSDXMM(Dst, Src: TXMMReg);
 
@@ -1573,6 +1561,7 @@ type
 
     property Code: TX64CodeList read FCode;
   end;
+
 { =====================================================================
   Basic Byte emission
   ===================================================================== }
@@ -2169,42 +2158,22 @@ begin
   EmitRegReg($89, False, Dst, Src);
 end;
 
-procedure TX64Emitter.MovRegMem(Dst, Base: TX64Reg; Disp: LongInt);
-begin
-  MovRegMemEx(Dst, Mem(Base, Disp));
-end;
-
-procedure TX64Emitter.MovRegMemEx(Dst: TX64Reg; const M: TX64Mem);
+procedure TX64Emitter.MovRegMem(Dst: TX64Reg; const M: TX64Mem);
 begin
   EmitRM($8B, True, Ord(Dst), M);
 end;
 
-procedure TX64Emitter.MovReg32Mem(Dst, Base: TX64Reg; Disp: LongInt);
-begin
-  MovReg32MemEx(Dst, Mem(Base, Disp));
-end;
-
-procedure TX64Emitter.MovReg32MemEx(Dst: TX64Reg; const M: TX64Mem);
+procedure TX64Emitter.MovReg32Mem(Dst: TX64Reg; const M: TX64Mem);
 begin
   EmitRM($8B, False, Ord(Dst), M);
 end;
 
-procedure TX64Emitter.MovMemReg(Base: TX64Reg; Disp: LongInt; Src: TX64Reg);
-begin
-  MovMemRegEx(Mem(Base, Disp), Src);
-end;
-
-procedure TX64Emitter.MovMemRegEx(const M: TX64Mem; Src: TX64Reg);
+procedure TX64Emitter.MovMemReg(const M: TX64Mem; Src: TX64Reg);
 begin
   EmitRM($89, True, Ord(Src), M);
 end;
 
-procedure TX64Emitter.MovMem32Reg(Base: TX64Reg; Disp: LongInt; Src: TX64Reg);
-begin
-  MovMem32RegEx(Mem(Base, Disp), Src);
-end;
-
-procedure TX64Emitter.MovMem32RegEx(const M: TX64Mem; Src: TX64Reg);
+procedure TX64Emitter.MovMem32Reg(const M: TX64Mem; Src: TX64Reg);
 begin
   EmitRM($89, False, Ord(Src), M);
 end;
@@ -2222,12 +2191,7 @@ begin
   EmitModRM(3, Ord(Src), Ord(Dst));
 end;
 
-procedure TX64Emitter.MovReg8Mem(Dst, Base: TX64Reg; Disp: LongInt);
-begin
-  MovReg8MemEx(Dst, Mem(Base, Disp));
-end;
-
-procedure TX64Emitter.MovReg8MemEx(Dst: TX64Reg; const M: TX64Mem);
+procedure TX64Emitter.MovReg8Mem(Dst: TX64Reg; const M: TX64Mem);
 begin
   { MOV r8, r/m8
     8A /r
@@ -2237,12 +2201,7 @@ begin
   EmitMemModRM(Ord(Dst), M);
 end;
 
-procedure TX64Emitter.MovMem8Reg(Base: TX64Reg; Disp: LongInt; Src: TX64Reg);
-begin
-  MovMem8RegEx(Mem(Base, Disp), Src);
-end;
-
-procedure TX64Emitter.MovMem8RegEx(const M: TX64Mem; Src: TX64Reg);
+procedure TX64Emitter.MovMem8Reg(const M: TX64Mem; Src: TX64Reg);
 begin
   { MOV r/m8, r8
     88 /r
@@ -2276,7 +2235,7 @@ begin
   { MOV r/m64,imm32 cannot represent arbitrary 64-bit constants.
     Use regRAX as a temporary. }
   MovRegImm64(regRAX, Value);
-  MovMemRegEx(M, regRAX);
+  MovMemReg(M, regRAX);
 end;
 
 procedure TX64Emitter.MovZXReg8(Dst, Src: TX64Reg);
@@ -2964,22 +2923,12 @@ end;
   SSE2 scalar double
   ===================================================================== }
 
-procedure TX64Emitter.MovSDXMMFromMem(Dst: TXMMReg; Base: TX64Reg; Disp: LongInt);
-begin
-  MovSDXMMFromMemEx(Dst, Mem(Base, Disp));
-end;
-
-procedure TX64Emitter.MovSDXMMFromMemEx(Dst: TXMMReg; const M: TX64Mem);
+procedure TX64Emitter.MovSDXMMFromMem(Dst: TXMMReg; const M: TX64Mem);
 begin
   EmitSSEMem($F2, $0F, $10, Dst, M);
 end;
 
-procedure TX64Emitter.MovSDMemFromXMM(Base: TX64Reg; Disp: LongInt; Src: TXMMReg);
-begin
-  MovSDMemFromXMMEx(Mem(Base, Disp), Src);
-end;
-
-procedure TX64Emitter.MovSDMemFromXMMEx(const M: TX64Mem; Src: TXMMReg);
+procedure TX64Emitter.MovSDMemFromXMM(const M: TX64Mem; Src: TXMMReg);
 begin
   EmitSSEMem($F2, $0F, $11, Src, M);
 end;
@@ -3046,7 +2995,7 @@ end;
 
 procedure TX64Emitter.ComISD(Dst, Src: TXMMReg);
 begin
-  EmitSSEReg($F2, $0F, $2E, Dst, Src);
+  EmitSSEReg($66, $0F, $2E, Dst, Src);
 end;
 
 procedure TX64Emitter.CvtSI2SD(Dst: TXMMReg; Src: TX64Reg);
@@ -3193,6 +3142,8 @@ begin
 
   Result := P;
 end;
+
+{ ===================================================================== }
 
 {$ifdef SE_THREADS}
 threadvar
