@@ -13,7 +13,7 @@ unit ScriptEngine;
 // use computed goto instead of case of
 // try-catch will not work without computed goto!
 {$ifndef WASI}
-  {.$define SE_COMPUTED_GOTO}
+  {$define SE_COMPUTED_GOTO}
 {$endif}
 // enable this if you want to use libffi to handle dynamic function calls
 {.$define SE_LIBFFI}
