@@ -3078,12 +3078,12 @@ end;
 
 procedure TX64Emitter.RoundSD(Dst, Src: TXMMReg; Rounding: Byte);
 begin
-  EmitSSERegImm8($F2, $0F, $3A, $0B, Dst, Src, Rounding);
+  EmitSSERegImm8($66, $0F, $3A, $0B, Dst, Src, Rounding);
 end;
 
 procedure TX64Emitter.RoundSDMem(Dst: TXMMReg; const M: TX64Mem; Rounding: Byte);
 begin
-  EmitSSEMemImm8($F2, $0F, $3A, $0B, Dst, M, Rounding);
+  EmitSSEMemImm8($66, $0F, $3A, $0B, Dst, M, Rounding);
 end;
 
 { =====================================================================
