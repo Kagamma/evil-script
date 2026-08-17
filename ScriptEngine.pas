@@ -8330,13 +8330,15 @@ var
         end else
         begin
           if IsRoot then
+          begin
             E.Ret;
-          // Patch the code to pass the memory block
-          JITBlock.Code := E.MakeExecutable;
-          JITBlock.CodeSize := E.ExecutableSize;
-          JitCodePtrLocal[0] := Pointer(opJITBlock);
-          JitCodePtrLocal[1] := JITBlock.Code;
-          Self.Binaries.Value^.Data[Self.CodeSegmentIndex].JITBlockList.Add(JITBlock);
+            // Patch the code to pass the memory block
+            JITBlock.Code := E.MakeExecutable;
+            JITBlock.CodeSize := E.ExecutableSize;
+            JitCodePtrLocal[0] := Pointer(opJITBlock);
+            JitCodePtrLocal[1] := JITBlock.Code;
+            Self.Binaries.Value^.Data[Self.CodeSegmentIndex].JITBlockList.Add(JITBlock);
+          end;
         end;
       end;
     finally
