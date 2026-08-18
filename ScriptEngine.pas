@@ -138,6 +138,7 @@ type
     opOperatorNot,
     opOperatorShiftLeft,
     opOperatorShiftRight,
+
     opPushConstFromConstList,
 
     opCallRef,
@@ -1302,6 +1303,7 @@ type
     procedure ComISD(Dst, Src: TXMMReg);
 
     procedure CvtSI2SD(Dst: TXMMReg; Src: TX64Reg);
+    procedure CvtUI2SD(Dst: TXMMReg; Src: TX64Reg);
 
     procedure CvttSD2SI(Dst: TX64Reg; Src: TXMMReg);
 
@@ -3170,6 +3172,42 @@ begin
   EmitByte($0F);
   EmitByte($2A);
   EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.CvtUI2SD(Dst: TXMMReg; Src: TX64Reg);
+var
+  LPositive, LDone: TX64Label;
+begin
+  LPositive := CreateLabel;
+  LDone := CreateLabel;
+
+  TestRegReg(Src, Src);
+  Jns(LPositive);
+
+  { RCX = Src >> 1 }
+  MovRegReg64(regRCX, Src);
+  ShrRegImm(regRCX, 1);
+
+  { RDX = Src & 1 }
+  MovRegReg64(regRDX, Src);
+  MovRegImm64(regRAX, 1);
+  AndRegReg(regRDX, regRAX);
+
+  { RCX = (Src >> 1) + (Src & 1) }
+  AddRegReg(regRCX, regRDX);
+
+  { Convert the now-positive signed value. }
+  CvtSI2SD(Dst, regRCX);
+
+  { Multiply by 2.0 }
+  AddSD(Dst, Dst);
+
+  Jmp(LDone);
+
+  BindLabel(LPositive);
+  CvtSI2SD(Dst, Src);
+
+  BindLabel(LDone);
 end;
 
 procedure TX64Emitter.CvttSD2SI(Dst: TX64Reg; Src: TXMMReg);
@@ -7942,6 +7980,8 @@ var
     P: Pointer;
     IsAssigned: Boolean;
     JITBlock: TSEJITBlock;
+    LabelYes, LabelNo, LabelDone: TX64Label;
+    LastOpKind: TSEValueKind;
 
     procedure GenPing(Reg: TX64Reg);
     begin
@@ -8061,90 +8101,454 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Inc(XMMStackPtr);
+              LastOpKind := sevkNumber;
             end;
           opOperatorAdd:
             begin
               E.AddSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
-              Dec(XMMStackPtr, 1);
+              Dec(XMMStackPtr);
+              LastOpKind := sevkNumber;
             end;
           opOperatorSub:
             begin
               E.SubSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
-              Dec(XMMStackPtr, 1);
+              Dec(XMMStackPtr);
+              LastOpKind := sevkNumber;
             end;
           opOperatorMul:
             begin
               E.MulSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
-              Dec(XMMStackPtr, 1);
+              Dec(XMMStackPtr);
+              LastOpKind := sevkNumber;
             end;
           opOperatorDiv:
             begin
               E.DivSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
-              Dec(XMMStackPtr, 1);
+              Dec(XMMStackPtr);
+              LastOpKind := sevkNumber;
             end;
           opOperatorNegative:
             begin
               // mov r8, @Negative2QWords
-              E.MovRegImm64(regR8, NativeUInt(@Negative2QWords[0]));
+              E.MovRegImm64(regRAX, NativeUInt(@Negative2QWords[0]));
               // xorpd xmm?, [r8]
-              E.XorPDMem(TXMMReg(XMMStackPtr - 1), E.Mem(regR8, 0));
+              E.XorPDMem(TXMMReg(XMMStackPtr - 1), E.Mem(regRAX, 0));
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorAnd:
+            begin
+              E.CvttSD2SI(regRCX, TXMMReg(XMMStackPtr - 1));
+              E.CvttSD2SI(regRAX, TXMMReg(XMMStackPtr - 2));
+              E.AndRegReg(regRAX, regRCX);
+              E.CvtSI2SD(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorOr:
+            begin
+              E.CvttSD2SI(regRCX, TXMMReg(XMMStackPtr - 1));
+              E.CvttSD2SI(regRAX, TXMMReg(XMMStackPtr - 2));
+              E.OrRegReg(regRAX, regRCX);
+              E.CvtSI2SD(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorXor:
+            begin
+              E.CvttSD2SI(regRCX, TXMMReg(XMMStackPtr - 1));
+              E.CvttSD2SI(regRAX, TXMMReg(XMMStackPtr - 2));
+              E.XorRegReg(regRAX, regRCX);
+              E.CvtSI2SD(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorNot:
+            begin
+              E.MovRegImm64(regRCX, $7FFFFFFFFFFFFFFF);
+              E.CvttSD2SI(regRAX, TXMMReg(XMMStackPtr - 1));
+              E.NotReg(regRAX);
+              E.AndRegReg(regRAX, regRCX);
+              E.CvtSI2SD(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorShiftLeft:
+            begin
+              E.CvtSD2SI(regRCX, TXMMReg(XMMStackPtr - 1));
+              E.CvtSD2SI(regRAX, TXMMReg(XMMStackPtr - 2));
+              E.ShlRegCL(regRAX);
+              E.CvtSI2SD(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorShiftRight:
+            begin
+              E.CvtSD2SI(regRCX, TXMMReg(XMMStackPtr - 1));
+              E.CvtSD2SI(regRAX, TXMMReg(XMMStackPtr - 2));
+              E.ShrRegCL(regRAX);
+              E.CvtSI2SD(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorEqual:
+            begin
+              LabelDone := E.CreateLabel;
+              LabelNo := E.CreateLabel;
+              E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              E.Je(LabelYes);
+
+              E.XorRegReg(regRAX, regRAX);
+              E.Jmp(LabelDone);
+
+              E.BindLabel(LabelYes);
+              E.MovRegImm64(regRAX, $3FF0000000000000);
+
+              E.BindLabel(LabelDone);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkBoolean;
+            end;
+          opOperatorNotEqual:
+            begin
+              LabelDone := E.CreateLabel;
+              LabelNo := E.CreateLabel;
+              E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              E.Jne(LabelYes);
+
+              E.XorRegReg(regRAX, regRAX);
+              E.Jmp(LabelDone);
+
+              E.BindLabel(LabelYes);
+              E.MovRegImm64(regRAX, $3FF0000000000000);
+
+              E.BindLabel(LabelDone);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkBoolean;
+            end;
+          opOperatorGreater:
+            begin
+              LabelDone := E.CreateLabel;
+              LabelNo := E.CreateLabel;
+              E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              E.Ja(LabelYes);
+
+              E.XorRegReg(regRAX, regRAX);
+              E.Jmp(LabelDone);
+
+              E.BindLabel(LabelYes);
+              E.MovRegImm64(regRAX, $3FF0000000000000);
+
+              E.BindLabel(LabelDone);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkBoolean;
+            end;
+          opOperatorGreaterOrEqual:
+            begin
+              LabelDone := E.CreateLabel;
+              LabelNo := E.CreateLabel;
+              E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              E.Jae(LabelYes);
+
+              E.XorRegReg(regRAX, regRAX);
+              E.Jmp(LabelDone);
+
+              E.BindLabel(LabelYes);
+              E.MovRegImm64(regRAX, $3FF0000000000000);
+
+              E.BindLabel(LabelDone);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkBoolean;
+            end;
+          opOperatorLesser:
+            begin
+              LabelDone := E.CreateLabel;
+              LabelNo := E.CreateLabel;
+              E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              E.Jb(LabelYes);
+
+              E.XorRegReg(regRAX, regRAX);
+              E.Jmp(LabelDone);
+
+              E.BindLabel(LabelYes);
+              E.MovRegImm64(regRAX, $3FF0000000000000);
+
+              E.BindLabel(LabelDone);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkBoolean;
+            end;
+          opOperatorLesserOrEqual:
+            begin
+              LabelDone := E.CreateLabel;
+              LabelNo := E.CreateLabel;
+              E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              E.Jbe(LabelYes);
+
+              E.XorRegReg(regRAX, regRAX);
+              E.Jmp(LabelDone);
+
+              E.BindLabel(LabelYes);
+              E.MovRegImm64(regRAX, $3FF0000000000000);
+
+              E.BindLabel(LabelDone);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkBoolean;
             end;
 
           opOperatorAdd0:
             begin
-              // mov r8, code[1].VarPointer
-              E.MovRegImm64(regR8, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
+              // mov rax, code[1].VarPointer
+              E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
               // movq xmm, r8
-              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regR8);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
               Inc(XMMStackPtr);
               { Add }
               E.AddSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
-              Dec(XMMStackPtr, 1);
+              Dec(XMMStackPtr);
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              LastOpKind := sevkNumber;
             end;
           opOperatorMul0:
             begin
-              // mov r8, code[1].VarPointer
-              E.MovRegImm64(regR8, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
+              // mov rax, code[1].VarPointer
+              E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
               // movq xmm, r8
-              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regR8);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
               Inc(XMMStackPtr);
               { Mul }
               E.MulSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
-              Dec(XMMStackPtr, 1);
+              Dec(XMMStackPtr);
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              LastOpKind := sevkNumber;
             end;
           opOperatorDiv0:
             begin
-              // mov r8, code[1].VarPointer
-              E.MovRegImm64(regR8, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
+              // mov rax, code[1].VarPointer
+              E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
               // movq xmm, r8
-              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regR8);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
               Inc(XMMStackPtr);
               { Div }
               E.DivSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
-              Dec(XMMStackPtr, 1);
+              Dec(XMMStackPtr);
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorAnd0:
+            begin
+              // mov rax, code[1].VarNumber
+              E.MovRegImm64(regRAX, Trunc(JitCodePtrLocal[BIndex + 1].VarNumber));
+              E.CvttSD2SI(regRCX, TXMMReg(XMMStackPtr - 1));
+              { And }
+              E.AndRegReg(regRAX, regRCX);
+              E.CvtSI2SD(TXMMReg(XMMStackPtr - 1), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorOr0:
+            begin
+              // mov rax, code[1].VarNumber
+              E.MovRegImm64(regRAX, Trunc(JitCodePtrLocal[BIndex + 1].VarNumber));
+              E.CvttSD2SI(regRCX, TXMMReg(XMMStackPtr - 1));
+              { Or }
+              E.OrRegReg(regRAX, regRCX);
+              E.CvtSI2SD(TXMMReg(XMMStackPtr - 1), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorEqual0:
+            begin
+              LabelDone := E.CreateLabel;
+              LabelNo := E.CreateLabel;
+              E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
+              Inc(XMMStackPtr);
+
+              E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              E.Je(LabelYes);
+
+              E.XorRegReg(regRAX, regRAX);
+              E.Jmp(LabelDone);
+
+              E.BindLabel(LabelYes);
+              E.MovRegImm64(regRAX, $3FF0000000000000);
+
+              E.BindLabel(LabelDone);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkBoolean;
+            end;
+          opOperatorNotEqual0:
+            begin
+              LabelDone := E.CreateLabel;
+              LabelNo := E.CreateLabel;
+              E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
+              Inc(XMMStackPtr);
+
+              E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              E.Jne(LabelYes);
+
+              E.XorRegReg(regRAX, regRAX);
+              E.Jmp(LabelDone);
+
+              E.BindLabel(LabelYes);
+              E.MovRegImm64(regRAX, $3FF0000000000000);
+
+              E.BindLabel(LabelDone);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkBoolean;
+            end;
+          opOperatorGreater0:
+            begin
+              LabelDone := E.CreateLabel;
+              LabelNo := E.CreateLabel;
+              E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
+              Inc(XMMStackPtr);
+
+              E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              E.Ja(LabelYes);
+
+              E.XorRegReg(regRAX, regRAX);
+              E.Jmp(LabelDone);
+
+              E.BindLabel(LabelYes);
+              E.MovRegImm64(regRAX, $3FF0000000000000);
+
+              E.BindLabel(LabelDone);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkBoolean;
+            end;
+          opOperatorGreaterOrEqual0:
+            begin
+              LabelDone := E.CreateLabel;
+              LabelNo := E.CreateLabel;
+              E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
+              Inc(XMMStackPtr);
+
+              E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              E.Jae(LabelYes);
+
+              E.XorRegReg(regRAX, regRAX);
+              E.Jmp(LabelDone);
+
+              E.BindLabel(LabelYes);
+              E.MovRegImm64(regRAX, $3FF0000000000000);
+
+              E.BindLabel(LabelDone);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkBoolean;
+            end;
+          opOperatorLesser0:
+            begin
+              LabelDone := E.CreateLabel;
+              LabelNo := E.CreateLabel;
+              E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
+              Inc(XMMStackPtr);
+
+              E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              E.Jb(LabelYes);
+
+              E.XorRegReg(regRAX, regRAX);
+              E.Jmp(LabelDone);
+
+              E.BindLabel(LabelYes);
+              E.MovRegImm64(regRAX, $3FF0000000000000);
+
+              E.BindLabel(LabelDone);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkBoolean;
+            end;
+          opOperatorLesserOrEqual0:
+            begin
+              LabelDone := E.CreateLabel;
+              LabelNo := E.CreateLabel;
+              E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
+              Inc(XMMStackPtr);
+
+              E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              E.Jbe(LabelYes);
+
+              E.XorRegReg(regRAX, regRAX);
+              E.Jmp(LabelDone);
+
+              E.BindLabel(LabelYes);
+              E.MovRegImm64(regRAX, $3FF0000000000000);
+
+              E.BindLabel(LabelDone);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkBoolean;
             end;
 
           opOperatorInc:
             begin
               GenGetVariable(False);
-              E.MovRegImm64(regR9, NativeUInt(JitCodePtrLocal[BIndex + 3].VarNumber));
-              E.MovSDXMMFromReg(regXMM1, regR9);
+              E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 3].VarNumber));
+              E.MovSDXMMFromReg(regXMM1, regRAX);
               { Add }
               E.AddSD(regXMM0, regXMM1);
               { Assign to address at R8 }
@@ -8162,46 +8566,50 @@ var
               GenGetVariable;
               { Add }
               E.AddSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
-              Dec(XMMStackPtr, 1);
+              Dec(XMMStackPtr);
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              LastOpKind := sevkNumber;
             end;
           opOperatorSub1:
             begin
               GenGetVariable;
               { Sub }
               E.SubSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
-              Dec(XMMStackPtr, 1);
+              Dec(XMMStackPtr);
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              LastOpKind := sevkNumber;
             end;
           opOperatorMul1:
             begin
               GenGetVariable;
               { Mul }
               E.MulSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
-              Dec(XMMStackPtr, 1);
+              Dec(XMMStackPtr);
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              LastOpKind := sevkNumber;
             end;
           opOperatorDiv1:
             begin
               GenGetVariable;
               { Div }
               E.DivSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
-              Dec(XMMStackPtr, 1);
+              Dec(XMMStackPtr);
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              LastOpKind := sevkNumber;
             end;
 
           opPushGlobalVar:
             begin
               { Load global variable index to R8 }
-              // mov r8, qword ptr [r15 + code[1]]
-              E.MovRegImm64(regR8, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer) * SizeOf(TSEValue));
+              // mov rax, qword ptr [r15 + code[1]]
+              E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer) * SizeOf(TSEValue));
               { Load global variable to stack }
-                // movsd xmm?, qword ptr [r12 + r8 + .VarNumber]
-              E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.MemIndex(regR12, regR8, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
+                // movsd xmm?, qword ptr [r12 + rax + .VarNumber]
+              E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.MemIndex(regR12, regRAX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Inc(XMMStackPtr);
@@ -8243,7 +8651,7 @@ var
               E.MovSDMemFromXMM(E.MemIndex(regR12, regR8, 1, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM0);
               { Mark as number }
               // mov eax, sevkNumber
-              E.MovRegImm32(regRAX, Cardinal(sevkNumber));
+              E.MovRegImm32(regRAX, Cardinal(LastOpKind));
               // mov dword ptr [r12 + r8 + .Kind], rax
               E.MovMem32Reg(E.MemIndex(regR12, regR8, 1, NativeUInt(@TSEValue(nil^).Kind)), regRAX);
               //
@@ -8279,7 +8687,7 @@ var
               E.MovSDMemFromXMM(E.Mem(regR8, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM0);
               { Mark as number }
               // mov eax, sevkNumber
-              E.MovRegImm32(regRAX, Cardinal(sevkNumber));
+              E.MovRegImm32(regRAX, Cardinal(LastOpKind));
               // mov dword ptr [r8 + .Kind], rax
               E.MovMem32Reg(E.Mem(regR8, NativeUInt(@TSEValue(nil^).Kind)), regRAX);
               //
@@ -8306,7 +8714,7 @@ var
           { Move XMM0 to the stack }
           E.MovSDMemFromXMM(E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM0);
           { Mark this as number }
-          E.MovRegImm32(regRAX, Cardinal(sevkNumber));
+          E.MovRegImm32(regRAX, Cardinal(LastOpKind));
           E.MovMem32Reg(E.Mem(regR14, NativeUInt(@TSEValue(nil^).Kind)), regRAX);
           { Increase stack by 1 }
           E.AddRegImm32(regR14, SizeOf(TSEValue));
@@ -10529,6 +10937,7 @@ var
     Sig: NativeInt;
     BIndex, BIndex2, OpCount: NativeInt;
     Op, Op2: TSEOpcode;
+    IsInvalidOpcode: Boolean = False;
   begin
     Result := APossibleKinds;
     Sig := Self.JITBlockSignatureStack.Pop;
@@ -10539,16 +10948,30 @@ var
       if (Op = opJITBlockPotential) and (Self.Binary.Ptr(BIndex + 1)^.VarPointer = Pointer(Sig)) then
       begin
         OpCount := 0;
-        BIndex2 := BIndex;
+        BIndex2 := BIndex + OpcodeSizes[Op];
         //
         while BIndex2 <= Self.Binary.Count - 1 do
         begin
           Op2 := TSEOpcode(NativeInt(Self.Binary.Ptr(BIndex2)^.VarPointer));
+          if not (Op2 in [
+            opPushConst, opPushGlobalVar, opPushLocalVar, opAssignGlobalVar, opAssignLocalVar,
+            opOperatorInc,
+            opOperatorNegative,
+            opOperatorAdd, opOperatorSub, opOperatorMul, opOperatorDiv, //opOperatorMod,
+            opOperatorAdd0, opOperatorMul0, opOperatorDiv0,
+            opOperatorAdd1, opOperatorSub1, opOperatorMul1, opOperatorDiv1,
+            opOperatorEqual, opOperatorNotEqual, opOperatorGreater, opOperatorLesser, opOperatorGreaterOrEqual, opOperatorLesserOrEqual,
+            opOperatorEqual0, opOperatorNotEqual0, opOperatorGreater0, opOperatorLesser0, opOperatorGreaterOrEqual0, opOperatorLesserOrEqual0,
+            opOperatorAnd, opOperatorOr, opOperatorXor, opOperatorNot,
+            opOperatorAnd0, opOperatorOr0,
+            opOperatorShiftLeft, opOperatorShiftRight
+          ]) then
+            IsInvalidOpcode := True;
           Inc(OpCount);
           Inc(BIndex2, OpcodeSizes[Op2]);
         end;
         //
-        if (APossibleKinds <> [sevkNumber]) or (OpCount < 3) then
+        if (APossibleKinds <> [sevkNumber]) or (OpCount < 3) or (IsInvalidOpcode) then
         begin
           Self.Binary.DeleteRange(BIndex, OpcodeSizes[Op]);
         end else
@@ -12088,7 +12511,8 @@ var
       if IsComparison then
       begin
         OpCount := Self.OpcodeInfoList.Count;
-        ParseExpr(False);
+        MarkJITBlock;
+        VerifyJITBlock(ParseExpr(False));
         if (Self.OptimizePeephole) and
            ((Self.OpcodeInfoList.Count - OpCount) = 1) and
            (Self.OpcodeInfoList[OpCount].Op = opPushConst) and
@@ -12145,7 +12569,8 @@ var
       if IsComparison then
       begin
         OpCount := Self.OpcodeInfoList.Count;
-        ParseExpr(False);
+        MarkJITBlock;
+        VerifyJITBlock(ParseExpr(False));
         if (Self.OptimizePeephole) and
            ((Self.OpcodeInfoList.Count - OpCount) = 1) and
            (Self.OpcodeInfoList[OpCount].Op = opPushConst) and
@@ -12327,7 +12752,8 @@ var
     JumpBlock2,
     JumpEnd: NativeInt;
   begin
-    ParseExpr(False);
+    MarkJITBlock;
+    VerifyJITBlock(ParseExpr(False));
     JumpBlock1 := Emit([Pointer(opJumpEqual1Rel), True, Pointer(0)]);
     JumpBlock2 := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
     StartBlock1 := Self.Binary.Count;
@@ -12365,7 +12791,8 @@ var
     Token.Value := '___s' + Self.InternalIdent;
     VarHiddenIdent := CreateIdent(ikVariable, Token, True, False);
 
-    ParseExpr(False);
+    MarkJITBlock;
+    VerifyJITBlock(ParseExpr(False));
     EmitAssignVar(VarHiddenIdent);
 
     NextTokenExpected([tkBegin]);
@@ -12379,7 +12806,8 @@ var
         Token := NextToken;
         if Token.Kind = tkCase then
         begin
-          ParseExpr(False);
+          MarkJITBlock;
+          VerifyJITBlock(ParseExpr(False));
           EmitPushVar(VarHiddenIdent);
           JumpBlock1 := Emit([Pointer(opJumpEqualRel), Pointer(0)]);
           JumpBlock2 := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
