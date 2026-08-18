@@ -8013,13 +8013,11 @@ var
 
     procedure GenGetLocalVariable(IsValueOnly: Boolean = True);
     begin
-      Writeln('HERE 1');
       { R8 = current frame }
       // mov r8, r11
       E.MovRegReg64(regR8, regR11);
       if NativeUInt(JitCodePtrLocal[BIndex + 2].VarPointer) <> 0 then
       begin
-        Writeln('HERE');
         { R8 = current frame - relative index }
         // sub r8, frame
         E.SubRegImm32(regR8, NativeUInt(JitCodePtrLocal[BIndex + 2].VarPointer) * SizeOf(TSEFrame));
@@ -8089,7 +8087,7 @@ var
       E.AddRegImm32(regR15, OpcodeSizes[opJITBlockPotential] * SizeOf(TSEValue));
       //
       BIndex := BIndex + OpcodeSizes[opJITBlockPotential];
-      Writeln('JIT from ', BIndex, ' to ', BFinish);
+      //Writeln('JIT from ', BIndex, ' to ', BFinish);
       while BIndex <= BFinish do
       begin
         if XMMStackPtr >= 14 then
@@ -8098,7 +8096,7 @@ var
           break;
         end;
         Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
-        Writeln(' - ', Op);
+        //Writeln(' - ', Op);
         case Op of
           opPushConst:
             begin
@@ -8641,11 +8639,9 @@ var
             begin
               { R8 = current frame }
               // mov r8, r11
-              Writeln('YES: ');
               E.MovRegReg64(regR8, regR11);
               if NativeUInt(JitCodePtrLocal[BIndex + 2].VarPointer) <> 0 then
               begin
-                Writeln('HERE: ', NativeUInt(JitCodePtrLocal[BIndex + 2].VarPointer));
                 { R8 = current frame - relative index }
                 // sub r8, frame
                 E.SubRegImm32(regR8, NativeUInt(JitCodePtrLocal[BIndex + 2].VarPointer) * SizeOf(TSEFrame));
