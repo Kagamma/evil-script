@@ -22,6 +22,9 @@ unit ScriptEngine;
     {$define SE_DYNLIBS}
   {$endif}
 {$endif}
+{$ifdef CPUx86_64}
+  {$define SE_HAS_JIT}
+{$endif}
 // enable this if you have access to LCL's FileUtil
 {.$define SE_HAS_FILEUTIL}
 // enable this if you want to print logs to terminal
@@ -839,6 +842,7 @@ type
     OptimizePeephole,         // True = enable peephole optimization, default is true
     OptimizeConstantFolding,  // True = enable constant folding optimization, default is true
     OptimizeAsserts: Boolean; // True = ignore assert, default is true
+    OptimizeJIT: Boolean;     // True = enable JIT optimization, default is true
     ErrorLn, ErrorCol: NativeInt;
     VM: TSEVM;
     {$ifdef SE_THREADS}
@@ -9726,6 +9730,7 @@ begin
   Self.OptimizeAsserts := True;
   Self.OptimizeConstantFolding := True;
   Self.OptimizePeephole := True;
+  Self.OptimizeJIT := True;
   //
   Self.TokenList.Capacity := 1024;
   Self.VarList.Capacity := 256;
@@ -10938,6 +10943,11 @@ var
 
   procedure MarkJITBlock;
   begin
+    {$ifndef SE_HAS_JIT}
+    Exit;
+    {$endif}
+    if not Self.OptimizeJIT then
+      Exit;
     Self.JITBlockSignatureStack.Push(Self.JITBlockCount);
     Emit([Pointer(opJITBlockPotential), Pointer(Self.JITBlockCount)]);
     Inc(Self.JITBlockCount);
@@ -10951,6 +10961,11 @@ var
     IsInvalidOpcode: Boolean = False;
   begin
     Result := APossibleKinds;
+    {$ifndef SE_HAS_JIT}
+    Exit;
+    {$endif}
+    if not Self.OptimizeJIT then
+      Exit;
     Sig := Self.JITBlockSignatureStack.Pop;
     BIndex := 0;
     while BIndex <= Self.Binary.Count - 1 do
@@ -10982,7 +10997,7 @@ var
           Inc(BIndex2, OpcodeSizes[Op2]);
         end;
         //
-        if (APossibleKinds <> [sevkNumber]) or (OpCount < 3) or (IsInvalidOpcode) then
+        if ((APossibleKinds - [sevkNumber] = []) and (APossibleKinds - [sevkBoolean] = [])) or (OpCount < 2) or (IsInvalidOpcode) then
         begin
           Self.Binary.DeleteRange(BIndex, OpcodeSizes[Op]);
         end else
@@ -11115,6 +11130,10 @@ var
     Result := False;
     if not Self.OptimizePeephole then
       Exit;
+    {$ifdef SE_HAS_JIT}
+    if Self.OptimizeJIT then
+      Exit;
+    {$endif}
     OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushArrayPop]);
     OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushConst]);
     if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
@@ -12672,6 +12691,7 @@ var
     ContinueList: TList;
     I: NativeInt;
     Token: TSEToken;
+    PIdent: PSEIdent;
     VarIdent,
     VarHiddenTargetIdent,
     VarHiddenCountIdent,
@@ -12692,7 +12712,10 @@ var
       // FIXME: tkVariable?
       if Token.Kind = tkIdent then
       begin
-        VarIdent := CreateIdent(ikVariable, Token, True, False)^;
+        PIdent := CreateIdent(ikVariable, Token, True, False);
+        VarIdent := PIdent^;
+        PIdent^.IsForcedKind := True;
+        PIdent^.PossibleKinds := [sevkNumber];
       end else
       begin
         VarIdent := FindVar(Token.Value)^;
@@ -12754,8 +12777,13 @@ var
         end else
           VarHiddenCountName := '___c' + VarIdent.Name;
         VarHiddenArrayName := '___a' + VarIdent.Name;
+
         Token.Value := VarHiddenCountName;
-        VarHiddenCountIdent := CreateIdent(ikVariable, Token, True, False)^;
+        PIdent := CreateIdent(ikVariable, Token, True, False);
+        VarHiddenCountIdent := PIdent^;
+        PIdent^.IsForcedKind := True;
+        PIdent^.PossibleKinds := [sevkNumber];
+
         Token.Value := VarHiddenArrayName;
         VarHiddenArrayIdent := CreateIdent(ikVariable, Token, True, False)^;
 
