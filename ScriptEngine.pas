@@ -8140,6 +8140,26 @@ var
               Dec(XMMStackPtr);
               LastOpKind := sevkNumber;
             end;
+          opOperatorMod:
+            begin
+              // XMM1 - XMM2 * Trunc(XMM2 / XMM1)
+              // movsd xmm15, xmm? - 1
+              E.MovSDXMM(regXMM15, TXMMReg(XMMStackPtr - 2));
+              // divsd xmm15, xmm? - 2
+              E.DivSD(regXMM15, TXMMReg(XMMStackPtr - 1));
+              // roundsd xmm15, xmm15, 3
+              E.RoundSD(regXMM15, regXMM15, 3);
+              // mulsd xmm? - 2, xmm15
+              E.MulSD(TXMMReg(XMMStackPtr - 2), regXMM15);
+              // subsd xmm? - 1, xmm15
+              E.SubSD(TXMMReg(XMMStackPtr - 1), regXMM15);
+              // movsd xmm? - 2, xmm? - 1
+              E.MovSDXMM(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkNumber;
+            end;
           opOperatorNegative:
             begin
               // mov r8, @Negative2QWords
@@ -10983,7 +11003,7 @@ var
             opPushConst, opPushGlobalVar, opPushLocalVar, opAssignGlobalVar, opAssignLocalVar,
             opOperatorInc,
             opOperatorNegative,
-            opOperatorAdd, opOperatorSub, opOperatorMul, opOperatorDiv, //opOperatorMod,
+            opOperatorAdd, opOperatorSub, opOperatorMul, opOperatorDiv, opOperatorMod,
             opOperatorAdd0, opOperatorMul0, opOperatorDiv0,
             opOperatorAdd1, opOperatorSub1, opOperatorMul1, opOperatorDiv1,
             opOperatorEqual, opOperatorNotEqual, opOperatorGreater, opOperatorLesser, opOperatorGreaterOrEqual, opOperatorLesserOrEqual,
