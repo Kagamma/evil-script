@@ -8090,7 +8090,7 @@ var
       E.AddRegImm32(regR15, OpcodeSizes[opJITBlockPotential] * SizeOf(TSEValue));
       //
       BIndex := BIndex + OpcodeSizes[opJITBlockPotential];
-      Writeln('JIT from ', BIndex, ' to ', BFinish);
+     // Writeln('JIT from ', BIndex, ' to ', BFinish);
       while BIndex <= BFinish do
       begin
         if XMMStackPtr >= 14 then
@@ -8099,7 +8099,7 @@ var
           break;
         end;
         Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
-        Writeln(' - ', Op);
+       // Writeln(' - ', Op);
         case Op of
           opPushConst:
             begin
@@ -8107,7 +8107,6 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Inc(XMMStackPtr);
-              LastOpKind := sevkNumber;
             end;
           opOperatorAdd:
             begin
@@ -8636,6 +8635,7 @@ var
               E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.MemIndex(regR12, regRAX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              LastOpKind := sevkNumber;
               Inc(XMMStackPtr);
             end;
           opPushLocalVar:
@@ -10960,7 +10960,7 @@ var
     Inc(Self.JITBlockCount);
   end;
 
-  function VerifyJITBlock(const APossibleKinds: TSEValueKindSet): TSEValueKindSet;
+  function VerifyJITBlock(const APossibleKinds: TSEValueKindSet; const AMinOpcodeCount: Integer = 2): TSEValueKindSet;
   var
     Sig: NativeInt;
     BIndex, BIndex2, OpCount: NativeInt;
@@ -11004,7 +11004,7 @@ var
           Inc(BIndex2, OpcodeSizes[Op2]);
         end;
         //
-        if ((APossibleKinds - [sevkNumber] = []) and (APossibleKinds - [sevkBoolean] = [])) or (OpCount < 2) or (IsInvalidOpcode) then
+        if ((APossibleKinds - [sevkNumber] = []) and (APossibleKinds - [sevkBoolean] = [])) or (OpCount < AMinOpcodeCount) or (IsInvalidOpcode) then
         begin
           Self.Binary.DeleteRange(BIndex, OpcodeSizes[Op]);
         end else
@@ -12597,18 +12597,26 @@ var
       if IsComparison then
       begin
         OpCount := Self.OpcodeInfoList.Count;
-        ParseExpr(False);
-        if (Self.OptimizePeephole) and
-           ((Self.OpcodeInfoList.Count - OpCount) = 1) and
-           (Self.OpcodeInfoList[OpCount].Op = opPushConst) and
-           (Self.Binary[Self.OpcodeInfoList[OpCount].Pos + 1].VarNumber <> 0) then
+        if Self.OptimizeJIT then
         begin
-          Self.Binary.DeleteRange(Self.Binary.Count - 2, 2);
-          Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 1, 1);
-          IsComparison := False;
+          MarkJITBlock;
+          VerifyJITBlock(ParseExpr(False));
+          JumpEnd := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]);
         end else
         begin
-          JumpEnd := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]);
+          ParseExpr(False);
+          if (Self.OptimizePeephole) and
+            ((Self.OpcodeInfoList.Count - OpCount) = 1) and
+            (Self.OpcodeInfoList[OpCount].Op = opPushConst) and
+            (Self.Binary[Self.OpcodeInfoList[OpCount].Pos + 1].VarNumber <> 0) then
+          begin
+            Self.Binary.DeleteRange(Self.Binary.Count - 2, 2);
+            Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 1, 1);
+            IsComparison := False;
+          end else
+          begin
+            JumpEnd := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]);
+          end;
         end;
       end;
       ParseBlock;
@@ -12654,18 +12662,26 @@ var
       if IsComparison then
       begin
         OpCount := Self.OpcodeInfoList.Count;
-        ParseExpr(False);
-        if (Self.OptimizePeephole) and
-           ((Self.OpcodeInfoList.Count - OpCount) = 1) and
-           (Self.OpcodeInfoList[OpCount].Op = opPushConst) and
-           (Self.Binary[Self.OpcodeInfoList[OpCount].Pos + 1].VarNumber <> 0) then
+        if Self.OptimizeJIT then
         begin
-          Self.Binary.DeleteRange(Self.Binary.Count - 2, 2);
-          Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 1, 1);
-          IsComparison := False;
+          MarkJITBlock;
+          VerifyJITBlock(ParseExpr(False));
+          JumpEnd := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]);
         end else
         begin
-          JumpEnd := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]);
+          ParseExpr(False);
+          if (Self.OptimizePeephole) and
+            ((Self.OpcodeInfoList.Count - OpCount) = 1) and
+            (Self.OpcodeInfoList[OpCount].Op = opPushConst) and
+            (Self.Binary[Self.OpcodeInfoList[OpCount].Pos + 1].VarNumber <> 0) then
+          begin
+            Self.Binary.DeleteRange(Self.Binary.Count - 2, 2);
+            Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 1, 1);
+            IsComparison := False;
+          end else
+          begin
+            JumpEnd := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]);
+          end;
         end;
       end;
       JumpBlock := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
@@ -13175,7 +13191,7 @@ var
           begin
             EmitAssignVar(Ident^);
             PeepholeIncOptimization;
-            VerifyJITBlock(Ident^.PossibleKinds);
+            VerifyJITBlock(Ident^.PossibleKinds, 3);
           end;
         end;
       tkBracketOpen:
