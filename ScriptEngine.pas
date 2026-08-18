@@ -1092,17 +1092,17 @@ type
     procedure MovRegReg64(Dst, Src: TX64Reg);
     procedure MovRegReg32(Dst, Src: TX64Reg);
 
-    procedure MovReg64Mem(Dst: TX64Reg; const M: TX64Mem);
+    procedure MovRegMem64(Dst: TX64Reg; const M: TX64Mem);
 
-    procedure MovReg32Mem(Dst: TX64Reg; const M: TX64Mem);
+    procedure MovRegMem32(Dst: TX64Reg; const M: TX64Mem);
 
-    procedure MovMem64Reg(const M: TX64Mem; Src: TX64Reg);
+    procedure MovMemReg64(const M: TX64Mem; Src: TX64Reg);
 
-    procedure MovMem32Reg(const M: TX64Mem; Src: TX64Reg);
+    procedure MovMemReg32(const M: TX64Mem; Src: TX64Reg);
 
     procedure MovReg8Reg8(Dst, Src: TX64Reg);
-    procedure MovReg8Mem(Dst: TX64Reg; const M: TX64Mem);
-    procedure MovMem8Reg(const M: TX64Mem; Src: TX64Reg);
+    procedure MovRegMem8(Dst: TX64Reg; const M: TX64Mem);
+    procedure MovMemReg8(const M: TX64Mem; Src: TX64Reg);
     procedure MovMemImm8(const M: TX64Mem; Value: Byte);
 
     procedure MovMemImm32(const M: TX64Mem; Value: LongWord);
@@ -1114,11 +1114,11 @@ type
     procedure MovSXReg8(Dst, Src: TX64Reg);
     procedure MovSXReg16(Dst, Src: TX64Reg);
 
-    procedure MovZXReg8Mem(Dst: TX64Reg; const M: TX64Mem);
-    procedure MovZXReg16Mem(Dst: TX64Reg; const M: TX64Mem);
+    procedure MovZXRegMem8(Dst: TX64Reg; const M: TX64Mem);
+    procedure MovZXRegMem16(Dst: TX64Reg; const M: TX64Mem);
 
-    procedure MovSXReg8Mem(Dst: TX64Reg; const M: TX64Mem);
-    procedure MovSXReg16Mem(Dst: TX64Reg; const M: TX64Mem);
+    procedure MovSXRegMem8(Dst: TX64Reg; const M: TX64Mem);
+    procedure MovSXRegMem16(Dst: TX64Reg; const M: TX64Mem);
 
     procedure LeaRegMem(Dst: TX64Reg; const M: TX64Mem);
 
@@ -1160,19 +1160,19 @@ type
 
     procedure Cqo;
 
-    procedure AddMem64Imm(const M: TX64Mem; Imm: LongInt);
-    procedure SubMem64Imm(const M: TX64Mem; Imm: LongInt);
-    procedure AndMem64Imm(const M: TX64Mem; Imm: LongInt);
-    procedure OrMem64Imm(const M: TX64Mem; Imm: LongInt);
-    procedure XorMem64Imm(const M: TX64Mem; Imm: LongInt);
-    procedure CmpMem64Imm(const M: TX64Mem; Imm: LongInt);
+    procedure AddMemImm64(const M: TX64Mem; Imm: LongInt);
+    procedure SubMemImm64(const M: TX64Mem; Imm: LongInt);
+    procedure AndMemImm64(const M: TX64Mem; Imm: LongInt);
+    procedure OrMemImm64(const M: TX64Mem; Imm: LongInt);
+    procedure XorMemImm64(const M: TX64Mem; Imm: LongInt);
+    procedure CmpMemImm64(const M: TX64Mem; Imm: LongInt);
 
-    procedure AddMem32Imm(const M: TX64Mem; Imm: LongInt);
-    procedure SubMem32Imm(const M: TX64Mem; Imm: LongInt);
-    procedure AndMem32Imm(const M: TX64Mem; Imm: LongInt);
-    procedure OrMem32Imm(const M: TX64Mem; Imm: LongInt);
-    procedure XorMem32Imm(const M: TX64Mem; Imm: LongInt);
-    procedure CmpMem32Imm(const M: TX64Mem; Imm: LongInt);
+    procedure AddMemImm32(const M: TX64Mem; Imm: LongInt);
+    procedure SubMemImm32(const M: TX64Mem; Imm: LongInt);
+    procedure AndMemImm32(const M: TX64Mem; Imm: LongInt);
+    procedure OrMemImm32(const M: TX64Mem; Imm: LongInt);
+    procedure XorMemImm32(const M: TX64Mem; Imm: LongInt);
+    procedure CmpMemImm32(const M: TX64Mem; Imm: LongInt);
 
     { -----------------------------------------------------------------
       Compare / test
@@ -2208,22 +2208,22 @@ begin
   EmitRegReg($89, False, Dst, Src);
 end;
 
-procedure TX64Emitter.MovReg64Mem(Dst: TX64Reg; const M: TX64Mem);
+procedure TX64Emitter.MovRegMem64(Dst: TX64Reg; const M: TX64Mem);
 begin
   EmitRM($8B, True, Ord(Dst), M);
 end;
 
-procedure TX64Emitter.MovReg32Mem(Dst: TX64Reg; const M: TX64Mem);
+procedure TX64Emitter.MovRegMem32(Dst: TX64Reg; const M: TX64Mem);
 begin
   EmitRM($8B, False, Ord(Dst), M);
 end;
 
-procedure TX64Emitter.MovMem64Reg(const M: TX64Mem; Src: TX64Reg);
+procedure TX64Emitter.MovMemReg64(const M: TX64Mem; Src: TX64Reg);
 begin
   EmitRM($89, True, Ord(Src), M);
 end;
 
-procedure TX64Emitter.MovMem32Reg(const M: TX64Mem; Src: TX64Reg);
+procedure TX64Emitter.MovMemReg32(const M: TX64Mem; Src: TX64Reg);
 begin
   EmitRM($89, False, Ord(Src), M);
 end;
@@ -2241,7 +2241,7 @@ begin
   EmitModRM(3, Ord(Src), Ord(Dst));
 end;
 
-procedure TX64Emitter.MovReg8Mem(Dst: TX64Reg; const M: TX64Mem);
+procedure TX64Emitter.MovRegMem8(Dst: TX64Reg; const M: TX64Mem);
 begin
   { MOV r8, r/m8
     8A /r
@@ -2251,7 +2251,7 @@ begin
   EmitMemModRM(Ord(Dst), M);
 end;
 
-procedure TX64Emitter.MovMem8Reg(const M: TX64Mem; Src: TX64Reg);
+procedure TX64Emitter.MovMemReg8(const M: TX64Mem; Src: TX64Reg);
 begin
   { MOV r/m8, r8
     88 /r
@@ -2285,7 +2285,7 @@ begin
   { MOV r/m64,imm32 cannot represent arbitrary 64-bit constants.
     Use regRAX as a temporary. }
   MovRegImm64(regRAX, Value);
-  MovMem64Reg(M, regRAX);
+  MovMemReg64(M, regRAX);
 end;
 
 procedure TX64Emitter.MovZXReg8(Dst, Src: TX64Reg);
@@ -2320,22 +2320,22 @@ begin
   EmitModRM(3, Ord(Dst), Ord(Src));
 end;
 
-procedure TX64Emitter.MovZXReg8Mem(Dst: TX64Reg; const M: TX64Mem);
+procedure TX64Emitter.MovZXRegMem8(Dst: TX64Reg; const M: TX64Mem);
 begin
   EmitRM2($0F, $B6, True, Ord(Dst), M);
 end;
 
-procedure TX64Emitter.MovZXReg16Mem(Dst: TX64Reg; const M: TX64Mem);
+procedure TX64Emitter.MovZXRegMem16(Dst: TX64Reg; const M: TX64Mem);
 begin
   EmitRM2($0F, $B7, True, Ord(Dst), M);
 end;
 
-procedure TX64Emitter.MovSXReg8Mem(Dst: TX64Reg; const M: TX64Mem);
+procedure TX64Emitter.MovSXRegMem8(Dst: TX64Reg; const M: TX64Mem);
 begin
   EmitRM2($0F, $BE, True, Ord(Dst), M);
 end;
 
-procedure TX64Emitter.MovSXReg16Mem(Dst: TX64Reg; const M: TX64Mem);
+procedure TX64Emitter.MovSXRegMem16(Dst: TX64Reg; const M: TX64Mem);
 begin
   EmitRM2($0F, $BF, True, Ord(Dst), M);
 end;
@@ -2497,62 +2497,62 @@ begin
   EmitByte($99);
 end;
 
-procedure TX64Emitter.AddMem64Imm(const M: TX64Mem; Imm: LongInt);
+procedure TX64Emitter.AddMemImm64(const M: TX64Mem; Imm: LongInt);
 begin
   EmitArithMemImm(0, True, M, Imm);
 end;
 
-procedure TX64Emitter.SubMem64Imm(const M: TX64Mem; Imm: LongInt);
+procedure TX64Emitter.SubMemImm64(const M: TX64Mem; Imm: LongInt);
 begin
   EmitArithMemImm(5, True, M, Imm);
 end;
 
-procedure TX64Emitter.AndMem64Imm(const M: TX64Mem; Imm: LongInt);
+procedure TX64Emitter.AndMemImm64(const M: TX64Mem; Imm: LongInt);
 begin
   EmitArithMemImm(4, True, M, Imm);
 end;
 
-procedure TX64Emitter.OrMem64Imm(const M: TX64Mem; Imm: LongInt);
+procedure TX64Emitter.OrMemImm64(const M: TX64Mem; Imm: LongInt);
 begin
   EmitArithMemImm(1, True, M, Imm);
 end;
 
-procedure TX64Emitter.XorMem64Imm(const M: TX64Mem; Imm: LongInt);
+procedure TX64Emitter.XorMemImm64(const M: TX64Mem; Imm: LongInt);
 begin
   EmitArithMemImm(6, True, M, Imm);
 end;
 
-procedure TX64Emitter.CmpMem64Imm(const M: TX64Mem; Imm: LongInt);
+procedure TX64Emitter.CmpMemImm64(const M: TX64Mem; Imm: LongInt);
 begin
   EmitArithMemImm(7, True, M, Imm);
 end;
 
-procedure TX64Emitter.AddMem32Imm(const M: TX64Mem; Imm: LongInt);
+procedure TX64Emitter.AddMemImm32(const M: TX64Mem; Imm: LongInt);
 begin
   EmitArithMemImm(0, False, M, Imm);
 end;
 
-procedure TX64Emitter.SubMem32Imm(const M: TX64Mem; Imm: LongInt);
+procedure TX64Emitter.SubMemImm32(const M: TX64Mem; Imm: LongInt);
 begin
   EmitArithMemImm(5, False, M, Imm);
 end;
 
-procedure TX64Emitter.AndMem32Imm(const M: TX64Mem; Imm: LongInt);
+procedure TX64Emitter.AndMemImm32(const M: TX64Mem; Imm: LongInt);
 begin
   EmitArithMemImm(4, False, M, Imm);
 end;
 
-procedure TX64Emitter.OrMem32Imm(const M: TX64Mem; Imm: LongInt);
+procedure TX64Emitter.OrMemImm32(const M: TX64Mem; Imm: LongInt);
 begin
   EmitArithMemImm(1, False, M, Imm);
 end;
 
-procedure TX64Emitter.XorMem32Imm(const M: TX64Mem; Imm: LongInt);
+procedure TX64Emitter.XorMemImm32(const M: TX64Mem; Imm: LongInt);
 begin
   EmitArithMemImm(6, False, M, Imm);
 end;
 
-procedure TX64Emitter.CmpMem32Imm(const M: TX64Mem; Imm: LongInt);
+procedure TX64Emitter.CmpMemImm32(const M: TX64Mem; Imm: LongInt);
 begin
   EmitArithMemImm(7, False, M, Imm);
 end;
@@ -8026,7 +8026,7 @@ var
       E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer) * SizeOf(TSEValue));
       { R8 = current frame's stack pointer }
       // mov r8, qword ptr [r8 + .StackPtr]
-      E.MovReg64Mem(regR8, E.Mem(regR8, NativeUInt(@TSEFrame(nil^).StackPtr)));
+      E.MovRegMem64(regR8, E.Mem(regR8, NativeUInt(@TSEFrame(nil^).StackPtr)));
       if IsValueOnly then
       { XMM? = local variable }
       // movsd xmm?, qword ptr [r8 + rax + .VarNumber]
@@ -8060,28 +8060,28 @@ var
         {$ifdef WINDOWS}
         { R8, R9, R10 are for scratch }
         // R15 = CodePtrLocal
-        E.MovReg64Mem(regR15, E.Mem(regRCX, 0));
+        E.MovRegMem64(regR15, E.Mem(regRCX, 0));
         { R13 = @StackPtr }
         E.MovRegReg64(regR13, regRDX);
         { R14 = StackPtr }
-        E.MovReg64Mem(regR14, E.Mem(regR13, 0));
+        E.MovRegMem64(regR14, E.Mem(regR13, 0));
         { R12 = GlobalVar }
-        E.MovReg64Mem(regR12, E.Mem(regR8, 0));
+        E.MovRegMem64(regR12, E.Mem(regR8, 0));
         { R11 = FramePtr}
-        E.MovReg64Mem(regR11, E.Mem(regR9, 0));
+        E.MovRegMem64(regR11, E.Mem(regR9, 0));
         // R10 = @CodePtrLocal
         E.MovRegReg64(regR10, regRCX);
         {$else}
         // R15 = CodePtrLocal
-        E.MovReg64Mem(regR15, E.Mem(regRDI, 0));
+        E.MovRegMem64(regR15, E.Mem(regRDI, 0));
         { R13 = @StackPtr }
         E.MovRegReg64(regR13, regRSI);
         { R14 = StackPtr }
-        E.MovReg64Mem(regR14, E.Mem(regR13, 0));
+        E.MovRegMem64(regR14, E.Mem(regR13, 0));
         { R12 = GlobalVar }
-        E.MovReg64Mem(regR12, E.Mem(regRDX, 0));
+        E.MovRegMem64(regR12, E.Mem(regRDX, 0));
         { R11 = FramePtr}
-        E.MovReg64Mem(regR11, E.Mem(regRCX, 0));
+        E.MovRegMem64(regR11, E.Mem(regRCX, 0));
         // R10 = @CodePtrLocal
         E.MovRegReg64(regR10, regRDI);
         {$endif}
@@ -8578,7 +8578,7 @@ var
               E.MovSDMemFromXMM(E.Mem(regR8, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM0);
               { Mark as number }
               E.MovRegImm32(regRAX, Cardinal(sevkNumber));
-              E.MovMem32Reg(E.Mem(regR8, NativeUInt(@TSEValue(nil^).Kind)), regRAX);
+              E.MovMemReg32(E.Mem(regR8, NativeUInt(@TSEValue(nil^).Kind)), regRAX);
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               IsAssigned := True;
@@ -8654,7 +8654,7 @@ var
               E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer) * SizeOf(TSEValue));
               { R8 = current frame's stack pointer }
               // mov r8, qword ptr [r8 + .StackPtr]
-              E.MovReg64Mem(regR8, E.Mem(regR8, NativeUInt(@TSEFrame(nil^).StackPtr)));
+              E.MovRegMem64(regR8, E.Mem(regR8, NativeUInt(@TSEFrame(nil^).StackPtr)));
               { XMM? = local variable }
               // mov xmm?, qword ptr [r8 + rax + .VarNumber]
               E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.MemIndex(regR8, regRAX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
@@ -8704,7 +8704,7 @@ var
               E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer) * SizeOf(TSEValue));
               { R8 = current frame's stack pointer }
               // mov r8, qword ptr [r8 + .StackPtr]
-              E.MovReg64Mem(regR8, E.Mem(regR8, NativeUInt(@TSEFrame(nil^).StackPtr)));
+              E.MovRegMem64(regR8, E.Mem(regR8, NativeUInt(@TSEFrame(nil^).StackPtr)));
               { R8 = local variable address }
               // lea r8, qword ptr [r8 + rax]
               E.LeaRegMem(regR8, E.MemIndex(regR8, regRAX, 1, 0));
@@ -8745,10 +8745,10 @@ var
           E.MovMemImm32(E.Mem(regR14, Cardinal(@TSEValue(nil^).Kind)), Cardinal(LastOpKind));
           { Increase stack by 1 }
           E.AddRegImm32(regR14, SizeOf(TSEValue));
-          E.MovMem64Reg(E.Mem(regR13, 0), regR14);
+          E.MovMemReg64(E.Mem(regR13, 0), regR14);
         end;
         { Increase CodePtr }
-        E.MovMem64Reg(E.Mem(regR10, 0), regR15);
+        E.MovMemReg64(E.Mem(regR10, 0), regR15);
         // Check the next opcode to see if the next one is also a JITBlockPotential
         Inc(BIndex, OpcodeSizes[Op]);
         Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
