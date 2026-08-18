@@ -7271,6 +7271,7 @@ begin
   Result.FramePtr := @Result.Frame[0];
   Result.FramePtr^.StackPtr := Result.StackPtr;
   Result.TrapPtr := @Result.Trap[0];
+  Result.Name := Self.Name + ' [Fork]';
   Dec(Result.TrapPtr);
   //
   Result.Binaries := Self.Binaries.Ref;
@@ -7339,6 +7340,18 @@ procedure Ping(A: Int64);
 begin
   Writeln('PING ', PingCount, ', ', A);
   Inc(PingCount);
+end;
+
+function ShowValueKinds(APossibleKinds: TSEValueKindSet): String;
+var
+  Kind: TSEValueKind;
+begin
+  Result := '';
+  for Kind := Low(TSEValueKind) to High(TSEValueKind) do
+  begin
+    if Kind in APossibleKinds then
+      Result := Result + GetEnumName(TypeInfo(TSEValueKind), Ord(Kind)) + ',';
+  end;
 end;
 
 procedure TSEVM.Exec;
@@ -8103,6 +8116,16 @@ var
         case Op of
           opPushConst:
             begin
+              // TODO: We shouldn't need to do this, but it's needed for now
+              if (JitCodePtrLocal[BIndex + 1].Kind <> sevkNumber) and (JitCodePtrLocal[BIndex + 1].Kind <> sevkBoolean) then
+              begin
+                {Writeln('BINARY: ', Self.Binaries.Value^.Data[Self.CodeSegmentIndex].BinaryName);
+                Writeln('NAME: ', Self.Name);
+                Writeln('VALUE: ', JitCodePtrLocal[BIndex + 1].VarNumber);
+                Writeln('KIND: ', JitCodePtrLocal[BIndex + 1].Kind);}
+                Result := STATUS_INVALID;
+                break;
+              end;
               E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.Mem(regR15, SizeOf(TSEValue) + NativeUInt(@TSEValue(nil^).VarNumber)));
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
@@ -11018,7 +11041,8 @@ var
           Inc(BIndex2, OpcodeSizes[Op2]);
         end;
         //
-        if ((APossibleKinds - [sevkNumber] = []) and (APossibleKinds - [sevkBoolean] = [])) or (OpCount < AMinOpcodeCount) or (IsInvalidOpcode) then
+
+        if ((APossibleKinds - [sevkNumber] - [sevkBoolean]) <> []) or (OpCount < AMinOpcodeCount) or (IsInvalidOpcode) then
         begin
           Self.Binary.DeleteRange(BIndex, OpcodeSizes[Op]);
         end else
@@ -12878,7 +12902,7 @@ var
     JumpEnd: NativeInt;
   begin
     MarkJITBlock;
-    VerifyJITBlock(ParseExpr(False), 2);
+    VerifyJITBlock(ParseExpr(False));
     JumpBlock1 := Emit([Pointer(opJumpEqual1Rel), True, Pointer(0)]);
     JumpBlock2 := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
     StartBlock1 := Self.Binary.Count;
@@ -12916,8 +12940,7 @@ var
     Token.Value := '___s' + Self.InternalIdent;
     VarHiddenIdent := CreateIdent(ikVariable, Token, True, False)^;
 
-    MarkJITBlock;
-    VerifyJITBlock(ParseExpr(False));
+    ParseExpr(False);
     EmitAssignVar(VarHiddenIdent);
 
     NextTokenExpected([tkBegin]);
@@ -12931,8 +12954,7 @@ var
         Token := NextToken;
         if Token.Kind = tkCase then
         begin
-          MarkJITBlock;
-          VerifyJITBlock(ParseExpr(False));
+          ParseExpr(False);
           EmitPushVar(VarHiddenIdent);
           JumpBlock1 := Emit([Pointer(opJumpEqualRel), Pointer(0)]);
           JumpBlock2 := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
@@ -13820,7 +13842,7 @@ begin
   FuncScriptInfo.CodeSegmentIndex := Self.VM.Binaries.Value^.Size - 1;
   FuncScriptInfo.Name := Name;
   FuncScriptInfo.VarSymbols := TStringList.Create;
-  FuncScriptInfo.PossibleKinds := [sevkNull];
+  FuncScriptInfo.PossibleKinds := [];
   FuncScriptInfo.HasSelf := True;
   FuncScriptInfo.HasOverride := IsOverride;
   Self.FuncScriptList.Add(FuncScriptInfo);
