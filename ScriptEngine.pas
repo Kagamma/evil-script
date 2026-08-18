@@ -8142,19 +8142,17 @@ var
             end;
           opOperatorMod:
             begin
-              // XMM1 - XMM2 * Trunc(XMM2 / XMM1)
-              // movsd xmm15, xmm? - 1
+              // A - B * Trunc(A / B)
+              // movsd xmm15, xmm? - 2
               E.MovSDXMM(regXMM15, TXMMReg(XMMStackPtr - 2));
-              // divsd xmm15, xmm? - 2
+              // A / B
               E.DivSD(regXMM15, TXMMReg(XMMStackPtr - 1));
-              // roundsd xmm15, xmm15, 3
+              // Trunc
               E.RoundSD(regXMM15, regXMM15, 3);
-              // mulsd xmm? - 2, xmm15
-              E.MulSD(TXMMReg(XMMStackPtr - 2), regXMM15);
-              // subsd xmm? - 1, xmm15
-              E.SubSD(TXMMReg(XMMStackPtr - 1), regXMM15);
-              // movsd xmm? - 2, xmm? - 1
-              E.MovSDXMM(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              // B * Trunc
+              E.MulSD(TXMMReg(XMMStackPtr - 1), regXMM15);
+              // A - B
+              E.SubSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Dec(XMMStackPtr);
@@ -8255,7 +8253,7 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Dec(XMMStackPtr);
-              LastOpKind := sevkBoolean;
+              LastOpKind := sevkNumber;
             end;
           opOperatorNotEqual:
             begin
@@ -8275,7 +8273,7 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Dec(XMMStackPtr);
-              LastOpKind := sevkBoolean;
+              LastOpKind := sevkNumber;
             end;
           opOperatorGreater:
             begin
@@ -8295,7 +8293,7 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Dec(XMMStackPtr);
-              LastOpKind := sevkBoolean;
+              LastOpKind := sevkNumber;
             end;
           opOperatorGreaterOrEqual:
             begin
@@ -8315,7 +8313,7 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Dec(XMMStackPtr);
-              LastOpKind := sevkBoolean;
+              LastOpKind := sevkNumber;
             end;
           opOperatorLesser:
             begin
@@ -8335,7 +8333,7 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Dec(XMMStackPtr);
-              LastOpKind := sevkBoolean;
+              LastOpKind := sevkNumber;
             end;
           opOperatorLesserOrEqual:
             begin
@@ -8355,7 +8353,7 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Dec(XMMStackPtr);
-              LastOpKind := sevkBoolean;
+              LastOpKind := sevkNumber;
             end;
 
           opOperatorAdd0:
@@ -8446,7 +8444,7 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Dec(XMMStackPtr);
-              LastOpKind := sevkBoolean;
+              LastOpKind := sevkNumber;
             end;
           opOperatorNotEqual0:
             begin
@@ -8470,7 +8468,7 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Dec(XMMStackPtr);
-              LastOpKind := sevkBoolean;
+              LastOpKind := sevkNumber;
             end;
           opOperatorGreater0:
             begin
@@ -8494,7 +8492,7 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Dec(XMMStackPtr);
-              LastOpKind := sevkBoolean;
+              LastOpKind := sevkNumber;
             end;
           opOperatorGreaterOrEqual0:
             begin
@@ -8518,7 +8516,7 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Dec(XMMStackPtr);
-              LastOpKind := sevkBoolean;
+              LastOpKind := sevkNumber;
             end;
           opOperatorLesser0:
             begin
@@ -8542,7 +8540,7 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Dec(XMMStackPtr);
-              LastOpKind := sevkBoolean;
+              LastOpKind := sevkNumber;
             end;
           opOperatorLesserOrEqual0:
             begin
@@ -8566,7 +8564,7 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Dec(XMMStackPtr);
-              LastOpKind := sevkBoolean;
+              LastOpKind := sevkNumber;
             end;
 
           opOperatorInc:
