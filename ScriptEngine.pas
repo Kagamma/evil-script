@@ -8089,7 +8089,7 @@ var
       E.AddRegImm32(regR15, OpcodeSizes[opJITBlockPotential] * SizeOf(TSEValue));
       //
       BIndex := BIndex + OpcodeSizes[opJITBlockPotential];
-      Writeln('JIT from ', BIndex, ' to ', BFinish);
+      //Writeln('JIT from ', BIndex, ' to ', BFinish);
       while BIndex <= BFinish do
       begin
         if XMMStackPtr >= 14 then
@@ -8098,7 +8098,7 @@ var
           break;
         end;
         Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
-        Writeln(' - ', Op);
+        //Writeln(' - ', Op);
         case Op of
           opPushConst:
             begin
@@ -8143,15 +8143,15 @@ var
           opOperatorMod:
             begin
               // A - B * Trunc(A / B)
-              // movsd xmm15, xmm? - 2
-              E.MovSDXMM(regXMM15, TXMMReg(XMMStackPtr - 2));
+              E.MovRegFromSDXMM(regRAX, TXMMReg(XMMStackPtr - 2));
               // A / B
-              E.DivSD(regXMM15, TXMMReg(XMMStackPtr - 1));
+              E.DivSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
               // Trunc
-              E.RoundSD(regXMM15, regXMM15, 3);
+              E.RoundSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 2), 3);
               // B * Trunc
-              E.MulSD(TXMMReg(XMMStackPtr - 1), regXMM15);
+              E.MulSD(TXMMReg(XMMStackPtr - 1), TXMMReg(XMMStackPtr - 2));
               // A - B
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr - 2), regRAX);
               E.SubSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
