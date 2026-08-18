@@ -8104,7 +8104,7 @@ var
       E.AddRegImm32(regR15, OpcodeSizes[opJITBlockPotential] * SizeOf(TSEValue));
       //
       BIndex := BIndex + OpcodeSizes[opJITBlockPotential];
-     // Writeln('JIT from ', BIndex, ' to ', BFinish);
+      Writeln('JIT from ', BIndex, ' to ', BFinish);
       while BIndex <= BFinish do
       begin
         if XMMStackPtr >= 14 then
@@ -8113,7 +8113,7 @@ var
           break;
         end;
         Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
-       // Writeln(' - ', Op);
+        Writeln(' - ', Op);
         case Op of
           opPushConst:
             begin
@@ -8227,20 +8227,17 @@ var
             end;
           opOperatorNot:
             begin
-              E.MovRegImm64(regRCX, $7FFFFFFFFFFFFFFF);
               E.CvttSD2SI(regRAX, TXMMReg(XMMStackPtr - 1));
-              E.NotReg(regRAX);
-              E.AndRegReg(regRAX, regRCX);
-              E.CvtSI2SD(TXMMReg(XMMStackPtr - 2), regRAX);
+              E.XorRegImm32(regRAX, 1);
+              E.CvtSI2SD(TXMMReg(XMMStackPtr - 1), regRAX);
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
-              Dec(XMMStackPtr);
               LastOpKind := sevkNumber;
             end;
           opOperatorShiftLeft:
             begin
-              E.CvtSD2SI(regRCX, TXMMReg(XMMStackPtr - 1));
-              E.CvtSD2SI(regRAX, TXMMReg(XMMStackPtr - 2));
+              E.CvttSD2SI(regRCX, TXMMReg(XMMStackPtr - 1));
+              E.CvttSD2SI(regRAX, TXMMReg(XMMStackPtr - 2));
               E.ShlRegCL(regRAX);
               E.CvtSI2SD(TXMMReg(XMMStackPtr - 2), regRAX);
               //
@@ -8250,8 +8247,8 @@ var
             end;
           opOperatorShiftRight:
             begin
-              E.CvtSD2SI(regRCX, TXMMReg(XMMStackPtr - 1));
-              E.CvtSD2SI(regRAX, TXMMReg(XMMStackPtr - 2));
+              E.CvttSD2SI(regRCX, TXMMReg(XMMStackPtr - 1));
+              E.CvttSD2SI(regRAX, TXMMReg(XMMStackPtr - 2));
               E.ShrRegCL(regRAX);
               E.CvtSI2SD(TXMMReg(XMMStackPtr - 2), regRAX);
               //
@@ -12062,7 +12059,7 @@ var
     JumpExpr2: NativeInt;
 
   begin
-    Result := [];
+    Result := [sevkNull];
     OpCountStart := Self.OpcodeInfoList.Count;
     Logic;
     //
@@ -12087,6 +12084,8 @@ var
       Patch(JumpExpr2 - 1, Pointer(Expr2Block) - (JumpExpr2 - 3));
       Patch(JumpEnd - 1, Pointer(EndBlock) - (JumpEnd - 2));
     end;
+    if (Result - [sevkNull]) <> [] then
+      Result := Result - [sevkNull];
   end;
 
   procedure ParseFuncRefCallByMapRewind(const Ident: TSEIdent; const DeepCount, RewindStartAdd: NativeInt; const ThisRefIdent: PSEIdent = nil);
@@ -12303,7 +12302,7 @@ var
     ParentBinaryPos: NativeInt;
     VarSymbols: TStrings;
     This: PSEIdent;
-    Ident: PSEIdent;
+    Res, Param: PSEIdent;
     HasOverride: Boolean = False;
     KindName: String;
   begin
@@ -12334,15 +12333,16 @@ var
 
       TokenResult.Value := 'result';
       TokenResult.Kind := tkIdent;
-      Ident := CreateIdent(ikVariable, TokenResult, True, False);
-      Ident^.PossibleKinds := Func^.PossibleKinds;
+      Res := CreateIdent(ikVariable, TokenResult, True, False);
+      Res^.PossibleKinds := Func^.PossibleKinds;
 
       NextTokenExpected([tkBracketOpen]);
       repeat
         if PeekAtNextToken.Kind = tkIdent then
         begin
           Token := NextTokenExpected([tkIdent]);
-          CreateIdent(ikVariable, Token, False, False);
+          Param := CreateIdent(ikVariable, Token, False, False);
+          Param^.PossibleKinds := [sevkNull];
           if PeekAtNextToken.kind = tkColon then
           begin
             NextToken;
@@ -12350,38 +12350,38 @@ var
             case KindName of
               'any':
                 begin
-                  Ident^.IsForcedKind := False;
-                  Ident^.PossibleKinds := [sevkMap];
+                  Param^.IsForcedKind := False;
+                  Param^.PossibleKinds := [sevkNull];
                 end;
               'number':
                 begin
-                  Ident^.IsForcedKind := True;
-                  Ident^.PossibleKinds := [sevkNumber];
+                  Param^.IsForcedKind := True;
+                  Param^.PossibleKinds := [sevkNumber];
                 end;
               'map':
                 begin
-                  Ident^.IsForcedKind := True;
-                  Ident^.PossibleKinds := [sevkMap];
+                  Param^.IsForcedKind := True;
+                  Param^.PossibleKinds := [sevkMap];
                 end;
               'string':
                 begin
-                  Ident^.IsForcedKind := True;
-                  Ident^.PossibleKinds := [sevkString];
+                  Param^.IsForcedKind := True;
+                  Param^.PossibleKinds := [sevkString];
                 end;
               'boolean':
                 begin
-                  Ident^.IsForcedKind := True;
-                  Ident^.PossibleKinds := [sevkBoolean];
+                  Param^.IsForcedKind := True;
+                  Param^.PossibleKinds := [sevkBoolean];
                 end;
               'pasobject':
                 begin
-                  Ident^.IsForcedKind := True;
-                  Ident^.PossibleKinds := [sevkPascalObject];
+                  Param^.IsForcedKind := True;
+                  Param^.PossibleKinds := [sevkPascalObject];
                 end;
               'function':
                 begin
-                  Ident^.IsForcedKind := True;
-                  Ident^.PossibleKinds := [sevkFunction];
+                  Param^.IsForcedKind := True;
+                  Param^.PossibleKinds := [sevkFunction];
                 end;
               else
                 Error(Format('Unknown type "%s"', [Name]), PeekAtNextToken);
@@ -12411,38 +12411,38 @@ var
         case KindName of
           'any':
             begin
-              Ident^.IsForcedKind := False;
-              Ident^.PossibleKinds := [sevkMap];
+              Res^.IsForcedKind := False;
+              Res^.PossibleKinds := [sevkNull];
             end;
           'number':
             begin
-              Ident^.IsForcedKind := True;
-              Ident^.PossibleKinds := [sevkNumber];
+              Res^.IsForcedKind := True;
+              Res^.PossibleKinds := [sevkNumber];
             end;
           'map':
             begin
-              Ident^.IsForcedKind := True;
-              Ident^.PossibleKinds := [sevkMap];
+              Res^.IsForcedKind := True;
+              Res^.PossibleKinds := [sevkMap];
             end;
           'string':
             begin
-              Ident^.IsForcedKind := True;
-              Ident^.PossibleKinds := [sevkString];
+              Res^.IsForcedKind := True;
+              Res^.PossibleKinds := [sevkString];
             end;
           'boolean':
             begin
-              Ident^.IsForcedKind := True;
-              Ident^.PossibleKinds := [sevkBoolean];
+              Res^.IsForcedKind := True;
+              Res^.PossibleKinds := [sevkBoolean];
             end;
           'pasobject':
             begin
-              Ident^.IsForcedKind := True;
-              Ident^.PossibleKinds := [sevkPascalObject];
+              Res^.IsForcedKind := True;
+              Res^.PossibleKinds := [sevkPascalObject];
             end;
           'function':
             begin
-              Ident^.IsForcedKind := True;
-              Ident^.PossibleKinds := [sevkFunction];
+              Res^.IsForcedKind := True;
+              Res^.PossibleKinds := [sevkFunction];
             end;
           else
             Error(Format('Unknown type "%s"', [Name]), PeekAtNextToken);
@@ -12452,8 +12452,8 @@ var
       if PeekAtNextToken.Kind = tkEqual then
         Self.TokenList.Insert(Pos + 1, TokenResult);
       ParseBlock;
-      Ident := FindVar('result', true);
-      Func^.PossibleKinds := Ident^.PossibleKinds;
+      Res := FindVar('result', true);
+      Func^.PossibleKinds := Res^.PossibleKinds;
 
       This := FindVar('self', True);
       if (not This^.IsUsed) or (not This^.IsAssigned) then
@@ -13172,7 +13172,7 @@ var
         'any':
           begin
             Ident^.IsForcedKind := False;
-            Ident^.PossibleKinds := [sevkMap];
+            Ident^.PossibleKinds := [sevkNull];
           end;
         'number':
           begin
@@ -13893,7 +13893,7 @@ begin
   FuncScriptInfo.CodeSegmentIndex := Self.VM.Binaries.Value^.Size - 1;
   FuncScriptInfo.Name := Name;
   FuncScriptInfo.VarSymbols := TStringList.Create;
-  FuncScriptInfo.PossibleKinds := [];
+  FuncScriptInfo.PossibleKinds := [sevkNull];
   FuncScriptInfo.HasSelf := True;
   FuncScriptInfo.HasOverride := IsOverride;
   Self.FuncScriptList.Add(FuncScriptInfo);
