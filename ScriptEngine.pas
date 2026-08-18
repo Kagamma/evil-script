@@ -24,6 +24,7 @@ unit ScriptEngine;
 {$endif}
 {$ifdef CPUx86_64}
   {$define SE_HAS_JIT}
+  {.$define SE_DISABLE_AGGRESSIVE_JIT} // Enable this if you want stable, but slower JIT behavior
 {$endif}
 // enable this if you have access to LCL's FileUtil
 {.$define SE_HAS_FILEUTIL}
@@ -8116,7 +8117,7 @@ var
         case Op of
           opPushConst:
             begin
-              // TODO: We shouldn't need to do this, but it's needed for now
+              // TODO: Just in case. We shouldn't need to do this
               if (JitCodePtrLocal[BIndex + 1].Kind <> sevkNumber) and (JitCodePtrLocal[BIndex + 1].Kind <> sevkBoolean) then
               begin
                 {Writeln('BINARY: ', Self.Binaries.Value^.Data[Self.CodeSegmentIndex].BinaryName);
@@ -12402,6 +12403,52 @@ var
       ParentBinaryPos := Self.CodeSegmentIndex;
       Self.Binary := Self.VM.Binaries.Value^.Data[Func^.CodeSegmentIndex];
       Self.CodeSegmentIndex := Func^.CodeSegmentIndex;
+      //
+      if PeekAtNextToken.kind = tkColon then
+      begin
+        NextToken;
+        KindName := NextTokenExpected([tkIdent]).Value;
+        case KindName of
+          'any':
+            begin
+              Ident^.IsForcedKind := False;
+              Ident^.PossibleKinds := [sevkMap];
+            end;
+          'number':
+            begin
+              Ident^.IsForcedKind := True;
+              Ident^.PossibleKinds := [sevkNumber];
+            end;
+          'map':
+            begin
+              Ident^.IsForcedKind := True;
+              Ident^.PossibleKinds := [sevkMap];
+            end;
+          'string':
+            begin
+              Ident^.IsForcedKind := True;
+              Ident^.PossibleKinds := [sevkString];
+            end;
+          'boolean':
+            begin
+              Ident^.IsForcedKind := True;
+              Ident^.PossibleKinds := [sevkBoolean];
+            end;
+          'pasobject':
+            begin
+              Ident^.IsForcedKind := True;
+              Ident^.PossibleKinds := [sevkPascalObject];
+            end;
+          'function':
+            begin
+              Ident^.IsForcedKind := True;
+              Ident^.PossibleKinds := [sevkFunction];
+            end;
+          else
+            Error(Format('Unknown type "%s"', [Name]), PeekAtNextToken);
+        end;
+      end;
+      //
       if PeekAtNextToken.Kind = tkEqual then
         Self.TokenList.Insert(Pos + 1, TokenResult);
       ParseBlock;
@@ -12901,8 +12948,12 @@ var
     JumpBlock2,
     JumpEnd: NativeInt;
   begin
+    {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
     MarkJITBlock;
     VerifyJITBlock(ParseExpr(False));
+    {$else}
+    ParseExpr(False);
+    {$endif}
     JumpBlock1 := Emit([Pointer(opJumpEqual1Rel), True, Pointer(0)]);
     JumpBlock2 := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
     StartBlock1 := Self.Binary.Count;
