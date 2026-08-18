@@ -9518,8 +9518,8 @@ labelStart:
             TV := Pop^;
             Self.FramePtr := Self.TrapPtr^.FramePtr;
             Self.StackPtr := Self.TrapPtr^.StackPtr;
-            CodePtrLocal := Self.Binaries.Value^.Data[CodeSegmentIndexLocal].Ptr(0) + Self.TrapPtr^.CatchCodeIndex;
             CodeSegmentIndexLocal := Self.TrapPtr^.CodeSegmentIndex;
+            CodePtrLocal := Self.Binaries.Value^.Data[Self.TrapPtr^.CodeSegmentIndex].Ptr(0) + Self.TrapPtr^.CatchCodeIndex;
             Push(TV);
             Dec(Self.TrapPtr);
           end;
