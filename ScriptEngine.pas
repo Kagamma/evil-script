@@ -8069,6 +8069,8 @@ var
         E.MovReg64Mem(regR12, E.Mem(regR8, 0));
         { R11 = FramePtr}
         E.MovReg64Mem(regR11, E.Mem(regR9, 0));
+        // R10 = @CodePtrLocal
+        E.MovRegReg64(regR10, regRCX);
         {$else}
         // R15 = CodePtrLocal
         E.MovReg64Mem(regR15, E.Mem(regRDI, 0));
@@ -8080,13 +8082,15 @@ var
         E.MovReg64Mem(regR12, E.Mem(regRDX, 0));
         { R11 = FramePtr}
         E.MovReg64Mem(regR11, E.Mem(regRCX, 0));
+        // R10 = @CodePtrLocal
+        E.MovRegReg64(regR10, regRDI);
         {$endif}
       end;
       { Move to the next opcode }
       E.AddRegImm32(regR15, OpcodeSizes[opJITBlockPotential] * SizeOf(TSEValue));
       //
       BIndex := BIndex + OpcodeSizes[opJITBlockPotential];
-      //Writeln('JIT from ', BIndex, ' to ', BFinish);
+      Writeln('JIT from ', BIndex, ' to ', BFinish);
       while BIndex <= BFinish do
       begin
         if XMMStackPtr >= 14 then
@@ -8095,7 +8099,7 @@ var
           break;
         end;
         Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
-        //Writeln(' - ', Op);
+        Writeln(' - ', Op);
         case Op of
           opPushConst:
             begin
@@ -8250,7 +8254,7 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Dec(XMMStackPtr);
-              LastOpKind := sevkNumber;
+              LastOpKind := sevkBoolean;
             end;
           opOperatorNotEqual:
             begin
@@ -8270,7 +8274,7 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Dec(XMMStackPtr);
-              LastOpKind := sevkNumber;
+              LastOpKind := sevkBoolean;
             end;
           opOperatorGreater:
             begin
@@ -8290,7 +8294,7 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Dec(XMMStackPtr);
-              LastOpKind := sevkNumber;
+              LastOpKind := sevkBoolean;
             end;
           opOperatorGreaterOrEqual:
             begin
@@ -8310,7 +8314,7 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Dec(XMMStackPtr);
-              LastOpKind := sevkNumber;
+              LastOpKind := sevkBoolean;
             end;
           opOperatorLesser:
             begin
@@ -8330,7 +8334,7 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Dec(XMMStackPtr);
-              LastOpKind := sevkNumber;
+              LastOpKind := sevkBoolean;
             end;
           opOperatorLesserOrEqual:
             begin
@@ -8350,7 +8354,7 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Dec(XMMStackPtr);
-              LastOpKind := sevkNumber;
+              LastOpKind := sevkBoolean;
             end;
 
           opOperatorAdd0:
@@ -8441,7 +8445,7 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Dec(XMMStackPtr);
-              LastOpKind := sevkNumber;
+              LastOpKind := sevkBoolean;
             end;
           opOperatorNotEqual0:
             begin
@@ -8465,7 +8469,7 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Dec(XMMStackPtr);
-              LastOpKind := sevkNumber;
+              LastOpKind := sevkBoolean;
             end;
           opOperatorGreater0:
             begin
@@ -8489,7 +8493,7 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Dec(XMMStackPtr);
-              LastOpKind := sevkNumber;
+              LastOpKind := sevkBoolean;
             end;
           opOperatorGreaterOrEqual0:
             begin
@@ -8513,7 +8517,7 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Dec(XMMStackPtr);
-              LastOpKind := sevkNumber;
+              LastOpKind := sevkBoolean;
             end;
           opOperatorLesser0:
             begin
@@ -8537,7 +8541,7 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Dec(XMMStackPtr);
-              LastOpKind := sevkNumber;
+              LastOpKind := sevkBoolean;
             end;
           opOperatorLesserOrEqual0:
             begin
@@ -8561,7 +8565,7 @@ var
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Dec(XMMStackPtr);
-              LastOpKind := sevkNumber;
+              LastOpKind := sevkBoolean;
             end;
 
           opOperatorInc:
@@ -8666,11 +8670,9 @@ var
               { Assign value from stack to global variable }
               // movsd qword ptr [r12 + r8 + .VarNumber], xmm0
               E.MovSDMemFromXMM(E.MemIndex(regR12, regR8, 1, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM0);
-              { Mark as number }
-              // mov eax, sevkNumber
-              E.MovRegImm32(regRAX, Cardinal(LastOpKind));
-              // mov dword ptr [r12 + r8 + .Kind], rax
-              E.MovMem32Reg(E.MemIndex(regR12, regR8, 1, NativeUInt(@TSEValue(nil^).Kind)), regRAX);
+              { Mark as LastOpKind }
+              // mov dword ptr [r12 + r8 + .Kind], LastOpKind
+              E.MovMemImm32(E.MemIndex(regR12, regR8, 1, Cardinal(@TSEValue(nil^).Kind)), Cardinal(LastOpKind));
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               IsAssigned := True;
@@ -8699,11 +8701,9 @@ var
               { Assign value from stack to local variable }
               // movsd qword ptr [r8 + .VarNumber], xmm0
               E.MovSDMemFromXMM(E.Mem(regR8, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM0);
-              { Mark as number }
-              // mov eax, sevkNumber
-              E.MovRegImm32(regRAX, Cardinal(LastOpKind));
-              // mov dword ptr [r8 + .Kind], rax
-              E.MovMem32Reg(E.Mem(regR8, NativeUInt(@TSEValue(nil^).Kind)), regRAX);
+              { Mark as LastOpKind }
+              // mov dword ptr [r8 + .Kind], LastOpKind
+              E.MovMemImm32(E.Mem(regR8, Cardinal(@TSEValue(nil^).Kind)), Cardinal(LastOpKind));
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               IsAssigned := True;
@@ -8727,16 +8727,14 @@ var
         begin
           { Move XMM0 to the stack }
           E.MovSDMemFromXMM(E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM0);
-          { Mark this as number }
-          E.MovRegImm32(regRAX, Cardinal(LastOpKind));
-          E.MovMem32Reg(E.Mem(regR14, NativeUInt(@TSEValue(nil^).Kind)), regRAX);
+          { Mark this as LastOpKind }
+          E.MovMemImm32(E.Mem(regR14, Cardinal(@TSEValue(nil^).Kind)), Cardinal(LastOpKind));
           { Increase stack by 1 }
           E.AddRegImm32(regR14, SizeOf(TSEValue));
           E.MovMem64Reg(E.Mem(regR13, 0), regR14);
         end;
         { Increase CodePtr }
-        E.MovRegImm64(regR14, NativeUInt(@CodePtrLocal));
-        E.MovMem64Reg(E.Mem(regR14, 0), regR15);
+        E.MovMem64Reg(E.Mem(regR10, 0), regR15);
         // Check the next opcode to see if the next one is also a JITBlockPotential
         Inc(BIndex, OpcodeSizes[Op]);
         Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
