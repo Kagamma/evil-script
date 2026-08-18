@@ -7998,7 +7998,6 @@ var
 
     procedure GenGetGlobalVariable(IsValueOnly: Boolean = True);
     begin
-      Writeln('WHY!');
       { Load global variable index to R8 }
       // mov r8, qword ptr [r15 + code[1].VarPointer]
       E.MovRegImm64(regR8, SizeOf(TSEValue) * NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
