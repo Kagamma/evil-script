@@ -7986,7 +7986,7 @@ var
     IsAssigned: Boolean;
     JITBlock: TSEJITBlock;
     LabelYes, LabelDone: TX64Label;
-    LastOpKind: TSEValueKind;
+    LastOpKind: TSEValueKind = sevkNull;
 
     procedure GenPing(Reg: TX64Reg);
     begin
@@ -8664,6 +8664,11 @@ var
             end;
           opAssignGlobalVar:
             begin
+              if not (LastOpKind in [sevkBoolean, sevkNumber]) then
+              begin
+                Result := STATUS_INVALID;
+                break;
+              end;
               { Load global variable index to R8 }
               // mov r8, qword ptr [r15 + code[1]]
               E.MovRegImm64(regR8, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer) * SizeOf(TSEValue));
@@ -8680,6 +8685,11 @@ var
             end;
           opAssignLocalVar:
             begin
+              if not (LastOpKind in [sevkBoolean, sevkNumber]) then
+              begin
+                Result := STATUS_INVALID;
+                break;
+              end;
               { R8 = current frame }
               // mov r8, r11
               E.MovRegReg64(regR8, regR11);
@@ -8717,6 +8727,10 @@ var
             end;
         end;
         Inc(BIndex, OpcodeSizes[Op]);
+      end;
+      if not (LastOpKind in [sevkBoolean, sevkNumber]) then
+      begin
+        Result := STATUS_INVALID;
       end;
       if (Result = STATUS_INVALID) or (Result = STATUS_OVERFLOW) then
       begin
@@ -12861,8 +12875,7 @@ var
     JumpBlock2,
     JumpEnd: NativeInt;
   begin
-    MarkJITBlock;
-    VerifyJITBlock(ParseExpr(False));
+    ParseExpr(False);
     JumpBlock1 := Emit([Pointer(opJumpEqual1Rel), True, Pointer(0)]);
     JumpBlock2 := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
     StartBlock1 := Self.Binary.Count;
