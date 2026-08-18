@@ -2363,7 +2363,7 @@ end;
 
 procedure TX64Emitter.SubRegReg(Dst, Src: TX64Reg);
 begin
-  EmitRegReg($2B, True, Dst, Src);
+  EmitRegReg($29, True, Dst, Src);
 end;
 
 procedure TX64Emitter.AdcRegReg(Dst, Src: TX64Reg);
