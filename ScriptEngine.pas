@@ -22,6 +22,9 @@ unit ScriptEngine;
     {$define SE_DYNLIBS}
   {$endif}
 {$endif}
+{$ifdef CPUx86_64}
+  {$define SE_HAS_JIT}
+{$endif}
 // enable this if you have access to LCL's FileUtil
 {.$define SE_HAS_FILEUTIL}
 // enable this if you want to print logs to terminal
@@ -35,7 +38,7 @@ unit ScriptEngine;
 // enable this to replace FP's TDirectory with avk959's TGChainHashMap. It is a lot faster than TDirectory.
 // requires https://github.com/avk959/LGenerics
 // note: enable this will undef SE_MAP_SHORTSTRING, because this optimization is not necessary for TGChainHashMap
-{.$define SE_MAP_AVK959}
+{$define SE_MAP_AVK959}
 {$ifdef SE_MAP_AVK959}
   {$undef SE_MAP_SHORTSTRING}
 {$endif}
@@ -50,10 +53,17 @@ unit ScriptEngine;
   {$align 4}
 {$endif}
 {$packenum 4}
+{$optimization REGVAR}
 
 interface
 
 uses
+  {$ifdef WINDOWS}
+  Windows,
+  {$endif}
+  {$ifdef UNIX}
+  BaseUnix, Unix,
+  {$endif}
   SysUtils, Classes, Generics.Collections, StrUtils, Types, DateUtils, RegExpr, {$ifdef SE_THREADS}syncobjs,{$endif}
   contnrs, Rtti, TypInfo,
   {$ifdef SE_PROFILER}
@@ -79,7 +89,6 @@ type
     opPushConstString,
     opPushGlobalVar,
     opPushLocalVar,
-    opPushVar2,
     opPushArrayPop,
     opPopConst,
     opPopFrame,
@@ -132,6 +141,7 @@ type
     opOperatorNot,
     opOperatorShiftLeft,
     opOperatorShiftRight,
+
     opPushConstFromConstList,
 
     opCallRef,
@@ -146,7 +156,10 @@ type
     {$endif}
     opPushTrap,
     opPopTrap,
-    opThrow
+    opThrow,
+
+    opJITBlock,
+    opJITBlockPotential
   );
   TSEOpcodeSet = set of TSEOpcode;
   TSEOpcodeInfo = record
@@ -164,6 +177,7 @@ type
     function Ptr(const Index: SizeInt): PTT; inline;
   end;
 
+  TSEOpcodeList = class(specialize TSEListPtr<TSEOpcode>);
   TSEOpcodeInfoList = class(specialize TSEListPtr<TSEOpcodeInfo>);
 
   TSENestedProc = procedure is nested;
@@ -324,13 +338,17 @@ type
   TSEValueArray = array of TSEValue;
   PPSEValue = ^PSEValue;
 
-  TSEValueListAncestor = specialize TList<TSEValue>;
-  TSEValueList = class(specialize TSEListPtr<TSEValue>);
+  TSEValueList = specialize TSEListPtr<TSEValue>;
+  TSEJITBlock = record
+    Code: Pointer;
+    CodeSize: NativeUInt;
+  end;
+  TSEJITBlockList = specialize TSEListPtr<TSEJITBlock>;
 
   TSEBinary = class(TSEValueList)
   public
+    JITBlockList: TSEJITBlockList;
     BinaryName: String;
-    IsComputedGotoPatched: Boolean;
     constructor Create;
     destructor Destroy; override;
   end;
@@ -489,7 +507,7 @@ type
   TSELineOfCodeList = specialize TList<TSELineOfCode>;
 
   TSEConstLookup = specialize TSEDictionary<String, NativeInt>;
-  TSEStack = TSEValueListAncestor;
+  TSEStack = TSEValueList;
   TSEVarMap = TSEValue;
   TSEFrame = record
     CodePtr: PSEValue;
@@ -561,10 +579,11 @@ type
   end;
   TSEVMCoroutineList = specialize TList<TSEVMCoroutine>;
 
+  TSEJITBlockSignatureStack = specialize TStack<NativeInt>;
+
   TEvilC = class;
   TSEVM = class
   private
-    IsComputedGotoPatched: Boolean;
   public
     Name: String;
     Owner: TSEVM;
@@ -572,6 +591,7 @@ type
     ThreadOwner: TSEVMThread;
     {$endif}
     CoroutineOwner: TSEVMCoroutine;
+    EnableJIT: Boolean;
     IsPaused: Boolean;
     IsDone: Boolean;
     IsYielded: Boolean;
@@ -703,7 +723,6 @@ const
     2, // opPushConstString,
     2, // opPushGlobalVar,
     3, // opPushLocalVar,
-    5, // opPushVar2,
     2, // opPushArrayPop,
     1, // opPopConst,
     1, // opPopFrame,
@@ -770,7 +789,9 @@ const
     {$endif}
     2, // opPushTrap,
     1, // opPopTrap,
-    1  // opThrow
+    1, // opThrow
+    2, // opJITBlock
+    2  // opJITBlockPotential
   );
 
 type
@@ -781,6 +802,7 @@ type
 
   TSEIdent = record
     PossibleKinds: TSEValueKindSet;
+    IsForcedKind: Boolean;
     Kind: TSEIdentKind;
     Addr: NativeInt;
     IsUsed: Boolean;
@@ -810,6 +832,8 @@ type
   private
     FSource: String;
     FInternalIdentCount: NativeUInt;
+    JITBlockSignatureStack: TSEJITBlockSignatureStack;
+    JITBlockCount: NativeInt;
     procedure SetSource(V: String);
     function InternalIdent: String;
   public
@@ -818,6 +842,7 @@ type
     OptimizePeephole,         // True = enable peephole optimization, default is true
     OptimizeConstantFolding,  // True = enable constant folding optimization, default is true
     OptimizeAsserts: Boolean; // True = ignore assert, default is true
+    OptimizeJIT: Boolean;     // True = enable JIT optimization, default is true
     ErrorLn, ErrorCol: NativeInt;
     VM: TSEVM;
     {$ifdef SE_THREADS}
@@ -882,6 +907,443 @@ type
   end;
 
   TScriptEngine = TEvilC;
+
+  { ===============================
+  X64 emitter
+  =============================== }
+
+type
+  TX64Reg = (
+    regRAX = 0, regRCX = 1, regRDX = 2, regRBX = 3,
+    regRSP = 4, regRBP = 5, regRSI = 6, regRDI = 7,
+    regR8 = 8, regR9 = 9, regR10 = 10, regR11 = 11,
+    regR12 = 12, regR13 = 13, regR14 = 14, regR15 = 15
+  );
+
+  TXMMReg = (
+    regXMM0 = 0, regXMM1 = 1, regXMM2 = 2, regXMM3 = 3,
+    regXMM4 = 4, regXMM5 = 5, regXMM6 = 6, regXMM7 = 7,
+    regXMM8 = 8, regXMM9 = 9, regXMM10 = 10, regXMM11 = 11,
+    regXMM12 = 12, regXMM13 = 13, regXMM14 = 14, regXMM15 = 15
+  );
+
+  TX64Label = Integer;
+
+  TX64Condition = (
+    ccO = 0,   // overflow
+    ccNO = 1,  // not overflow
+    ccB = 2,   // below/carry
+    ccAE = 3,  // above/equal/not carry
+    ccE = 4,   // equal/zero
+    ccNE = 5,  // not equal/not zero
+    ccBE = 6,  // below/equal
+    ccA = 7,   // above
+    ccS = 8,   // sign
+    ccNS = 9,  // not sign
+    ccP = 10,  // parity
+    ccNP = 11, // not parity
+    ccL = 12,  // less
+    ccGE = 13, // greater/equal
+    ccLE = 14, // less/equal
+    ccG = 15   // greater
+  );
+
+  TLabelInfo = record
+    Bound: boolean;
+    Position: Integer;
+  end;
+
+  TJumpPatch = record
+    LabelID: TX64Label;
+    DisplacementOffset: Integer;
+  end;
+
+  { Base/Index = -1 means "not present". }
+  TX64Mem = record
+    Base: Integer;
+    Index: Integer;
+    Scale: Byte;
+    Disp: LongInt;
+  end;
+
+  TX64CodeList = specialize TSEListPtr<Byte>;
+  TX64LabelInfoList = specialize TSEListPtr<TLabelInfo>;
+  TX64JumpPatchList = specialize TSEListPtr<TJumpPatch>;
+
+  TX64Emitter = class
+  private
+    FCode: TX64CodeList;
+    FLabels: TX64LabelInfoList;
+    FJumps: TX64JumpPatchList;
+
+    FExecutableMemory: Pointer;
+    FExecutableSize: NativeUInt;
+
+    procedure EmitByte(B: Byte);
+    procedure EmitU16(V: Word);
+    procedure EmitU32(V: LongWord);
+    procedure EmitU64(V: QWord);
+    procedure EmitI8(V: shortint);
+
+    procedure EmitRex(W: boolean; RegField, IndexField, BaseField: Integer);
+    procedure EmitRexByte(RegField, IndexField, BaseField: Integer);
+
+    procedure EmitModRM(ModBits: Byte; RegField, RMField: Integer);
+
+    procedure EmitSIB(ScaleBits, IndexField, BaseField: Integer);
+
+    procedure EmitMemModRM(RegField: Integer; const M: TX64Mem);
+
+    procedure EmitRM(Opcode: Byte; W: boolean; RegField: Integer; const M: TX64Mem);
+
+    procedure EmitRM2(Opcode1, Opcode2: Byte; W: boolean; RegField: Integer; const M: TX64Mem);
+
+    procedure EmitRegReg(Opcode: Byte; W: boolean; Dst, Src: TX64Reg);
+
+    procedure EmitGroup1Imm(Group: Byte; Dst: TX64Reg; Value: LongInt);
+
+    procedure EmitGroup2Imm(Group: Byte; Dst: TX64Reg; Count: Byte);
+
+    procedure EmitGroup2CL(Group: Byte; Dst: TX64Reg);
+
+    procedure EmitSSEMem(Prefix: Byte; Opcode1, Opcode2: Byte; XMM: TXMMReg; const M: TX64Mem);
+
+    procedure EmitSSEReg(Prefix: Byte; Opcode1, Opcode2: Byte; Dst, Src: TXMMReg); overload;
+
+    procedure EmitSSEReg(Prefix: Byte; Opcode1, Opcode2: Byte; Dst: TXMMReg; Src: TX64Reg); overload;
+
+    procedure EmitSSEReg(Prefix: Byte; Opcode1, Opcode2: Byte; Dst: TX64Reg; Src: TXMMReg); overload;
+
+    procedure EmitSSEMemImm8(Prefix: Byte; Opcode1, Opcode2: Byte; XMM: TXMMReg; const M: TX64Mem; Imm8: Byte); overload;
+
+    procedure EmitSSEMemImm8(Prefix: Byte; Opcode1, Opcode2, Opcode3: Byte; XMM: TXMMReg; const M: TX64Mem; Imm8: Byte); overload;
+
+    procedure EmitSSERegImm8(Prefix: Byte; Opcode1, Opcode2, Opcode3: Byte; Dst, Src: TXMMReg; Imm8: Byte);
+
+    procedure EmitArithMemImm(Group: Byte; W: Boolean; const M: TX64Mem; Imm: Int64);
+
+    procedure ResolveLabels;
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    procedure Clear;
+
+    { -----------------------------------------------------------------
+      Memory operands
+      ----------------------------------------------------------------- }
+
+    class function Mem(Base: TX64Reg; Disp: LongInt = 0): TX64Mem; static;
+
+    class function MemIndex(Base, Index: TX64Reg; Scale: Byte; Disp: LongInt = 0): TX64Mem; static;
+
+    class function MemAbsolute(Address: Pointer): TX64Mem; static;
+
+    { -----------------------------------------------------------------
+      Raw data / utility
+      ----------------------------------------------------------------- }
+
+    procedure DB(B: Byte);
+    procedure DW(V: Word);
+    procedure DD(V: LongWord);
+    procedure DQ(V: QWord);
+
+    procedure Nop;
+    procedure NopN(Count: Integer);
+    procedure Int3;
+    procedure Ud2;
+
+    { Align code to power-of-two boundary. }
+    procedure Align(Alignment: Integer; FillByte: Byte = $90);
+
+    { -----------------------------------------------------------------
+      Labels / branches
+      ----------------------------------------------------------------- }
+
+    function CreateLabel: TX64Label;
+    procedure BindLabel(L: TX64Label);
+
+    procedure Jmp(L: TX64Label);
+    procedure Jcc(Condition: TX64Condition; L: TX64Label);
+
+    procedure Je(L: TX64Label);
+    procedure Jne(L: TX64Label);
+    procedure Jg(L: TX64Label);
+    procedure Jge(L: TX64Label);
+    procedure Jl(L: TX64Label);
+    procedure Jle(L: TX64Label);
+    procedure Ja(L: TX64Label);
+    procedure Jae(L: TX64Label);
+    procedure Jb(L: TX64Label);
+    procedure Jbe(L: TX64Label);
+    procedure Jo(L: TX64Label);
+    procedure Jno(L: TX64Label);
+    procedure Js(L: TX64Label);
+    procedure Jns(L: TX64Label);
+
+    { -----------------------------------------------------------------
+      Integer moves
+      ----------------------------------------------------------------- }
+
+    procedure MovRegImm64(Dst: TX64Reg; Value: QWord);
+    procedure MovRegImm32(Dst: TX64Reg; Value: LongWord);
+    procedure MovRegImm32SExt(Dst: TX64Reg; Value: LongInt);
+
+    procedure MovRegReg64(Dst, Src: TX64Reg);
+    procedure MovRegReg32(Dst, Src: TX64Reg);
+
+    procedure MovReg64Mem(Dst: TX64Reg; const M: TX64Mem);
+
+    procedure MovReg32Mem(Dst: TX64Reg; const M: TX64Mem);
+
+    procedure MovMem64Reg(const M: TX64Mem; Src: TX64Reg);
+
+    procedure MovMem32Reg(const M: TX64Mem; Src: TX64Reg);
+
+    procedure MovReg8Reg8(Dst, Src: TX64Reg);
+    procedure MovReg8Mem(Dst: TX64Reg; const M: TX64Mem);
+    procedure MovMem8Reg(const M: TX64Mem; Src: TX64Reg);
+    procedure MovMemImm8(const M: TX64Mem; Value: Byte);
+
+    procedure MovMemImm32(const M: TX64Mem; Value: LongWord);
+
+    procedure MovMemImm64(const M: TX64Mem; Value: QWord);
+
+    procedure MovZXReg8(Dst, Src: TX64Reg);
+    procedure MovZXReg16(Dst, Src: TX64Reg);
+    procedure MovSXReg8(Dst, Src: TX64Reg);
+    procedure MovSXReg16(Dst, Src: TX64Reg);
+
+    procedure MovZXReg8Mem(Dst: TX64Reg; const M: TX64Mem);
+    procedure MovZXReg16Mem(Dst: TX64Reg; const M: TX64Mem);
+
+    procedure MovSXReg8Mem(Dst: TX64Reg; const M: TX64Mem);
+    procedure MovSXReg16Mem(Dst: TX64Reg; const M: TX64Mem);
+
+    procedure LeaRegMem(Dst: TX64Reg; const M: TX64Mem);
+
+    procedure XchgRegReg(A, B: TX64Reg);
+
+    { -----------------------------------------------------------------
+      Integer arithmetic
+      ----------------------------------------------------------------- }
+
+    procedure AddRegReg(Dst, Src: TX64Reg);
+    procedure SubRegReg(Dst, Src: TX64Reg);
+    procedure AdcRegReg(Dst, Src: TX64Reg);
+    procedure SbbRegReg(Dst, Src: TX64Reg);
+
+    procedure AndRegReg(Dst, Src: TX64Reg);
+    procedure OrRegReg(Dst, Src: TX64Reg);
+    procedure XorRegReg(Dst, Src: TX64Reg);
+
+    procedure AddRegImm32(Dst: TX64Reg; Value: LongInt);
+    procedure SubRegImm32(Dst: TX64Reg; Value: LongInt);
+    procedure AndRegImm32(Dst: TX64Reg; Value: LongInt);
+    procedure OrRegImm32(Dst: TX64Reg; Value: LongInt);
+    procedure XorRegImm32(Dst: TX64Reg; Value: LongInt);
+
+    procedure AdcRegImm32(Dst: TX64Reg; Value: LongInt);
+    procedure SbbRegImm32(Dst: TX64Reg; Value: LongInt);
+
+    procedure IncReg(R: TX64Reg);
+    procedure DecReg(R: TX64Reg);
+    procedure NegReg(R: TX64Reg);
+    procedure NotReg(R: TX64Reg);
+
+    procedure IMulRegReg(Dst, Src: TX64Reg);
+    procedure IMulRegRegImm32(Dst, Src: TX64Reg; Value: LongInt);
+
+    procedure MulReg(Src: TX64Reg);
+    procedure DivReg(Src: TX64Reg);
+    procedure IDivReg(Src: TX64Reg);
+
+    procedure Cqo;
+
+    procedure AddMem64Imm(const M: TX64Mem; Imm: LongInt);
+    procedure SubMem64Imm(const M: TX64Mem; Imm: LongInt);
+    procedure AndMem64Imm(const M: TX64Mem; Imm: LongInt);
+    procedure OrMem64Imm(const M: TX64Mem; Imm: LongInt);
+    procedure XorMem64Imm(const M: TX64Mem; Imm: LongInt);
+    procedure CmpMem64Imm(const M: TX64Mem; Imm: LongInt);
+
+    procedure AddMem32Imm(const M: TX64Mem; Imm: LongInt);
+    procedure SubMem32Imm(const M: TX64Mem; Imm: LongInt);
+    procedure AndMem32Imm(const M: TX64Mem; Imm: LongInt);
+    procedure OrMem32Imm(const M: TX64Mem; Imm: LongInt);
+    procedure XorMem32Imm(const M: TX64Mem; Imm: LongInt);
+    procedure CmpMem32Imm(const M: TX64Mem; Imm: LongInt);
+
+    { -----------------------------------------------------------------
+      Compare / test
+      ----------------------------------------------------------------- }
+
+    procedure CmpRegReg(A, B: TX64Reg);
+    procedure CmpRegImm32(A: TX64Reg; Value: LongInt);
+
+    procedure TestRegReg(A, B: TX64Reg);
+    procedure TestRegImm32(A: TX64Reg; Value: LongInt);
+
+    procedure Setcc(Condition: TX64Condition; Dst: TX64Reg);
+
+    procedure Sete(Dst: TX64Reg);
+    procedure Setne(Dst: TX64Reg);
+    procedure Setg(Dst: TX64Reg);
+    procedure Setge(Dst: TX64Reg);
+    procedure Setl(Dst: TX64Reg);
+    procedure Setle(Dst: TX64Reg);
+
+    procedure Cmovcc(Condition: TX64Condition; Dst, Src: TX64Reg);
+
+    procedure Cmove(Dst, Src: TX64Reg);
+    procedure Cmovne(Dst, Src: TX64Reg);
+    procedure Cmovg(Dst, Src: TX64Reg);
+    procedure Cmovge(Dst, Src: TX64Reg);
+    procedure Cmovl(Dst, Src: TX64Reg);
+    procedure Cmovle(Dst, Src: TX64Reg);
+
+    { -----------------------------------------------------------------
+      Shifts / rotates
+      ----------------------------------------------------------------- }
+
+    procedure ShlRegImm(Dst: TX64Reg; Count: Byte);
+    procedure ShrRegImm(Dst: TX64Reg; Count: Byte);
+    procedure SarRegImm(Dst: TX64Reg; Count: Byte);
+
+    procedure ShlRegCL(Dst: TX64Reg);
+    procedure ShrRegCL(Dst: TX64Reg);
+    procedure SarRegCL(Dst: TX64Reg);
+
+    procedure RolRegImm(Dst: TX64Reg; Count: Byte);
+    procedure RorRegImm(Dst: TX64Reg; Count: Byte);
+
+    procedure RolRegCL(Dst: TX64Reg);
+    procedure RorRegCL(Dst: TX64Reg);
+
+    { -----------------------------------------------------------------
+      Bit operations
+      ----------------------------------------------------------------- }
+
+    procedure BTRegReg(Base, Bit: TX64Reg);
+    procedure BTSRegReg(Base, Bit: TX64Reg);
+    procedure BTRRegReg(Base, Bit: TX64Reg);
+    procedure BTCRegReg(Base, Bit: TX64Reg);
+
+    procedure BTRegImm(Base: TX64Reg; Bit: Byte);
+    procedure BTSRegImm(Base: TX64Reg; Bit: Byte);
+    procedure BTRRegImm(Base: TX64Reg; Bit: Byte);
+    procedure BTCRegImm(Base: TX64Reg; Bit: Byte);
+
+    procedure BsfRegReg(Dst, Src: TX64Reg);
+    procedure BsrRegReg(Dst, Src: TX64Reg);
+
+    procedure Bswap(R: TX64Reg);
+
+    { -----------------------------------------------------------------
+      Stack
+      ----------------------------------------------------------------- }
+
+    procedure PushReg(R: TX64Reg);
+    procedure PopReg(R: TX64Reg);
+
+    procedure PushImm32(Value: LongInt);
+
+    procedure PushFlags;
+    procedure PopFlags;
+
+    procedure Enter(StackSize: Word; NestingLevel: Byte);
+    procedure Leave;
+
+    { -----------------------------------------------------------------
+      Calls / returns
+      ----------------------------------------------------------------- }
+
+    procedure CallReg(R: TX64Reg);
+    procedure CallAbsolute(R: TX64Reg; Address: Pointer);
+
+    procedure JmpReg(R: TX64Reg);
+    procedure JmpAbsolute(R: TX64Reg; Address: Pointer);
+
+    procedure Ret;
+    procedure RetImm16(Value: Word);
+
+    { -----------------------------------------------------------------
+      System / CPU
+      ----------------------------------------------------------------- }
+
+    procedure Syscall;
+    procedure Sysret;
+    procedure Cpuid;
+    procedure Rdtsc;
+    procedure Rdtscp;
+
+    { -----------------------------------------------------------------
+      SSE2 scalar double
+      ----------------------------------------------------------------- }
+
+    procedure MovSDXMMFromMem(Dst: TXMMReg; const M: TX64Mem);
+
+    procedure MovSDMemFromXMM(const M: TX64Mem; Src: TXMMReg);
+
+    procedure MovSDXMMFromReg(Dst: TXMMReg; Src: TX64Reg);
+
+    procedure MovRegFromSDXMM(Dst: TX64Reg; Src: TXMMReg);
+
+    procedure MovSDXMM(Dst, Src: TXMMReg);
+
+    procedure AddSD(Dst, Src: TXMMReg);
+    procedure SubSD(Dst, Src: TXMMReg);
+    procedure MulSD(Dst, Src: TXMMReg);
+    procedure DivSD(Dst, Src: TXMMReg);
+
+    procedure SqrtSD(Dst, Src: TXMMReg);
+    procedure MinSD(Dst, Src: TXMMReg);
+    procedure MaxSD(Dst, Src: TXMMReg);
+
+    procedure AddSDMem(Dst: TXMMReg; const M: TX64Mem);
+    procedure SubSDMem(Dst: TXMMReg; const M: TX64Mem);
+    procedure MulSDMem(Dst: TXMMReg; const M: TX64Mem);
+    procedure DivSDMem(Dst: TXMMReg; const M: TX64Mem);
+
+    procedure ComISD(Dst, Src: TXMMReg);
+
+    procedure CvtSI2SD(Dst: TXMMReg; Src: TX64Reg);
+    procedure CvtUI2SD(Dst: TXMMReg; Src: TX64Reg);
+
+    procedure CvttSD2SI(Dst: TX64Reg; Src: TXMMReg);
+
+    procedure CvtSD2SI(Dst: TX64Reg; Src: TXMMReg);
+
+    procedure RoundSD(Dst, Src: TXMMReg; Rounding: Byte);
+    procedure RoundSDMem(Dst: TXMMReg; const M: TX64Mem; Rounding: Byte);
+
+    procedure XorPD(Dst, Src: TXMMReg);
+    procedure XorPDMem(Dst: TXMMReg; const M: TX64Mem);
+
+    { -----------------------------------------------------------------
+      SSE2 packed Integer / double operations
+      ----------------------------------------------------------------- }
+
+    procedure MovDQU(Dst, Src: TXMMReg);
+    procedure MovDQUFromMem(Dst: TXMMReg; const M: TX64Mem);
+    procedure MovDQUMem(const M: TX64Mem; Src: TXMMReg);
+
+    procedure Pxor(Dst, Src: TXMMReg);
+    procedure Pand(Dst, Src: TXMMReg);
+    procedure Por(Dst, Src: TXMMReg);
+
+    procedure PaddQ(Dst, Src: TXMMReg);
+    procedure PsubQ(Dst, Src: TXMMReg);
+
+    { -----------------------------------------------------------------
+      Finalization
+      ----------------------------------------------------------------- }
+
+    function MakeExecutable: Pointer;
+
+    property Code: TX64CodeList read FCode;
+    property ExecutableSize: NativeUInt read FExecutableSize;
+  end;
 
 function SEValueToText(const Value: TSEValue; const IsRoot: Boolean = True): String;
 function SESize(constref Value: TSEValue): SizeInt; inline;
@@ -1144,6 +1606,1760 @@ var
   FunctionThrow: array of TSEValue;
   ConstStrings: TSEStringList;
   ConstStringsLookup: TSEStringLookupMap;
+  Negative2QWords: array[0..1] of QWord = ($8000000000000000, $8000000000000000);
+
+{ =====================================================================
+  Basic Byte emission
+  ===================================================================== }
+
+constructor TX64Emitter.Create;
+begin
+  inherited Create;
+
+  Self.FCode := TX64CodeList.Create;
+  Self.FCode.Capacity := 4096;
+  Self.FLabels := TX64LabelInfoList.Create;
+  Self.FLabels.Capacity := 16;
+  Self.FJumps := TX64JumpPatchList.Create;
+  Self.FJumps.Capacity := 16;
+end;
+
+destructor TX64Emitter.Destroy;
+begin
+  Self.FJumps.Free;
+  Self.FLabels.Free;
+  Self.FCode.Free;
+  inherited Destroy;
+end;
+
+procedure TX64Emitter.Clear;
+begin
+  Self.FCode.Count := 0;
+  Self.FLabels.Count := 0;
+  Self.FJumps.Count := 0;
+end;
+
+procedure TX64Emitter.EmitByte(B: Byte);
+begin
+  Self.FCode.Add(B);
+end;
+
+procedure TX64Emitter.EmitU16(V: Word);
+begin
+  EmitByte(Byte(V));
+  EmitByte(Byte(V shr 8));
+end;
+
+procedure TX64Emitter.EmitU32(V: LongWord);
+begin
+  EmitByte(Byte(V));
+  EmitByte(Byte(V shr 8));
+  EmitByte(Byte(V shr 16));
+  EmitByte(Byte(V shr 24));
+end;
+
+procedure TX64Emitter.EmitU64(V: QWord);
+begin
+  EmitByte(Byte(V));
+  EmitByte(Byte(V shr 8));
+  EmitByte(Byte(V shr 16));
+  EmitByte(Byte(V shr 24));
+  EmitByte(Byte(V shr 32));
+  EmitByte(Byte(V shr 40));
+  EmitByte(Byte(V shr 48));
+  EmitByte(Byte(V shr 56));
+end;
+
+procedure TX64Emitter.EmitI8(V: shortint);
+begin
+  EmitByte(Byte(V));
+end;
+
+procedure TX64Emitter.DB(B: Byte);
+begin
+  EmitByte(B);
+end;
+
+procedure TX64Emitter.DW(V: Word);
+begin
+  EmitU16(V);
+end;
+
+procedure TX64Emitter.DD(V: LongWord);
+begin
+  EmitU32(V);
+end;
+
+procedure TX64Emitter.DQ(V: QWord);
+begin
+  EmitU64(V);
+end;
+
+procedure TX64Emitter.Nop;
+begin
+  EmitByte($90);
+end;
+
+procedure TX64Emitter.NopN(Count: Integer);
+begin
+  while Count > 0 do
+  begin
+    EmitByte($90);
+    Dec(Count);
+  end;
+end;
+
+procedure TX64Emitter.Int3;
+begin
+  EmitByte($CC);
+end;
+
+procedure TX64Emitter.Ud2;
+begin
+  EmitByte($0F);
+  EmitByte($0B);
+end;
+
+procedure TX64Emitter.Align(Alignment: Integer; FillByte: Byte);
+var
+  N: Integer;
+begin
+  if Alignment <= 0 then
+    raise Exception.Create('Invalid alignment');
+
+  if (Alignment and (Alignment - 1)) <> 0 then
+    raise Exception.Create('Alignment must be a power of two');
+
+  while (Self.FCode.Count and (Alignment - 1)) <> 0 do
+    EmitByte(FillByte);
+
+  N := Self.FCode.Count;
+  if N < 0 then
+    raise Exception.Create('Code size overflow');
+end;
+
+{ =====================================================================
+  Memory operands
+  ===================================================================== }
+
+class function TX64Emitter.Mem(Base: TX64Reg; Disp: LongInt): TX64Mem;
+begin
+  Result.Base := Ord(Base);
+  Result.Index := -1;
+  Result.Scale := 1;
+  Result.Disp := Disp;
+end;
+
+class function TX64Emitter.MemIndex(Base, Index: TX64Reg; Scale: Byte;
+  Disp: LongInt): TX64Mem;
+begin
+  if not (Scale in [1, 2, 4, 8]) then
+    raise Exception.Create('Scale must be 1, 2, 4 or 8');
+
+  if (Ord(Index) and 7) = 4 then
+    raise Exception.Create('RSP/R12 cannot be used as SIB index');
+
+  Result.Base := Ord(Base);
+  Result.Index := Ord(Index);
+  Result.Scale := Scale;
+  Result.Disp := Disp;
+end;
+
+class function TX64Emitter.MemAbsolute(Address: Pointer): TX64Mem;
+begin
+  { Encoded as [disp32] by the normal memory encoder.
+    Therefore the address must fit the x64 absolute disp32 encoding
+    used by the chosen addressing form. For arbitrary 64-bit absolute
+    addresses, load the address into a register and use [reg]. }
+
+  if PtrUInt(Address) > $FFFFFFFF then
+    raise Exception.Create(
+      'MemAbsolute requires a 32-bit address; use a register for arbitrary addresses');
+
+  Result.Base := -1;
+  Result.Index := -1;
+  Result.Scale := 1;
+  Result.Disp := LongInt(PtrUInt(Address));
+end;
+
+{ =====================================================================
+  REX / ModRM / SIB
+  ===================================================================== }
+
+procedure TX64Emitter.EmitRex(W: boolean; RegField, IndexField, BaseField: Integer);
+var
+  R, X, B, V: Byte;
+begin
+  R := 0;
+  X := 0;
+  B := 0;
+
+  if RegField >= 8 then
+    R := 1;
+
+  if IndexField >= 8 then
+    X := 1;
+
+  if BaseField >= 8 then
+    B := 1;
+
+  V := $40;
+
+  if W then
+    V := V or $08;
+
+  if R <> 0 then
+    V := V or $04;
+
+  if X <> 0 then
+    V := V or $02;
+
+  if B <> 0 then
+    V := V or $01;
+
+  if V <> $40 then
+    EmitByte(V);
+end;
+
+procedure TX64Emitter.EmitRexByte(RegField, IndexField, BaseField: Integer);
+var
+  NeedRex: Boolean;
+begin
+  NeedRex :=
+    (RegField >= 4) or
+    (IndexField >= 8) or
+    (BaseField >= 8);
+
+  if NeedRex then
+  begin
+    if RegField >= 8 then
+      EmitRex(False, RegField, IndexField, BaseField)
+    else
+    begin
+      { RegField 4..7 needs a REX prefix, but has no R bit. }
+      EmitRex(False, 0, IndexField, BaseField);
+    end;
+  end
+  else
+    EmitRex(False, RegField, IndexField, BaseField);
+end;
+
+procedure TX64Emitter.EmitModRM(ModBits: Byte; RegField, RMField: Integer);
+begin
+  EmitByte(
+    (ModBits shl 6) or ((RegField and 7) shl 3) or (RMField and 7)
+    );
+end;
+
+procedure TX64Emitter.EmitSIB(ScaleBits, IndexField, BaseField: Integer);
+begin
+  EmitByte(
+    ((ScaleBits and 3) shl 6) or ((IndexField and 7) shl 3) or (BaseField and 7)
+    );
+end;
+
+procedure TX64Emitter.EmitMemModRM(RegField: Integer; const M: TX64Mem);
+var
+  ModBits: Byte;
+  RMField: Integer;
+  BaseLow, IndexLow: Integer;
+  NeedSIB: boolean;
+  ScaleBits: Integer;
+begin
+  if M.Index < -1 then
+    raise Exception.Create('Invalid memory index');
+
+  if (M.Index >= 0) and ((M.Index and 7) = 4) then
+    raise Exception.Create('RSP/R12 cannot be SIB index');
+
+  BaseLow := 0;
+  IndexLow := 4;
+
+  if M.Base >= 0 then
+    BaseLow := M.Base and 7;
+
+  if M.Index >= 0 then
+    IndexLow := M.Index and 7;
+
+  NeedSIB :=
+    (M.Base < 0) or (BaseLow = 4) or (M.Index >= 0);
+
+  if M.Base < 0 then
+  begin
+    { No base: SIB base=101, mod=00, disp32. }
+    EmitModRM(0, RegField, 4);
+
+    if M.Scale = 1 then ScaleBits := 0
+    else if M.Scale = 2 then ScaleBits := 1
+    else if M.Scale = 4 then ScaleBits := 2
+    else if M.Scale = 8 then ScaleBits := 3
+    else
+      raise Exception.Create('Invalid SIB scale');
+
+    EmitSIB(ScaleBits, IndexLow, 5);
+    EmitU32(LongWord(M.Disp));
+    Exit;
+  end;
+
+  if M.Disp = 0 then
+  begin
+    { regRBP/R13 require a displacement even when it is zero. }
+    if BaseLow = 5 then
+      ModBits := 1
+    else
+      ModBits := 0;
+  end
+  else if (M.Disp >= -128) and (M.Disp <= 127) then
+    ModBits := 1
+  else
+    ModBits := 2;
+
+  if NeedSIB then
+    RMField := 4
+  else
+    RMField := BaseLow;
+
+  EmitModRM(ModBits, RegField, RMField);
+
+  if NeedSIB then
+  begin
+    if M.Scale = 1 then ScaleBits := 0
+    else if M.Scale = 2 then ScaleBits := 1
+    else if M.Scale = 4 then ScaleBits := 2
+    else if M.Scale = 8 then ScaleBits := 3
+    else
+      raise Exception.Create('Invalid SIB scale');
+
+    EmitSIB(ScaleBits, IndexLow, BaseLow);
+  end;
+
+  if ModBits = 1 then
+    EmitI8(shortint(M.Disp))
+  else if ModBits = 2 then
+    EmitU32(LongWord(M.Disp));
+end;
+
+procedure TX64Emitter.EmitRM(Opcode: Byte; W: boolean; RegField: Integer;
+  const M: TX64Mem);
+begin
+  EmitRex(W, RegField, M.Index, M.Base);
+  EmitByte(Opcode);
+  EmitMemModRM(RegField, M);
+end;
+
+procedure TX64Emitter.EmitRM2(Opcode1, Opcode2: Byte; W: boolean;
+  RegField: Integer; const M: TX64Mem);
+begin
+  EmitRex(W, RegField, M.Index, M.Base);
+  EmitByte(Opcode1);
+  EmitByte(Opcode2);
+  EmitMemModRM(RegField, M);
+end;
+
+procedure TX64Emitter.EmitRegReg(Opcode: Byte; W: boolean; Dst, Src: TX64Reg);
+begin
+  EmitRex(W, Ord(Src), -1, Ord(Dst));
+  EmitByte(Opcode);
+  EmitModRM(3, Ord(Src), Ord(Dst));
+end;
+
+procedure TX64Emitter.EmitGroup1Imm(Group: Byte; Dst: TX64Reg; Value: LongInt);
+begin
+  EmitRex(True, Group, -1, Ord(Dst));
+  EmitByte($81);
+  EmitModRM(3, Group, Ord(Dst));
+  EmitU32(LongWord(Value));
+end;
+
+procedure TX64Emitter.EmitGroup2Imm(Group: Byte; Dst: TX64Reg; Count: Byte);
+begin
+  EmitRex(True, Group, -1, Ord(Dst));
+
+  if Count = 1 then
+  begin
+    EmitByte($D1);
+    EmitModRM(3, Group, Ord(Dst));
+  end
+  else
+  begin
+    EmitByte($C1);
+    EmitModRM(3, Group, Ord(Dst));
+    EmitByte(Count);
+  end;
+end;
+
+procedure TX64Emitter.EmitGroup2CL(Group: Byte; Dst: TX64Reg);
+begin
+  EmitRex(True, Group, -1, Ord(Dst));
+  EmitByte($D3);
+  EmitModRM(3, Group, Ord(Dst));
+end;
+
+{ =====================================================================
+  Labels / jumps
+  ===================================================================== }
+
+function TX64Emitter.CreateLabel: TX64Label;
+var
+  Lbl: TLabelInfo;
+begin
+  Result := Self.FLabels.Count;
+
+  Lbl.Bound := False;
+  Lbl.Position := 0;
+  Self.FLabels.Add(Lbl);
+end;
+
+procedure TX64Emitter.BindLabel(L: TX64Label);
+begin
+  if (L < 0) or (L >= Self.FLabels.Count) then
+    raise Exception.Create('Invalid label');
+
+  if Self.FLabels.Ptr(L)^.Bound then
+    raise Exception.Create('Label already bound');
+
+  Self.FLabels.Ptr(L)^.Bound := True;
+  Self.FLabels.Ptr(L)^.Position := Self.FCode.Count;
+end;
+
+procedure TX64Emitter.Jmp(L: TX64Label);
+var
+  J: TJumpPatch;
+begin
+  EmitByte($E9);
+
+  J.LabelID := L;
+  J.DisplacementOffset := Self.FCode.Count;
+  Self.FJumps.Add(J);
+
+  EmitU32(0);
+end;
+
+procedure TX64Emitter.Jcc(Condition: TX64Condition; L: TX64Label);
+var
+  J: TJumpPatch;
+begin
+  EmitByte($0F);
+  EmitByte($80 + Ord(Condition));
+
+  J.LabelID := L;
+  J.DisplacementOffset := Self.FCode.Count;
+  Self.FJumps.Add(J);
+
+  EmitU32(0);
+end;
+
+procedure TX64Emitter.Je(L: TX64Label);
+begin
+  Jcc(ccE, L);
+end;
+
+procedure TX64Emitter.Jne(L: TX64Label);
+begin
+  Jcc(ccNE, L);
+end;
+
+procedure TX64Emitter.Jg(L: TX64Label);
+begin
+  Jcc(ccG, L);
+end;
+
+procedure TX64Emitter.Jge(L: TX64Label);
+begin
+  Jcc(ccGE, L);
+end;
+
+procedure TX64Emitter.Jl(L: TX64Label);
+begin
+  Jcc(ccL, L);
+end;
+
+procedure TX64Emitter.Jle(L: TX64Label);
+begin
+  Jcc(ccLE, L);
+end;
+
+procedure TX64Emitter.Ja(L: TX64Label);
+begin
+  Jcc(ccA, L);
+end;
+
+procedure TX64Emitter.Jae(L: TX64Label);
+begin
+  Jcc(ccAE, L);
+end;
+
+procedure TX64Emitter.Jb(L: TX64Label);
+begin
+  Jcc(ccB, L);
+end;
+
+procedure TX64Emitter.Jbe(L: TX64Label);
+begin
+  Jcc(ccBE, L);
+end;
+
+procedure TX64Emitter.Jo(L: TX64Label);
+begin
+  Jcc(ccO, L);
+end;
+
+procedure TX64Emitter.Jno(L: TX64Label);
+begin
+  Jcc(ccNO, L);
+end;
+
+procedure TX64Emitter.Js(L: TX64Label);
+begin
+  Jcc(ccS, L);
+end;
+
+procedure TX64Emitter.Jns(L: TX64Label);
+begin
+  Jcc(ccNS, L);
+end;
+
+procedure TX64Emitter.ResolveLabels;
+var
+  I: Integer;
+  L: TX64Label;
+  PatchPos: Integer;
+  TargetPos: Integer;
+  NextInstruction: Integer;
+  Rel: int64;
+  V: LongWord;
+begin
+  for I := 0 to Self.FJumps.Count - 1 do
+  begin
+    L := Self.FJumps.Ptr(I)^.LabelID;
+
+    if (L < 0) or (L >= Self.FLabels.Count) then
+      raise Exception.Create('Invalid jump label');
+
+    if not Self.FLabels.Ptr(L)^.Bound then
+      raise Exception.Create('Unbound label');
+
+    PatchPos := Self.FJumps.Ptr(I)^.DisplacementOffset;
+    NextInstruction := PatchPos + 4;
+    TargetPos := Self.FLabels.Ptr(L)^.Position;
+
+    Rel :=
+      int64(TargetPos) - int64(NextInstruction);
+
+    if (Rel < Low(LongInt)) or (Rel > High(LongInt)) then
+      raise Exception.Create('Jump out of rel32 range');
+
+    V := LongWord(LongInt(Rel));
+
+    Self.FCode[PatchPos + 0] := Byte(V);
+    Self.FCode[PatchPos + 1] := Byte(V shr 8);
+    Self.FCode[PatchPos + 2] := Byte(V shr 16);
+    Self.FCode[PatchPos + 3] := Byte(V shr 24);
+  end;
+end;
+
+{ =====================================================================
+  Moves
+  ===================================================================== }
+
+procedure TX64Emitter.MovRegImm64(Dst: TX64Reg; Value: QWord);
+var
+  R: Integer;
+begin
+  R := Ord(Dst);
+
+  if R >= 8 then
+    EmitByte($49)
+  else
+    EmitByte($48);
+
+  EmitByte($B8 + (R and 7));
+  EmitU64(Value);
+end;
+
+procedure TX64Emitter.MovRegImm32(Dst: TX64Reg; Value: LongWord);
+var
+  R: Integer;
+begin
+  R := Ord(Dst);
+
+  if R >= 8 then
+    EmitByte($41);
+
+  EmitByte($B8 + (R and 7));
+  EmitU32(Value);
+end;
+
+procedure TX64Emitter.MovRegImm32SExt(Dst: TX64Reg; Value: LongInt);
+begin
+  EmitRex(True, 0, -1, Ord(Dst));
+  EmitByte($C7);
+  EmitModRM(3, 0, Ord(Dst));
+  EmitU32(LongWord(Value));
+end;
+
+procedure TX64Emitter.MovRegReg64(Dst, Src: TX64Reg);
+begin
+  EmitRegReg($89, True, Dst, Src);
+end;
+
+procedure TX64Emitter.MovRegReg32(Dst, Src: TX64Reg);
+begin
+  EmitRegReg($89, False, Dst, Src);
+end;
+
+procedure TX64Emitter.MovReg64Mem(Dst: TX64Reg; const M: TX64Mem);
+begin
+  EmitRM($8B, True, Ord(Dst), M);
+end;
+
+procedure TX64Emitter.MovReg32Mem(Dst: TX64Reg; const M: TX64Mem);
+begin
+  EmitRM($8B, False, Ord(Dst), M);
+end;
+
+procedure TX64Emitter.MovMem64Reg(const M: TX64Mem; Src: TX64Reg);
+begin
+  EmitRM($89, True, Ord(Src), M);
+end;
+
+procedure TX64Emitter.MovMem32Reg(const M: TX64Mem; Src: TX64Reg);
+begin
+  EmitRM($89, False, Ord(Src), M);
+end;
+
+procedure TX64Emitter.MovReg8Reg8(Dst, Src: TX64Reg);
+begin
+  { MOV r/m8, r8
+    88 /r
+
+    Dst is encoded in r/m.
+    Src is encoded in reg.
+  }
+  EmitRexByte(Ord(Src), -1, Ord(Dst));
+  EmitByte($88);
+  EmitModRM(3, Ord(Src), Ord(Dst));
+end;
+
+procedure TX64Emitter.MovReg8Mem(Dst: TX64Reg; const M: TX64Mem);
+begin
+  { MOV r8, r/m8
+    8A /r
+  }
+  EmitRexByte(Ord(Dst), M.Index, M.Base);
+  EmitByte($8A);
+  EmitMemModRM(Ord(Dst), M);
+end;
+
+procedure TX64Emitter.MovMem8Reg(const M: TX64Mem; Src: TX64Reg);
+begin
+  { MOV r/m8, r8
+    88 /r
+  }
+  EmitRexByte(Ord(Src), M.Index, M.Base);
+  EmitByte($88);
+  EmitMemModRM(Ord(Src), M);
+end;
+
+procedure TX64Emitter.MovMemImm8(const M: TX64Mem; Value: Byte);
+begin
+  { MOV r/m8, imm8
+    C6 /0 ib
+  }
+  EmitRex(False, 0, M.Index, M.Base);
+  EmitByte($C6);
+  EmitMemModRM(0, M);
+  EmitByte(Value);
+end;
+
+procedure TX64Emitter.MovMemImm32(const M: TX64Mem; Value: LongWord);
+begin
+  EmitRex(False, 0, M.Index, M.Base);
+  EmitByte($C7);
+  EmitMemModRM(0, M);
+  EmitU32(Value);
+end;
+
+procedure TX64Emitter.MovMemImm64(const M: TX64Mem; Value: QWord);
+begin
+  { MOV r/m64,imm32 cannot represent arbitrary 64-bit constants.
+    Use regRAX as a temporary. }
+  MovRegImm64(regRAX, Value);
+  MovMem64Reg(M, regRAX);
+end;
+
+procedure TX64Emitter.MovZXReg8(Dst, Src: TX64Reg);
+begin
+  EmitRex(True, Ord(Dst), -1, Ord(Src));
+  EmitByte($0F);
+  EmitByte($B6);
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.MovZXReg16(Dst, Src: TX64Reg);
+begin
+  EmitRex(True, Ord(Dst), -1, Ord(Src));
+  EmitByte($0F);
+  EmitByte($B7);
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.MovSXReg8(Dst, Src: TX64Reg);
+begin
+  EmitRex(True, Ord(Dst), -1, Ord(Src));
+  EmitByte($0F);
+  EmitByte($BE);
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.MovSXReg16(Dst, Src: TX64Reg);
+begin
+  EmitRex(True, Ord(Dst), -1, Ord(Src));
+  EmitByte($0F);
+  EmitByte($BF);
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.MovZXReg8Mem(Dst: TX64Reg; const M: TX64Mem);
+begin
+  EmitRM2($0F, $B6, True, Ord(Dst), M);
+end;
+
+procedure TX64Emitter.MovZXReg16Mem(Dst: TX64Reg; const M: TX64Mem);
+begin
+  EmitRM2($0F, $B7, True, Ord(Dst), M);
+end;
+
+procedure TX64Emitter.MovSXReg8Mem(Dst: TX64Reg; const M: TX64Mem);
+begin
+  EmitRM2($0F, $BE, True, Ord(Dst), M);
+end;
+
+procedure TX64Emitter.MovSXReg16Mem(Dst: TX64Reg; const M: TX64Mem);
+begin
+  EmitRM2($0F, $BF, True, Ord(Dst), M);
+end;
+
+procedure TX64Emitter.LeaRegMem(Dst: TX64Reg; const M: TX64Mem);
+begin
+  EmitRM($8D, True, Ord(Dst), M);
+end;
+
+procedure TX64Emitter.XchgRegReg(A, B: TX64Reg);
+begin
+  EmitRex(True, Ord(B), -1, Ord(A));
+  EmitByte($87);
+  EmitModRM(3, Ord(B), Ord(A));
+end;
+
+{ =====================================================================
+  Arithmetic / logical
+  ===================================================================== }
+
+procedure TX64Emitter.AddRegReg(Dst, Src: TX64Reg);
+begin
+  EmitRegReg($01, True, Dst, Src);
+end;
+
+procedure TX64Emitter.SubRegReg(Dst, Src: TX64Reg);
+begin
+  EmitRegReg($29, True, Dst, Src);
+end;
+
+procedure TX64Emitter.AdcRegReg(Dst, Src: TX64Reg);
+begin
+  EmitRegReg($11, True, Dst, Src);
+end;
+
+procedure TX64Emitter.SbbRegReg(Dst, Src: TX64Reg);
+begin
+  EmitRegReg($19, True, Dst, Src);
+end;
+
+procedure TX64Emitter.AndRegReg(Dst, Src: TX64Reg);
+begin
+  EmitRegReg($21, True, Dst, Src);
+end;
+
+procedure TX64Emitter.OrRegReg(Dst, Src: TX64Reg);
+begin
+  EmitRegReg($09, True, Dst, Src);
+end;
+
+procedure TX64Emitter.XorRegReg(Dst, Src: TX64Reg);
+begin
+  EmitRegReg($31, True, Dst, Src);
+end;
+
+procedure TX64Emitter.AddRegImm32(Dst: TX64Reg; Value: LongInt);
+begin
+  EmitGroup1Imm(0, Dst, Value);
+end;
+
+procedure TX64Emitter.SubRegImm32(Dst: TX64Reg; Value: LongInt);
+begin
+  EmitGroup1Imm(5, Dst, Value);
+end;
+
+procedure TX64Emitter.AndRegImm32(Dst: TX64Reg; Value: LongInt);
+begin
+  EmitGroup1Imm(4, Dst, Value);
+end;
+
+procedure TX64Emitter.OrRegImm32(Dst: TX64Reg; Value: LongInt);
+begin
+  EmitGroup1Imm(1, Dst, Value);
+end;
+
+procedure TX64Emitter.XorRegImm32(Dst: TX64Reg; Value: LongInt);
+begin
+  EmitGroup1Imm(6, Dst, Value);
+end;
+
+procedure TX64Emitter.AdcRegImm32(Dst: TX64Reg; Value: LongInt);
+begin
+  EmitGroup1Imm(2, Dst, Value);
+end;
+
+procedure TX64Emitter.SbbRegImm32(Dst: TX64Reg; Value: LongInt);
+begin
+  EmitGroup1Imm(3, Dst, Value);
+end;
+
+procedure TX64Emitter.IncReg(R: TX64Reg);
+begin
+  EmitRex(True, 0, -1, Ord(R));
+  EmitByte($FF);
+  EmitModRM(3, 0, Ord(R));
+end;
+
+procedure TX64Emitter.DecReg(R: TX64Reg);
+begin
+  EmitRex(True, 1, -1, Ord(R));
+  EmitByte($FF);
+  EmitModRM(3, 1, Ord(R));
+end;
+
+procedure TX64Emitter.NegReg(R: TX64Reg);
+begin
+  EmitRex(True, 3, -1, Ord(R));
+  EmitByte($F7);
+  EmitModRM(3, 3, Ord(R));
+end;
+
+procedure TX64Emitter.NotReg(R: TX64Reg);
+begin
+  EmitRex(True, 2, -1, Ord(R));
+  EmitByte($F7);
+  EmitModRM(3, 2, Ord(R));
+end;
+
+procedure TX64Emitter.IMulRegReg(Dst, Src: TX64Reg);
+begin
+  EmitRex(True, Ord(Dst), -1, Ord(Src));
+  EmitByte($0F);
+  EmitByte($AF);
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.IMulRegRegImm32(Dst, Src: TX64Reg; Value: LongInt);
+begin
+  EmitRex(True, Ord(Dst), -1, Ord(Src));
+  EmitByte($69);
+  EmitModRM(3, Ord(Dst), Ord(Src));
+  EmitU32(LongWord(Value));
+end;
+
+procedure TX64Emitter.MulReg(Src: TX64Reg);
+begin
+  EmitRex(True, 4, -1, Ord(Src));
+  EmitByte($F7);
+  EmitModRM(3, 4, Ord(Src));
+end;
+
+procedure TX64Emitter.DivReg(Src: TX64Reg);
+begin
+  EmitRex(True, 6, -1, Ord(Src));
+  EmitByte($F7);
+  EmitModRM(3, 6, Ord(Src));
+end;
+
+procedure TX64Emitter.IDivReg(Src: TX64Reg);
+begin
+  EmitRex(True, 7, -1, Ord(Src));
+  EmitByte($F7);
+  EmitModRM(3, 7, Ord(Src));
+end;
+
+procedure TX64Emitter.Cqo;
+begin
+  EmitByte($48);
+  EmitByte($99);
+end;
+
+procedure TX64Emitter.AddMem64Imm(const M: TX64Mem; Imm: LongInt);
+begin
+  EmitArithMemImm(0, True, M, Imm);
+end;
+
+procedure TX64Emitter.SubMem64Imm(const M: TX64Mem; Imm: LongInt);
+begin
+  EmitArithMemImm(5, True, M, Imm);
+end;
+
+procedure TX64Emitter.AndMem64Imm(const M: TX64Mem; Imm: LongInt);
+begin
+  EmitArithMemImm(4, True, M, Imm);
+end;
+
+procedure TX64Emitter.OrMem64Imm(const M: TX64Mem; Imm: LongInt);
+begin
+  EmitArithMemImm(1, True, M, Imm);
+end;
+
+procedure TX64Emitter.XorMem64Imm(const M: TX64Mem; Imm: LongInt);
+begin
+  EmitArithMemImm(6, True, M, Imm);
+end;
+
+procedure TX64Emitter.CmpMem64Imm(const M: TX64Mem; Imm: LongInt);
+begin
+  EmitArithMemImm(7, True, M, Imm);
+end;
+
+procedure TX64Emitter.AddMem32Imm(const M: TX64Mem; Imm: LongInt);
+begin
+  EmitArithMemImm(0, False, M, Imm);
+end;
+
+procedure TX64Emitter.SubMem32Imm(const M: TX64Mem; Imm: LongInt);
+begin
+  EmitArithMemImm(5, False, M, Imm);
+end;
+
+procedure TX64Emitter.AndMem32Imm(const M: TX64Mem; Imm: LongInt);
+begin
+  EmitArithMemImm(4, False, M, Imm);
+end;
+
+procedure TX64Emitter.OrMem32Imm(const M: TX64Mem; Imm: LongInt);
+begin
+  EmitArithMemImm(1, False, M, Imm);
+end;
+
+procedure TX64Emitter.XorMem32Imm(const M: TX64Mem; Imm: LongInt);
+begin
+  EmitArithMemImm(6, False, M, Imm);
+end;
+
+procedure TX64Emitter.CmpMem32Imm(const M: TX64Mem; Imm: LongInt);
+begin
+  EmitArithMemImm(7, False, M, Imm);
+end;
+
+{ =====================================================================
+  Compare / test
+  ===================================================================== }
+
+procedure TX64Emitter.CmpRegReg(A, B: TX64Reg);
+begin
+  EmitRegReg($39, True, A, B);
+end;
+
+procedure TX64Emitter.CmpRegImm32(A: TX64Reg; Value: LongInt);
+begin
+  EmitGroup1Imm(7, A, Value);
+end;
+
+procedure TX64Emitter.TestRegReg(A, B: TX64Reg);
+begin
+  EmitRex(True, Ord(B), -1, Ord(A));
+  EmitByte($85);
+  EmitModRM(3, Ord(B), Ord(A));
+end;
+
+procedure TX64Emitter.TestRegImm32(A: TX64Reg; Value: LongInt);
+begin
+  EmitRex(True, 0, -1, Ord(A));
+  EmitByte($F7);
+  EmitModRM(3, 0, Ord(A));
+  EmitU32(LongWord(Value));
+end;
+
+procedure TX64Emitter.Setcc(Condition: TX64Condition; Dst: TX64Reg);
+begin
+  { SETcc r/m8.
+    This intentionally targets the low Byte of the GPR.
+    With a REX prefix, the low-Byte registers are AL/CL/DL/BL
+    and regR8B-R15B; AH/CH/DH/BH are not available. }
+
+  EmitRex(False, 0, -1, Ord(Dst));
+  EmitByte($0F);
+  EmitByte($90 + Ord(Condition));
+  EmitModRM(3, 0, Ord(Dst));
+end;
+
+procedure TX64Emitter.Sete(Dst: TX64Reg);
+begin
+  Setcc(ccE, Dst);
+end;
+
+procedure TX64Emitter.Setne(Dst: TX64Reg);
+begin
+  Setcc(ccNE, Dst);
+end;
+
+procedure TX64Emitter.Setg(Dst: TX64Reg);
+begin
+  Setcc(ccG, Dst);
+end;
+
+procedure TX64Emitter.Setge(Dst: TX64Reg);
+begin
+  Setcc(ccGE, Dst);
+end;
+
+procedure TX64Emitter.Setl(Dst: TX64Reg);
+begin
+  Setcc(ccL, Dst);
+end;
+
+procedure TX64Emitter.Setle(Dst: TX64Reg);
+begin
+  Setcc(ccLE, Dst);
+end;
+
+procedure TX64Emitter.Cmovcc(Condition: TX64Condition; Dst, Src: TX64Reg);
+begin
+  EmitRex(True, Ord(Dst), -1, Ord(Src));
+  EmitByte($0F);
+  EmitByte($40 + Ord(Condition));
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.Cmove(Dst, Src: TX64Reg);
+begin
+  Cmovcc(ccE, Dst, Src);
+end;
+
+procedure TX64Emitter.Cmovne(Dst, Src: TX64Reg);
+begin
+  Cmovcc(ccNE, Dst, Src);
+end;
+
+procedure TX64Emitter.Cmovg(Dst, Src: TX64Reg);
+begin
+  Cmovcc(ccG, Dst, Src);
+end;
+
+procedure TX64Emitter.Cmovge(Dst, Src: TX64Reg);
+begin
+  Cmovcc(ccGE, Dst, Src);
+end;
+
+procedure TX64Emitter.Cmovl(Dst, Src: TX64Reg);
+begin
+  Cmovcc(ccL, Dst, Src);
+end;
+
+procedure TX64Emitter.Cmovle(Dst, Src: TX64Reg);
+begin
+  Cmovcc(ccLE, Dst, Src);
+end;
+
+{ =====================================================================
+  Shifts / rotates
+  ===================================================================== }
+
+procedure TX64Emitter.ShlRegImm(Dst: TX64Reg; Count: Byte);
+begin
+  EmitGroup2Imm(4, Dst, Count);
+end;
+
+procedure TX64Emitter.ShrRegImm(Dst: TX64Reg; Count: Byte);
+begin
+  EmitGroup2Imm(5, Dst, Count);
+end;
+
+procedure TX64Emitter.SarRegImm(Dst: TX64Reg; Count: Byte);
+begin
+  EmitGroup2Imm(7, Dst, Count);
+end;
+
+procedure TX64Emitter.ShlRegCL(Dst: TX64Reg);
+begin
+  EmitGroup2CL(4, Dst);
+end;
+
+procedure TX64Emitter.ShrRegCL(Dst: TX64Reg);
+begin
+  EmitGroup2CL(5, Dst);
+end;
+
+procedure TX64Emitter.SarRegCL(Dst: TX64Reg);
+begin
+  EmitGroup2CL(7, Dst);
+end;
+
+procedure TX64Emitter.RolRegImm(Dst: TX64Reg; Count: Byte);
+begin
+  EmitGroup2Imm(0, Dst, Count);
+end;
+
+procedure TX64Emitter.RorRegImm(Dst: TX64Reg; Count: Byte);
+begin
+  EmitGroup2Imm(1, Dst, Count);
+end;
+
+procedure TX64Emitter.RolRegCL(Dst: TX64Reg);
+begin
+  EmitGroup2CL(0, Dst);
+end;
+
+procedure TX64Emitter.RorRegCL(Dst: TX64Reg);
+begin
+  EmitGroup2CL(1, Dst);
+end;
+
+{ =====================================================================
+  Bit operations
+  ===================================================================== }
+
+procedure TX64Emitter.BTRegReg(Base, Bit: TX64Reg);
+begin
+  EmitRex(True, Ord(Bit), -1, Ord(Base));
+  EmitByte($0F);
+  EmitByte($A3);
+  EmitModRM(3, Ord(Bit), Ord(Base));
+end;
+
+procedure TX64Emitter.BTSRegReg(Base, Bit: TX64Reg);
+begin
+  EmitRex(True, Ord(Bit), -1, Ord(Base));
+  EmitByte($0F);
+  EmitByte($AB);
+  EmitModRM(3, Ord(Bit), Ord(Base));
+end;
+
+procedure TX64Emitter.BTRRegReg(Base, Bit: TX64Reg);
+begin
+  EmitRex(True, Ord(Bit), -1, Ord(Base));
+  EmitByte($0F);
+  EmitByte($B3);
+  EmitModRM(3, Ord(Bit), Ord(Base));
+end;
+
+procedure TX64Emitter.BTCRegReg(Base, Bit: TX64Reg);
+begin
+  EmitRex(True, Ord(Bit), -1, Ord(Base));
+  EmitByte($0F);
+  EmitByte($BB);
+  EmitModRM(3, Ord(Bit), Ord(Base));
+end;
+
+procedure TX64Emitter.BTRegImm(Base: TX64Reg; Bit: Byte);
+begin
+  EmitRex(True, 4, -1, Ord(Base));
+  EmitByte($0F);
+  EmitByte($BA);
+  EmitModRM(3, 4, Ord(Base));
+  EmitByte(Bit);
+end;
+
+procedure TX64Emitter.BTSRegImm(Base: TX64Reg; Bit: Byte);
+begin
+  EmitRex(True, 5, -1, Ord(Base));
+  EmitByte($0F);
+  EmitByte($BA);
+  EmitModRM(3, 5, Ord(Base));
+  EmitByte(Bit);
+end;
+
+procedure TX64Emitter.BTRRegImm(Base: TX64Reg; Bit: Byte);
+begin
+  EmitRex(True, 6, -1, Ord(Base));
+  EmitByte($0F);
+  EmitByte($BA);
+  EmitModRM(3, 6, Ord(Base));
+  EmitByte(Bit);
+end;
+
+procedure TX64Emitter.BTCRegImm(Base: TX64Reg; Bit: Byte);
+begin
+  EmitRex(True, 7, -1, Ord(Base));
+  EmitByte($0F);
+  EmitByte($BA);
+  EmitModRM(3, 7, Ord(Base));
+  EmitByte(Bit);
+end;
+
+procedure TX64Emitter.BsfRegReg(Dst, Src: TX64Reg);
+begin
+  EmitRex(True, Ord(Dst), -1, Ord(Src));
+  EmitByte($0F);
+  EmitByte($BC);
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.BsrRegReg(Dst, Src: TX64Reg);
+begin
+  EmitRex(True, Ord(Dst), -1, Ord(Src));
+  EmitByte($0F);
+  EmitByte($BD);
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.Bswap(R: TX64Reg);
+begin
+  EmitRex(True, 0, -1, Ord(R));
+  EmitByte($0F);
+  EmitByte($C8 + (Ord(R) and 7));
+end;
+
+{ =====================================================================
+  Stack
+  ===================================================================== }
+
+procedure TX64Emitter.PushReg(R: TX64Reg);
+var
+  V: Integer;
+begin
+  V := Ord(R);
+
+  if V >= 8 then
+    EmitByte($41);
+
+  EmitByte($50 + (V and 7));
+end;
+
+procedure TX64Emitter.PopReg(R: TX64Reg);
+var
+  V: Integer;
+begin
+  V := Ord(R);
+
+  if V >= 8 then
+    EmitByte($41);
+
+  EmitByte($58 + (V and 7));
+end;
+
+procedure TX64Emitter.PushImm32(Value: LongInt);
+begin
+  EmitByte($68);
+  EmitU32(LongWord(Value));
+end;
+
+procedure TX64Emitter.PushFlags;
+begin
+  EmitByte($9C);
+end;
+
+procedure TX64Emitter.PopFlags;
+begin
+  EmitByte($9D);
+end;
+
+procedure TX64Emitter.Enter(StackSize: Word; NestingLevel: Byte);
+begin
+  EmitByte($C8);
+  EmitU16(StackSize);
+  EmitByte(NestingLevel);
+end;
+
+procedure TX64Emitter.Leave;
+begin
+  EmitByte($C9);
+end;
+
+{ =====================================================================
+  Calls / jumps
+  ===================================================================== }
+
+procedure TX64Emitter.CallReg(R: TX64Reg);
+begin
+  EmitRex(False, 2, -1, Ord(R));
+  EmitByte($FF);
+  EmitModRM(3, 2, Ord(R));
+end;
+
+procedure TX64Emitter.CallAbsolute(R: TX64Reg; Address: Pointer);
+begin
+  MovRegImm64(R, PtrUInt(Address));
+  CallReg(R);
+end;
+
+procedure TX64Emitter.JmpReg(R: TX64Reg);
+begin
+  EmitRex(False, 4, -1, Ord(R));
+  EmitByte($FF);
+  EmitModRM(3, 4, Ord(R));
+end;
+
+procedure TX64Emitter.JmpAbsolute(R: TX64Reg; Address: Pointer);
+begin
+  MovRegImm64(R, PtrUInt(Address));
+  JmpReg(R);
+end;
+
+procedure TX64Emitter.Ret;
+begin
+  EmitByte($C3);
+end;
+
+procedure TX64Emitter.RetImm16(Value: Word);
+begin
+  EmitByte($C2);
+  EmitU16(Value);
+end;
+
+{ =====================================================================
+  CPU/system
+  ===================================================================== }
+
+procedure TX64Emitter.Syscall;
+begin
+  EmitByte($0F);
+  EmitByte($05);
+end;
+
+procedure TX64Emitter.Sysret;
+begin
+  EmitByte($0F);
+  EmitByte($07);
+end;
+
+procedure TX64Emitter.Cpuid;
+begin
+  EmitByte($0F);
+  EmitByte($A2);
+end;
+
+procedure TX64Emitter.Rdtsc;
+begin
+  EmitByte($0F);
+  EmitByte($31);
+end;
+
+procedure TX64Emitter.Rdtscp;
+begin
+  EmitByte($0F);
+  EmitByte($01);
+  EmitByte($F9);
+end;
+
+{ =====================================================================
+  SSE helpers
+  ===================================================================== }
+
+procedure TX64Emitter.EmitSSEMem(Prefix: Byte; Opcode1, Opcode2: Byte;
+  XMM: TXMMReg; const M: TX64Mem);
+begin
+  if Prefix <> 0 then
+    EmitByte(Prefix);
+
+  EmitRex(False, Ord(XMM), M.Index, M.Base);
+
+  EmitByte(Opcode1);
+  EmitByte(Opcode2);
+
+  EmitMemModRM(Ord(XMM), M);
+end;
+
+procedure TX64Emitter.EmitSSEReg(Prefix: Byte; Opcode1, Opcode2: Byte;
+  Dst, Src: TXMMReg);
+begin
+  if Prefix <> 0 then
+    EmitByte(Prefix);
+
+  EmitRex(False, Ord(Dst), -1, Ord(Src));
+
+  EmitByte(Opcode1);
+  EmitByte(Opcode2);
+
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.EmitSSEReg(Prefix: Byte; Opcode1, Opcode2: Byte;
+  Dst: TXMMReg; Src: TX64Reg);
+begin
+  if Prefix <> 0 then
+    EmitByte(Prefix);
+
+  EmitRex(True, Ord(Dst), -1, Ord(Src));
+
+  EmitByte(Opcode1);
+  EmitByte(Opcode2);
+
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.EmitSSEReg(Prefix: Byte; Opcode1, Opcode2: Byte;
+  Dst: TX64Reg; Src: TXMMReg);
+begin
+  if Prefix <> 0 then
+    EmitByte(Prefix);
+
+  EmitRex(True, Ord(Src), -1, Ord(Dst));
+
+  EmitByte(Opcode1);
+  EmitByte(Opcode2);
+
+  EmitModRM(3, Ord(Src), Ord(Dst));
+end;
+
+procedure TX64Emitter.EmitSSEMemImm8(Prefix: Byte; Opcode1, Opcode2: Byte;
+  XMM: TXMMReg; const M: TX64Mem; Imm8: Byte);
+begin
+  if Prefix <> 0 then
+    EmitByte(Prefix);
+
+  EmitRex(False, Ord(XMM), M.Index, M.Base);
+
+  EmitByte(Opcode1);
+  EmitByte(Opcode2);
+
+  EmitMemModRM(Ord(XMM), M);
+
+  EmitByte(Imm8);
+end;
+
+procedure TX64Emitter.EmitSSEMemImm8(Prefix: Byte; Opcode1, Opcode2, Opcode3: Byte;
+  XMM: TXMMReg; const M: TX64Mem; Imm8: Byte);
+begin
+  if Prefix <> 0 then
+    EmitByte(Prefix);
+
+  EmitRex(False, Ord(XMM), M.Index, M.Base);
+
+  EmitByte(Opcode1);
+  EmitByte(Opcode2);
+  EmitByte(Opcode3);
+
+  EmitMemModRM(Ord(XMM), M);
+
+  EmitByte(Imm8);
+end;
+
+procedure TX64Emitter.EmitSSERegImm8(Prefix: Byte; Opcode1, Opcode2, Opcode3: Byte; Dst, Src: TXMMReg; Imm8: Byte);
+begin
+  if Prefix <> 0 then
+    EmitByte(Prefix);
+
+  EmitRex(False, Ord(Dst), -1, Ord(Src));
+
+  EmitByte(Opcode1);
+  EmitByte(Opcode2);
+  EmitByte(Opcode3);
+
+  EmitModRM(3, Ord(Dst), Ord(Src));
+
+  EmitByte(Imm8);
+end;
+
+procedure TX64Emitter.EmitArithMemImm(Group: Byte; W: Boolean; const M: TX64Mem; Imm: Int64);
+begin
+  if Group > 7 then
+    raise Exception.Create('Invalid arithmetic group');
+
+  EmitRex(W, 0, M.Index, M.Base);
+
+  if (Imm >= -128) and (Imm <= 127) then
+  begin
+    EmitByte($83);
+    EmitMemModRM(Group, M);
+    EmitI8(ShortInt(Imm));
+  end
+  else
+  begin
+    if (Imm < -2147483648) or (Imm > 2147483647) then
+      raise Exception.Create('Immediate does not fit signed 32-bit');
+
+    EmitByte($81);
+    EmitMemModRM(Group, M);
+    EmitU32(LongWord(Int32(Imm)));
+  end;
+end;
+
+{ =====================================================================
+  SSE2 scalar double
+  ===================================================================== }
+
+procedure TX64Emitter.MovSDXMMFromMem(Dst: TXMMReg; const M: TX64Mem);
+begin
+  EmitSSEMem($F2, $0F, $10, Dst, M);
+end;
+
+procedure TX64Emitter.MovSDMemFromXMM(const M: TX64Mem; Src: TXMMReg);
+begin
+  EmitSSEMem($F2, $0F, $11, Src, M);
+end;
+
+procedure TX64Emitter.MovSDXMMFromReg(Dst: TXMMReg; Src: TX64Reg);
+begin
+  EmitSSEReg($66, $0F, $6E, Dst, Src);
+end;
+
+procedure TX64Emitter.MovRegFromSDXMM(Dst: TX64Reg; Src: TXMMReg);
+begin
+  EmitSSEReg($66, $0F, $7E, Dst, Src);
+end;
+
+procedure TX64Emitter.MovSDXMM(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($F2, $0F, $10, Dst, Src);
+end;
+
+procedure TX64Emitter.AddSD(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($F2, $0F, $58, Dst, Src);
+end;
+
+procedure TX64Emitter.SubSD(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($F2, $0F, $5C, Dst, Src);
+end;
+
+procedure TX64Emitter.MulSD(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($F2, $0F, $59, Dst, Src);
+end;
+
+procedure TX64Emitter.DivSD(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($F2, $0F, $5E, Dst, Src);
+end;
+
+procedure TX64Emitter.SqrtSD(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($F2, $0F, $51, Dst, Src);
+end;
+
+procedure TX64Emitter.MinSD(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($F2, $0F, $5D, Dst, Src);
+end;
+
+procedure TX64Emitter.MaxSD(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($F2, $0F, $5F, Dst, Src);
+end;
+
+procedure TX64Emitter.AddSDMem(Dst: TXMMReg; const M: TX64Mem);
+begin
+  EmitSSEMem($F2, $0F, $58, Dst, M);
+end;
+
+procedure TX64Emitter.SubSDMem(Dst: TXMMReg; const M: TX64Mem);
+begin
+  EmitSSEMem($F2, $0F, $5C, Dst, M);
+end;
+
+procedure TX64Emitter.MulSDMem(Dst: TXMMReg; const M: TX64Mem);
+begin
+  EmitSSEMem($F2, $0F, $59, Dst, M);
+end;
+
+procedure TX64Emitter.DivSDMem(Dst: TXMMReg; const M: TX64Mem);
+begin
+  EmitSSEMem($F2, $0F, $5E, Dst, M);
+end;
+
+procedure TX64Emitter.ComISD(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($66, $0F, $2E, Dst, Src);
+end;
+
+procedure TX64Emitter.CvtSI2SD(Dst: TXMMReg; Src: TX64Reg);
+begin
+  EmitByte($F2);
+  EmitRex(True, Ord(Dst), -1, Ord(Src));
+  EmitByte($0F);
+  EmitByte($2A);
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.CvtUI2SD(Dst: TXMMReg; Src: TX64Reg);
+var
+  LPositive, LDone: TX64Label;
+begin
+  LPositive := CreateLabel;
+  LDone := CreateLabel;
+
+  TestRegReg(Src, Src);
+  Jns(LPositive);
+
+  { RCX = Src >> 1 }
+  MovRegReg64(regRCX, Src);
+  ShrRegImm(regRCX, 1);
+
+  { RDX = Src & 1 }
+  MovRegReg64(regRDX, Src);
+  MovRegImm64(regRAX, 1);
+  AndRegReg(regRDX, regRAX);
+
+  { RCX = (Src >> 1) + (Src & 1) }
+  AddRegReg(regRCX, regRDX);
+
+  { Convert the now-positive signed value. }
+  CvtSI2SD(Dst, regRCX);
+
+  { Multiply by 2.0 }
+  AddSD(Dst, Dst);
+
+  Jmp(LDone);
+
+  BindLabel(LPositive);
+  CvtSI2SD(Dst, Src);
+
+  BindLabel(LDone);
+end;
+
+procedure TX64Emitter.CvttSD2SI(Dst: TX64Reg; Src: TXMMReg);
+begin
+  EmitByte($F2);
+  EmitRex(True, Ord(Dst), -1, Ord(Src));
+  EmitByte($0F);
+  EmitByte($2C);
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.CvtSD2SI(Dst: TX64Reg; Src: TXMMReg);
+begin
+  EmitByte($F2);
+  EmitRex(True, Ord(Dst), -1, Ord(Src));
+  EmitByte($0F);
+  EmitByte($2D);
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.RoundSD(Dst, Src: TXMMReg; Rounding: Byte);
+begin
+  EmitSSERegImm8($66, $0F, $3A, $0B, Dst, Src, Rounding);
+end;
+
+procedure TX64Emitter.RoundSDMem(Dst: TXMMReg; const M: TX64Mem; Rounding: Byte);
+begin
+  EmitSSEMemImm8($66, $0F, $3A, $0B, Dst, M, Rounding);
+end;
+
+procedure TX64Emitter.XorPD(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($66, $0F, $57, Dst, Src);
+end;
+
+procedure TX64Emitter.XorPDMem(Dst: TXMMReg; const M: TX64Mem);
+begin
+  EmitSSEMem($66, $0F, $57, Dst, M);
+end;
+
+{ =====================================================================
+  SSE2 packed operations
+  ===================================================================== }
+
+procedure TX64Emitter.MovDQU(Dst, Src: TXMMReg);
+begin
+  EmitByte($F3);
+  EmitRex(False, Ord(Dst), -1, Ord(Src));
+  EmitByte($0F);
+  EmitByte($6F);
+  EmitModRM(3, Ord(Dst), Ord(Src));
+end;
+
+procedure TX64Emitter.MovDQUFromMem(Dst: TXMMReg; const M: TX64Mem);
+begin
+  EmitSSEMem($F3, $0F, $6F, Dst, M);
+end;
+
+procedure TX64Emitter.MovDQUMem(const M: TX64Mem; Src: TXMMReg);
+begin
+  EmitSSEMem($F3, $0F, $7F, Src, M);
+end;
+
+procedure TX64Emitter.Pxor(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($66, $0F, $EF, Dst, Src);
+end;
+
+procedure TX64Emitter.Pand(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($66, $0F, $DB, Dst, Src);
+end;
+
+procedure TX64Emitter.Por(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($66, $0F, $EB, Dst, Src);
+end;
+
+procedure TX64Emitter.PaddQ(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($66, $0F, $D4, Dst, Src);
+end;
+
+procedure TX64Emitter.PsubQ(Dst, Src: TXMMReg);
+begin
+  EmitSSEReg($66, $0F, $FB, Dst, Src);
+end;
+
+{ =====================================================================
+  Executable memory
+  ===================================================================== }
+
+function TX64Emitter.MakeExecutable: Pointer;
+var
+  Size: NativeUInt;
+  AllocSize: NativeUInt;
+  P: Pointer;
+{$ifdef WINDOWS}
+  OldProtect: DWord;
+{$endif}
+begin
+  if Self.FCode.Count = 0 then
+    raise Exception.Create('Cannot execute empty code');
+
+  if FExecutableMemory <> nil then
+    raise Exception.Create('Code is already executable');
+
+  ResolveLabels;
+  Size := NativeUInt(Self.FCode.Count);
+  { Round up to page size (normally 4 KiB). }
+  AllocSize := (Size + 4095) and not NativeUInt(4095);
+  Self.FExecutableSize := AllocSize;
+
+{$ifdef WINDOWS}
+  P := VirtualAlloc(nil, AllocSize, MEM_COMMIT or MEM_RESERVE, PAGE_READWRITE);
+
+  if P = nil then
+    RaiseLastOSError;
+
+  Move(Self.FCode.Ptr(0)^, P^, Size);
+  if not VirtualProtect(P, AllocSize, PAGE_EXECUTE_READ, OldProtect) then
+  begin
+    VirtualFree(P, 0, MEM_RELEASE);
+    RaiseLastOSError;
+  end;
+  FlushInstructionCache(GetCurrentProcess, P, Size);
+
+{$else}
+  { Unix / Linux path }
+  P := fpmmap(nil, AllocSize, PROT_READ or PROT_WRITE, MAP_PRIVATE or MAP_ANONYMOUS, -1, 0);
+
+  if P = MAP_FAILED then          { MAP_FAILED = Pointer(-1) }
+    RaiseLastOSError;
+
+  Move(Self.FCode.Ptr(0)^, P^, Size);
+  if FpMProtect(P, AllocSize, PROT_READ or PROT_EXEC) <> 0 then
+  begin
+    FpMunMap(P, AllocSize);
+    RaiseLastOSError;
+  end;
+  { Instruction cache is coherent on x86/x86-64; no explicit flush needed. }
+{$endif}
+
+  Result := P;
+end;
+
+{ ===================================================================== }
 
 {$ifdef SE_THREADS}
 threadvar
@@ -1581,10 +3797,23 @@ end;
 constructor TSEBinary.Create;
 begin
   inherited;
+  Self.JITBlockList := TSEJITBlockList.Create;
 end;
 
 destructor TSEBinary.Destroy;
+var
+  I: Integer;
 begin
+  for I := 0 to Self.JITBlockList.Count - 1 do
+  begin
+    {$ifdef WINDOWS}
+    VirtualFree(Self.JITBlockList.Ptr(I)^.Code, 0, MEM_RELEASE);
+    {$endif}
+    {$ifdef UNIX}
+    munmap(Self.JITBlockList.Ptr(I)^.Code, Self.JITBlockList.Ptr(I)^.CodeSize);
+    {$endif}
+  end;
+  Self.JITBlockList.Free;
   inherited;
 end;
 
@@ -4087,7 +6316,7 @@ end;
 function TSEValueMap.TryLock: Boolean;
 begin
   {$ifdef SE_THREADS}
-  Result := TryEnterCriticalSection(Self.FLock) <> 0;
+  Result := System.TryEnterCriticalSection(Self.FLock) <> 0;
   {$else}
   Result := True;
   {$endif}
@@ -4678,7 +6907,7 @@ begin
   if IsThread > 0 then
     Exit;
   {$ifdef SE_THREADS}
-  if TryEnterCriticalSection(CS) = 0 then
+  if System.TryEnterCriticalSection(CS) = 0 then
   begin
     Self.FTicks := GetTickCount64;
     Exit;
@@ -4907,7 +7136,6 @@ begin
     FreeAndNil(Self.Binaries.Value^.Data[I]);
   Self.Binaries.Alloc(1);
   Self.Binaries.Value^.Data[0] := TSEBinary.Create;
-  Self.IsComputedGotoPatched := False;
 end;
 
 procedure TSEValueArrayManaged.Alloc(const ASize: Cardinal);
@@ -5104,7 +7332,18 @@ begin
   Dec(Self.TrapPtr);
 end;
 
+var
+  PingCount: Integer = 0;
+
+procedure Ping(A: Int64);
+begin
+  Writeln('PING ', PingCount, ', ', A);
+  Inc(PingCount);
+end;
+
 procedure TSEVM.Exec;
+type
+  TSEJITCodeProc = procedure(A, B, C, D: Pointer);
 var
   A, B, C, V,
   OA, OB, OC, OV: PSEValue;
@@ -5122,6 +7361,7 @@ var
   FuncImport, P, PP, PC: Pointer;
   LineOfCode: TSELineOfCode;
   IsScriptException: Boolean = False;
+  CodeProc: TSEJITCodeProc;
 
   procedure GetLineOfCode;
   var
@@ -5549,14 +7789,14 @@ var
 {$ifdef SE_COMPUTED_GOTO}
   {$if defined(CPUX86_64) or defined(CPUi386)}
     {$define DispatchGoto :=
-      P := CodePtrLocal^.VarPointer;
+      P := DispatchTable[TSEOpcode(NativeUInt(CodePtrLocal^.VarPointer))];
       asm
         jmp P;
       end
     }
   {$elseif defined(CPUARM) or defined(CPUAARCH64)}
     {$define DispatchGoto :=
-      P := CodePtrLocal^.VarPointer;
+      P := DispatchTable[TSEOpcode(NativeUInt(CodePtrLocal^.VarPointer))];
       asm
         ldr x16,P
         br  x16
@@ -5581,25 +7821,25 @@ var
 
 label
   labelStart,
-  labelPushConst,
-  labelPushConstString,
-  labelPushGlobalVar,
-  labelPushLocalVar,
-  labelPushVar2,
-  labelPushArrayPop,
-  labelPopConst,
+  labelPushConst, labelPushConstEnd,
+  labelPushConstString, labelPushConstStringEnd,
+  labelPushGlobalVar, labelPushGlobalVarEnd,
+  labelPushLocalVar, labelPushLocalVarEnd,
+  labelPushVar2, labelPushVar2End,
+  labelPushArrayPop, labelPushArrayPopEnd,
+  labelPopConst, labelPopConstEnd,
   labelPopFrame,
-  labelAssignGlobalVar,
-  labelAssignGlobalArray,
-  labelAssignLocalVar,
-  labelAssignLocalArray,
+  labelAssignGlobalVar, labelAssignGlobalVarEnd,
+  labelAssignGlobalArray, labelAssignGlobalArrayEnd,
+  labelAssignLocalVar, labelAssignLocalVarEnd,
+  labelAssignLocalArray, labelAssignLocalArrayEnd,
   labelJumpEqualRel,
   labelJumpEqual1Rel,
   labelJumpUnconditionalRel,
   labelJumpEqualOrGreater2Rel,
   labelJumpEqualOrLesser2Rel,
 
-  labelOperatorInc,
+  labelOperatorInc, labelOperatorIncEnd,
 
   labelOperatorAdd0,
   labelOperatorMul0,
@@ -5646,21 +7886,22 @@ label
   labelCallImport,
   labelYield,
   labelHlt,
+
   {$ifdef UNIX}
   labelBlockCleanup,
   {$endif}
   labelPushTrap,
   labelPopTrap,
-  labelThrow;
+  labelThrow,
+  labelJITBlock,
+  labelJITBlockPotential;
 
-{$ifdef SE_COMPUTED_GOTO}
 var
   DispatchTable: array[TSEOpcode] of Pointer = (
     @labelPushConst,
     @labelPushConstString,
     @labelPushGlobalVar,
     @labelPushLocalVar,
-    @labelPushVar2,
     @labelPushArrayPop,
     @labelPopConst,
     @labelPopFrame,
@@ -5727,37 +7968,816 @@ var
     {$endif}
     @labelPushTrap,
     @labelPopTrap,
-    @labelThrow
+    @labelThrow,
+    @labelJITBlock,
+    @labelJITBlockPotential
   );
-{$endif}
 
-  // Prepare for direct threading
-  procedure ComputedGotoPatcher;
+  function JITHandler(IsRoot: Boolean; JitCodePtrLocal: PSEValue; E: TX64Emitter): Integer;
+  const
+    STATUS_OK = 0;
+    STATUS_OVERFLOW = 1;
+    STATUS_INVALID = 2;
   var
-    I, BIndex: NativeInt;
-    Binary: TSEBinary;
+    I, J, BIndex, BFinish: NativeInt;
     Op: TSEOpcode;
-  begin
-    {$ifndef SE_COMPUTED_GOTO}
-    Exit;
-    {$else}
-    if Self.IsComputedGotoPatched then
-      Exit;
-    for I := 0 to Length(Self.Binaries.Value^.Data) - 1 do
+    XMMStackPtr: Byte;
+    P: Pointer;
+    IsAssigned: Boolean;
+    JITBlock: TSEJITBlock;
+    LabelYes, LabelDone: TX64Label;
+    LastOpKind: TSEValueKind = sevkNull;
+
+    procedure GenPing(Reg: TX64Reg);
     begin
-      Binary := Self.Binaries.Value^.Data[I];
-      if Binary.IsComputedGotoPatched then
-        continue;
-      BIndex := 0;
-      while BIndex <= Binary.Count - 1 do
+      E.MovRegReg64(regRCX, Reg);
+      E.SubRegImm32(regRSP, 40);
+      E.CallAbsolute(regR9, @Ping);
+      E.AddRegImm32(regRSP, 40);
+    end;
+
+    procedure GenGetGlobalVariable(IsValueOnly: Boolean = True);
+    begin
+      { Load global variable index to R8 }
+      // mov r8, qword ptr [r15 + code[1].VarPointer]
+      E.MovRegImm64(regR8, SizeOf(TSEValue) * NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
+      { Load global variable to stack }
+        // movsd xmm?, qword ptr [r12 + r8 + .VarNumber]
+      E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.MemIndex(regR12, regR8, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
+      if not IsValueOnly then
+        { We get the address of the local variable }
+        E.LeaRegMem(regR8, E.MemIndex(regR12, regR8, 1, 0));
+      Inc(XMMStackPtr);
+    end;
+
+    procedure GenGetLocalVariable(IsValueOnly: Boolean = True);
+    begin
+      { R8 = current frame }
+      // mov r8, r11
+      E.MovRegReg64(regR8, regR11);
+      if NativeUInt(JitCodePtrLocal[BIndex + 2].VarPointer) <> 0 then
       begin
-        Op := TSEOpcode(NativeUInt(Binary.Ptr(BIndex)^.VarPointer));
-        Binary.Ptr(BIndex)^.VarPointer := DispatchTable[Op];
+        { R8 = current frame - relative index }
+        // sub r8, frame
+        E.SubRegImm32(regR8, NativeUInt(JitCodePtrLocal[BIndex + 2].VarPointer) * SizeOf(TSEFrame));
+      end;
+      { Load local vraiable index to RAX }
+      // mov rdx, code[1].VarPointer
+      E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer) * SizeOf(TSEValue));
+      { R8 = current frame's stack pointer }
+      // mov r8, qword ptr [r8 + .StackPtr]
+      E.MovReg64Mem(regR8, E.Mem(regR8, NativeUInt(@TSEFrame(nil^).StackPtr)));
+      if IsValueOnly then
+      { XMM? = local variable }
+      // movsd xmm?, qword ptr [r8 + rax + .VarNumber]
+      E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.MemIndex(regR8, regRAX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
+      if not IsValueOnly then
+        { We get the address of the local variable }
+        E.LeaRegMem(regR8, E.MemIndex(regR8, regRAX, 1, 0));
+      Inc(XMMStackPtr);
+    end;
+
+    procedure GenGetVariable(IsValueOnly: Boolean = True);
+    begin
+      if JitCodePtrLocal[BIndex + 2].VarPointer = Pointer(SE_REG_GLOBAL) then
+        GenGetGlobalVariable(IsValueOnly)
+      else
+        GenGetLocalVariable(IsValueOnly);
+    end;
+
+  begin
+    if IsRoot then
+      E := TX64Emitter.Create;
+    try
+      BIndex := 0;
+      BFinish := NativeInt(JitCodePtrLocal[1].VarPointer);
+
+      XMMStackPtr := 0;
+      Result := STATUS_OK;
+      IsAssigned := False;
+      if IsRoot then
+      begin
+        {$ifdef WINDOWS}
+        { R8, R9, R10 are for scratch }
+        // R15 = CodePtrLocal
+        E.MovReg64Mem(regR15, E.Mem(regRCX, 0));
+        { R13 = @StackPtr }
+        E.MovRegReg64(regR13, regRDX);
+        { R14 = StackPtr }
+        E.MovReg64Mem(regR14, E.Mem(regR13, 0));
+        { R12 = GlobalVar }
+        E.MovReg64Mem(regR12, E.Mem(regR8, 0));
+        { R11 = FramePtr}
+        E.MovReg64Mem(regR11, E.Mem(regR9, 0));
+        // R10 = @CodePtrLocal
+        E.MovRegReg64(regR10, regRCX);
+        {$else}
+        // R15 = CodePtrLocal
+        E.MovReg64Mem(regR15, E.Mem(regRDI, 0));
+        { R13 = @StackPtr }
+        E.MovRegReg64(regR13, regRSI);
+        { R14 = StackPtr }
+        E.MovReg64Mem(regR14, E.Mem(regR13, 0));
+        { R12 = GlobalVar }
+        E.MovReg64Mem(regR12, E.Mem(regRDX, 0));
+        { R11 = FramePtr}
+        E.MovReg64Mem(regR11, E.Mem(regRCX, 0));
+        // R10 = @CodePtrLocal
+        E.MovRegReg64(regR10, regRDI);
+        {$endif}
+      end;
+      { Move to the next opcode }
+      E.AddRegImm32(regR15, OpcodeSizes[opJITBlockPotential] * SizeOf(TSEValue));
+      //
+      BIndex := BIndex + OpcodeSizes[opJITBlockPotential];
+     // Writeln('JIT from ', BIndex, ' to ', BFinish);
+      while BIndex <= BFinish do
+      begin
+        if XMMStackPtr >= 14 then
+        begin
+          Result := STATUS_OVERFLOW;
+          break;
+        end;
+        Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
+       // Writeln(' - ', Op);
+        case Op of
+          opPushConst:
+            begin
+              E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.Mem(regR15, SizeOf(TSEValue) + NativeUInt(@TSEValue(nil^).VarNumber)));
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Inc(XMMStackPtr);
+            end;
+          opOperatorAdd:
+            begin
+              E.AddSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorSub:
+            begin
+              E.SubSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorMul:
+            begin
+              E.MulSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorDiv:
+            begin
+              E.DivSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorMod:
+            begin
+              // A - B * Trunc(A / B)
+              E.MovRegFromSDXMM(regRAX, TXMMReg(XMMStackPtr - 2));
+              // A / B
+              E.DivSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              // Trunc
+              E.RoundSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 2), 3);
+              // B * Trunc
+              E.MulSD(TXMMReg(XMMStackPtr - 1), TXMMReg(XMMStackPtr - 2));
+              // A - B
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr - 2), regRAX);
+              E.SubSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorNegative:
+            begin
+              // mov r8, @Negative2QWords
+              E.MovRegImm64(regRAX, NativeUInt(@Negative2QWords[0]));
+              // xorpd xmm?, [r8]
+              E.XorPDMem(TXMMReg(XMMStackPtr - 1), E.Mem(regRAX, 0));
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorAnd:
+            begin
+              E.CvttSD2SI(regRCX, TXMMReg(XMMStackPtr - 1));
+              E.CvttSD2SI(regRAX, TXMMReg(XMMStackPtr - 2));
+              E.AndRegReg(regRAX, regRCX);
+              E.CvtSI2SD(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorOr:
+            begin
+              E.CvttSD2SI(regRCX, TXMMReg(XMMStackPtr - 1));
+              E.CvttSD2SI(regRAX, TXMMReg(XMMStackPtr - 2));
+              E.OrRegReg(regRAX, regRCX);
+              E.CvtSI2SD(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorXor:
+            begin
+              E.CvttSD2SI(regRCX, TXMMReg(XMMStackPtr - 1));
+              E.CvttSD2SI(regRAX, TXMMReg(XMMStackPtr - 2));
+              E.XorRegReg(regRAX, regRCX);
+              E.CvtSI2SD(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorNot:
+            begin
+              E.MovRegImm64(regRCX, $7FFFFFFFFFFFFFFF);
+              E.CvttSD2SI(regRAX, TXMMReg(XMMStackPtr - 1));
+              E.NotReg(regRAX);
+              E.AndRegReg(regRAX, regRCX);
+              E.CvtSI2SD(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorShiftLeft:
+            begin
+              E.CvtSD2SI(regRCX, TXMMReg(XMMStackPtr - 1));
+              E.CvtSD2SI(regRAX, TXMMReg(XMMStackPtr - 2));
+              E.ShlRegCL(regRAX);
+              E.CvtSI2SD(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorShiftRight:
+            begin
+              E.CvtSD2SI(regRCX, TXMMReg(XMMStackPtr - 1));
+              E.CvtSD2SI(regRAX, TXMMReg(XMMStackPtr - 2));
+              E.ShrRegCL(regRAX);
+              E.CvtSI2SD(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorEqual:
+            begin
+              LabelDone := E.CreateLabel;
+              LabelYes := E.CreateLabel;
+              E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              E.Je(LabelYes);
+
+              E.XorRegReg(regRAX, regRAX);
+              E.Jmp(LabelDone);
+
+              E.BindLabel(LabelYes);
+              E.MovRegImm64(regRAX, $3FF0000000000000);
+
+              E.BindLabel(LabelDone);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkBoolean;
+            end;
+          opOperatorNotEqual:
+            begin
+              LabelDone := E.CreateLabel;
+              LabelYes := E.CreateLabel;
+              E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              E.Jne(LabelYes);
+
+              E.XorRegReg(regRAX, regRAX);
+              E.Jmp(LabelDone);
+
+              E.BindLabel(LabelYes);
+              E.MovRegImm64(regRAX, $3FF0000000000000);
+
+              E.BindLabel(LabelDone);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkBoolean;
+            end;
+          opOperatorGreater:
+            begin
+              LabelDone := E.CreateLabel;
+              LabelYes := E.CreateLabel;
+              E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              E.Ja(LabelYes);
+
+              E.XorRegReg(regRAX, regRAX);
+              E.Jmp(LabelDone);
+
+              E.BindLabel(LabelYes);
+              E.MovRegImm64(regRAX, $3FF0000000000000);
+
+              E.BindLabel(LabelDone);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkBoolean;
+            end;
+          opOperatorGreaterOrEqual:
+            begin
+              LabelDone := E.CreateLabel;
+              LabelYes := E.CreateLabel;
+              E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              E.Jae(LabelYes);
+
+              E.XorRegReg(regRAX, regRAX);
+              E.Jmp(LabelDone);
+
+              E.BindLabel(LabelYes);
+              E.MovRegImm64(regRAX, $3FF0000000000000);
+
+              E.BindLabel(LabelDone);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkBoolean;
+            end;
+          opOperatorLesser:
+            begin
+              LabelDone := E.CreateLabel;
+              LabelYes := E.CreateLabel;
+              E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              E.Jb(LabelYes);
+
+              E.XorRegReg(regRAX, regRAX);
+              E.Jmp(LabelDone);
+
+              E.BindLabel(LabelYes);
+              E.MovRegImm64(regRAX, $3FF0000000000000);
+
+              E.BindLabel(LabelDone);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkBoolean;
+            end;
+          opOperatorLesserOrEqual:
+            begin
+              LabelDone := E.CreateLabel;
+              LabelYes := E.CreateLabel;
+              E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              E.Jbe(LabelYes);
+
+              E.XorRegReg(regRAX, regRAX);
+              E.Jmp(LabelDone);
+
+              E.BindLabel(LabelYes);
+              E.MovRegImm64(regRAX, $3FF0000000000000);
+
+              E.BindLabel(LabelDone);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkBoolean;
+            end;
+
+          opOperatorAdd0:
+            begin
+              // mov rax, code[1].VarPointer
+              E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
+              // movq xmm, r8
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
+              Inc(XMMStackPtr);
+              { Add }
+              E.AddSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              Dec(XMMStackPtr);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorMul0:
+            begin
+              // mov rax, code[1].VarPointer
+              E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
+              // movq xmm, r8
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
+              Inc(XMMStackPtr);
+              { Mul }
+              E.MulSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              Dec(XMMStackPtr);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorDiv0:
+            begin
+              // mov rax, code[1].VarPointer
+              E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
+              // movq xmm, r8
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
+              Inc(XMMStackPtr);
+              { Div }
+              E.DivSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              Dec(XMMStackPtr);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorAnd0:
+            begin
+              // mov rax, code[1].VarNumber
+              E.MovRegImm64(regRAX, Trunc(JitCodePtrLocal[BIndex + 1].VarNumber));
+              E.CvttSD2SI(regRCX, TXMMReg(XMMStackPtr - 1));
+              { And }
+              E.AndRegReg(regRAX, regRCX);
+              E.CvtSI2SD(TXMMReg(XMMStackPtr - 1), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorOr0:
+            begin
+              // mov rax, code[1].VarNumber
+              E.MovRegImm64(regRAX, Trunc(JitCodePtrLocal[BIndex + 1].VarNumber));
+              E.CvttSD2SI(regRCX, TXMMReg(XMMStackPtr - 1));
+              { Or }
+              E.OrRegReg(regRAX, regRCX);
+              E.CvtSI2SD(TXMMReg(XMMStackPtr - 1), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorEqual0:
+            begin
+              LabelDone := E.CreateLabel;
+              LabelYes := E.CreateLabel;
+              E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
+              Inc(XMMStackPtr);
+
+              E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              E.Je(LabelYes);
+
+              E.XorRegReg(regRAX, regRAX);
+              E.Jmp(LabelDone);
+
+              E.BindLabel(LabelYes);
+              E.MovRegImm64(regRAX, $3FF0000000000000);
+
+              E.BindLabel(LabelDone);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkBoolean;
+            end;
+          opOperatorNotEqual0:
+            begin
+              LabelDone := E.CreateLabel;
+              LabelYes := E.CreateLabel;
+              E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
+              Inc(XMMStackPtr);
+
+              E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              E.Jne(LabelYes);
+
+              E.XorRegReg(regRAX, regRAX);
+              E.Jmp(LabelDone);
+
+              E.BindLabel(LabelYes);
+              E.MovRegImm64(regRAX, $3FF0000000000000);
+
+              E.BindLabel(LabelDone);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkBoolean;
+            end;
+          opOperatorGreater0:
+            begin
+              LabelDone := E.CreateLabel;
+              LabelYes := E.CreateLabel;
+              E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
+              Inc(XMMStackPtr);
+
+              E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              E.Ja(LabelYes);
+
+              E.XorRegReg(regRAX, regRAX);
+              E.Jmp(LabelDone);
+
+              E.BindLabel(LabelYes);
+              E.MovRegImm64(regRAX, $3FF0000000000000);
+
+              E.BindLabel(LabelDone);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkBoolean;
+            end;
+          opOperatorGreaterOrEqual0:
+            begin
+              LabelDone := E.CreateLabel;
+              LabelYes := E.CreateLabel;
+              E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
+              Inc(XMMStackPtr);
+
+              E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              E.Jae(LabelYes);
+
+              E.XorRegReg(regRAX, regRAX);
+              E.Jmp(LabelDone);
+
+              E.BindLabel(LabelYes);
+              E.MovRegImm64(regRAX, $3FF0000000000000);
+
+              E.BindLabel(LabelDone);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkBoolean;
+            end;
+          opOperatorLesser0:
+            begin
+              LabelDone := E.CreateLabel;
+              LabelYes := E.CreateLabel;
+              E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
+              Inc(XMMStackPtr);
+
+              E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              E.Jb(LabelYes);
+
+              E.XorRegReg(regRAX, regRAX);
+              E.Jmp(LabelDone);
+
+              E.BindLabel(LabelYes);
+              E.MovRegImm64(regRAX, $3FF0000000000000);
+
+              E.BindLabel(LabelDone);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkBoolean;
+            end;
+          opOperatorLesserOrEqual0:
+            begin
+              LabelDone := E.CreateLabel;
+              LabelYes := E.CreateLabel;
+              E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
+              Inc(XMMStackPtr);
+
+              E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              E.Jbe(LabelYes);
+
+              E.XorRegReg(regRAX, regRAX);
+              E.Jmp(LabelDone);
+
+              E.BindLabel(LabelYes);
+              E.MovRegImm64(regRAX, $3FF0000000000000);
+
+              E.BindLabel(LabelDone);
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr - 2), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Dec(XMMStackPtr);
+              LastOpKind := sevkBoolean;
+            end;
+
+          opOperatorInc:
+            begin
+              GenGetVariable(False);
+              E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 3].VarNumber));
+              E.MovSDXMMFromReg(regXMM1, regRAX);
+              { Add }
+              E.AddSD(regXMM0, regXMM1);
+              { Assign to address at R8 }
+              E.MovSDMemFromXMM(E.Mem(regR8, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM0);
+              { Mark as number }
+              E.MovRegImm32(regRAX, Cardinal(sevkNumber));
+              E.MovMem32Reg(E.Mem(regR8, NativeUInt(@TSEValue(nil^).Kind)), regRAX);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              IsAssigned := True;
+              break;
+            end;
+          opOperatorAdd1:
+            begin
+              GenGetVariable;
+              { Add }
+              E.AddSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              Dec(XMMStackPtr);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorSub1:
+            begin
+              GenGetVariable;
+              { Sub }
+              E.SubSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              Dec(XMMStackPtr);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorMul1:
+            begin
+              GenGetVariable;
+              { Mul }
+              E.MulSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              Dec(XMMStackPtr);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              LastOpKind := sevkNumber;
+            end;
+          opOperatorDiv1:
+            begin
+              GenGetVariable;
+              { Div }
+              E.DivSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
+              Dec(XMMStackPtr);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              LastOpKind := sevkNumber;
+            end;
+
+          opPushGlobalVar:
+            begin
+              { Load global variable index to R8 }
+              // mov rax, qword ptr [r15 + code[1]]
+              E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer) * SizeOf(TSEValue));
+              { Load global variable to stack }
+                // movsd xmm?, qword ptr [r12 + rax + .VarNumber]
+              E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.MemIndex(regR12, regRAX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              LastOpKind := sevkNumber;
+              Inc(XMMStackPtr);
+            end;
+          opPushLocalVar:
+            begin
+              { R8 = current frame }
+              // mov r8, r11
+              E.MovRegReg64(regR8, regR11);
+              if NativeUInt(JitCodePtrLocal[BIndex + 2].VarPointer) <> 0 then
+              begin
+                { R8 = current frame - relative index }
+                // sub r8, frame
+                E.SubRegImm32(regR8, NativeUInt(JitCodePtrLocal[BIndex + 2].VarPointer) * SizeOf(TSEFrame));
+              end;
+              { Load local vraiable index to RAX }
+              // mov rdx, code[1].VarPointer
+              E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer) * SizeOf(TSEValue));
+              { R8 = current frame's stack pointer }
+              // mov r8, qword ptr [r8 + .StackPtr]
+              E.MovReg64Mem(regR8, E.Mem(regR8, NativeUInt(@TSEFrame(nil^).StackPtr)));
+              { XMM? = local variable }
+              // mov xmm?, qword ptr [r8 + rax + .VarNumber]
+              E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.MemIndex(regR8, regRAX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Inc(XMMStackPtr);
+            end;
+          opAssignGlobalVar:
+            begin
+              if not (LastOpKind in [sevkBoolean, sevkNumber]) then
+              begin
+                Result := STATUS_INVALID;
+                break;
+              end;
+              { Load global variable index to R8 }
+              // mov r8, qword ptr [r15 + code[1]]
+              E.MovRegImm64(regR8, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer) * SizeOf(TSEValue));
+              { Assign value from stack to global variable }
+              // movsd qword ptr [r12 + r8 + .VarNumber], xmm0
+              E.MovSDMemFromXMM(E.MemIndex(regR12, regR8, 1, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM0);
+              { Mark as LastOpKind }
+              // mov dword ptr [r12 + r8 + .Kind], LastOpKind
+              E.MovMemImm32(E.MemIndex(regR12, regR8, 1, Cardinal(@TSEValue(nil^).Kind)), Cardinal(LastOpKind));
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              IsAssigned := True;
+              break;
+            end;
+          opAssignLocalVar:
+            begin
+              if not (LastOpKind in [sevkBoolean, sevkNumber]) then
+              begin
+                Result := STATUS_INVALID;
+                break;
+              end;
+              { R8 = current frame }
+              // mov r8, r11
+              E.MovRegReg64(regR8, regR11);
+              if NativeUInt(JitCodePtrLocal[BIndex + 2].VarPointer) <> 0 then
+              begin
+                { R8 = current frame - relative index }
+                // sub r8, frame
+                E.SubRegImm32(regR8, NativeUInt(JitCodePtrLocal[BIndex + 2].VarPointer) * SizeOf(TSEFrame));
+              end;
+              { Load local variable index to RAX }
+              // mov rdx, code[1].VarPointer
+              E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer) * SizeOf(TSEValue));
+              { R8 = current frame's stack pointer }
+              // mov r8, qword ptr [r8 + .StackPtr]
+              E.MovReg64Mem(regR8, E.Mem(regR8, NativeUInt(@TSEFrame(nil^).StackPtr)));
+              { R8 = local variable address }
+              // lea r8, qword ptr [r8 + rax]
+              E.LeaRegMem(regR8, E.MemIndex(regR8, regRAX, 1, 0));
+              { Assign value from stack to local variable }
+              // movsd qword ptr [r8 + .VarNumber], xmm0
+              E.MovSDMemFromXMM(E.Mem(regR8, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM0);
+              { Mark as LastOpKind }
+              // mov dword ptr [r8 + .Kind], LastOpKind
+              E.MovMemImm32(E.Mem(regR8, Cardinal(@TSEValue(nil^).Kind)), Cardinal(LastOpKind));
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              IsAssigned := True;
+              break;
+            end;
+          else
+            begin
+              Result := STATUS_INVALID;
+              break;
+              // TODO: Either roll back, or push the remaining XMM values to the stack and continue
+            end;
+        end;
         Inc(BIndex, OpcodeSizes[Op]);
       end;
-      Binary.IsComputedGotoPatched := True;
+      if not (LastOpKind in [sevkBoolean, sevkNumber]) then
+      begin
+        Result := STATUS_INVALID;
+      end;
+      if (Result = STATUS_INVALID) or (Result = STATUS_OVERFLOW) then
+      begin
+        JitCodePtrLocal[1] := nil;
+      end else
+      begin
+        if not IsAssigned then
+        begin
+          { Move XMM0 to the stack }
+          E.MovSDMemFromXMM(E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM0);
+          { Mark this as LastOpKind }
+          E.MovMemImm32(E.Mem(regR14, Cardinal(@TSEValue(nil^).Kind)), Cardinal(LastOpKind));
+          { Increase stack by 1 }
+          E.AddRegImm32(regR14, SizeOf(TSEValue));
+          E.MovMem64Reg(E.Mem(regR13, 0), regR14);
+        end;
+        { Increase CodePtr }
+        E.MovMem64Reg(E.Mem(regR10, 0), regR15);
+        // Check the next opcode to see if the next one is also a JITBlockPotential
+        Inc(BIndex, OpcodeSizes[Op]);
+        Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
+        if Op = opJITBlockPotential then
+        begin
+          Result := JITHandler(False, @JitCodePtrLocal[BIndex], E);
+        end;
+        //
+        if IsRoot then
+        begin
+          if (Result = STATUS_INVALID) or (Result = STATUS_OVERFLOW) then
+          begin
+            JitCodePtrLocal[1] := nil;
+          end else
+          begin
+            E.Ret;
+            // Patch the code to pass the memory block
+            JITBlock.Code := E.MakeExecutable;
+            JITBlock.CodeSize := E.ExecutableSize;
+            JitCodePtrLocal[0] := Pointer(opJITBlock);
+            JitCodePtrLocal[1] := JITBlock.Code;
+            Self.Binaries.Value^.Data[Self.CodeSegmentIndex].JITBlockList.Add(JITBlock);
+          end;
+        end;
+      end;
+    finally
+      if IsRoot then
+        E.Free;
     end;
-    {$endif}
   end;
 
 begin
@@ -5773,7 +8793,6 @@ begin
   else
     CodePtrLocal := Self.Binaries.Value^.Data[Self.CodeSegmentIndex].Ptr(0);
   GC.CheckForGC;
-  ComputedGotoPatcher;
 
 labelStart:
   while True do
@@ -5784,12 +8803,32 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}
       case TSEOpcode(NativeUInt(CodePtrLocal^.VarPointer)) of
       {$endif}
+      {$ifndef SE_COMPUTED_GOTO}opJITBlockPotential:{$endif}
+        begin
+        labelJITBlockPotential:
+          {$ifdef WINDOWS}
+          if CodePtrLocal[1].VarPointer <> nil then
+          begin
+            JITHandler(True, CodePtrLocal, nil);
+          end else
+          {$endif}
+            Inc(CodePtrLocal, 2);
+          DispatchGoto;
+        end;
+      {$ifndef SE_COMPUTED_GOTO}opJITBlock:{$endif}
+        begin
+        labelJITBlock:
+          CodeProc := TSEJITCodeProc(CodePtrLocal[1].VarPointer);// R15 = CodePtrLocal
+          CodeProc(@CodePtrLocal, @Self.StackPtr, @GlobalLocal, @Self.FramePtr);
+          DispatchGoto;
+        end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorInc:{$endif}
         begin
         labelOperatorInc:
           V  := GetVariable(CodePtrLocal[1].VarPointer, CodePtrLocal[2].VarPointer);
           V^.VarNumber := V^.VarNumber + CodePtrLocal[3].VarNumber;
           Inc(CodePtrLocal, 4);
+        labelOperatorIncEnd:
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorAdd0:{$endif}
@@ -6116,14 +9155,6 @@ labelStart:
         labelPushLocalVar:
           Push(GetLocal(CodePtrLocal[1].VarPointer, NativeInt(CodePtrLocal[2].VarPointer))^);
           Inc(CodePtrLocal, 3);
-          DispatchGoto;
-        end;
-      {$ifndef SE_COMPUTED_GOTO}opPushVar2:{$endif}
-        begin
-        labelPushVar2:
-          Push(GetVariable(CodePtrLocal[1].VarPointer, CodePtrLocal[3].VarPointer)^);
-          Push(GetVariable(CodePtrLocal[2].VarPointer, CodePtrLocal[4].VarPointer)^);
-          Inc(CodePtrLocal, 5);
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opPushArrayPop:{$endif}
@@ -6707,6 +9738,7 @@ begin
   Self.FuncImportList := TSEFuncImportList.Create;
   Self.ConstLookup := TSEConstLookup.Create;
   Self.ConstList := TSEValueList.Create;
+  Self.JITBlockSignatureStack := TSEJITBlockSignatureStack.Create;
   Self.ScopeStack := TSEScopeStack.Create;
   Self.ScopeFunc := TSEScopeStack.Create;
   Self.LineOfCodeList := TSELineOfCodeList.Create;
@@ -6719,6 +9751,7 @@ begin
   Self.OptimizeAsserts := True;
   Self.OptimizeConstantFolding := True;
   Self.OptimizePeephole := True;
+  Self.OptimizeJIT := True;
   //
   Self.TokenList.Capacity := 1024;
   Self.VarList.Capacity := 256;
@@ -6728,6 +9761,7 @@ begin
   Self.ScopeStack.Capacity := 16;
   Self.LineOfCodeList.Capacity := 1024;
   //
+  Self.JITBlockCount := $1FFFF;
   Self.VM.Parent := Self;
   if CommonNativeFuncList.Count = 0 then
   begin
@@ -6934,6 +9968,7 @@ begin
   FreeAndNil(Self.CurrentFileList);
   FreeAndNil(Self.LocalVarCountList);
   FreeAndNil(Self.GlobalVarSymbols);
+  FreeAndNil(Self.JITBlockSignatureStack);
   inherited;
 end;
 
@@ -7805,7 +10840,9 @@ var
     Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - Count, Count);
   end;
 
-  function CreateIdent(const Kind: TSEIdentKind; const Token: TSEToken; const IsUsed: Boolean; const IsConst: Boolean): TSEIdent; inline;
+  function CreateIdent(const Kind: TSEIdentKind; const Token: TSEToken; const IsUsed: Boolean; const IsConst: Boolean): PSEIdent; inline;
+  var
+    Ident: TSEIdent;
   begin
     if Kind = ikVariable then
     begin
@@ -7814,27 +10851,29 @@ var
       else
         Self.GlobalVarSymbols.Add(Token.Value);
     end;
-    Result.Kind := Kind;
-    Result.Ln := Token.Ln;
-    Result.Col := Token.Col;
-    Result.Name := Token.Value;
-    Result.Local := Self.FuncTraversal;
-    Result.Block := Self.BlockTraversal;
-    Result.IsUsed := IsUsed;
-    Result.IsConst := IsConst;
-    Result.ConstValue := SENull;
-    Result.IsAssigned := False;
-    Result.PossibleKinds := [];
-    if Result.Local > 0 then
+    Ident.Kind := Kind;
+    Ident.Ln := Token.Ln;
+    Ident.Col := Token.Col;
+    Ident.Name := Token.Value;
+    Ident.Local := Self.FuncTraversal;
+    Ident.Block := Self.BlockTraversal;
+    Ident.IsUsed := IsUsed;
+    Ident.IsConst := IsConst;
+    Ident.ConstValue := SENull;
+    Ident.IsAssigned := False;
+    Ident.PossibleKinds := [];
+    Ident.IsForcedKind := False;
+    if Ident.Local > 0 then
     begin
-      Result.Addr := Self.LocalVarCountList.Last;
+      Ident.Addr := Self.LocalVarCountList.Last;
       Self.LocalVarCountList[Self.LocalVarCountList.Count - 1] := Self.LocalVarCountList.Last + 1;
     end else
     begin
-      Result.Addr := Self.GlobalVarCount;
+      Ident.Addr := Self.GlobalVarCount;
       Inc(Self.GlobalVarCount);
     end;
-    Self.VarList.Add(Result);
+    Self.VarList.Add(Ident);
+    Result := Self.VarList.Ptr(Self.VarList.Count - 1);
   end;
 
   function CreateConstString(const S: String): Cardinal; inline;
@@ -7917,48 +10956,87 @@ var
       Result := Pointer(SE_REG_GLOBAL);
   end;
 
-  function PeepholePushVar2Optimization: Boolean;
-  var
-    A, B: TSEValue;
-    I: NativeInt;
-    P, PP: Pointer;
-    OpInfoPrev1,
-    OpInfoPrev2: PSEOpcodeInfo;
+  procedure UpdateIdentPossibleKinds(const Ident: PSEIdent; const PossibleKinds: TSEValueKindSet);
   begin
-    Result := False;
-    if not Self.OptimizePeephole then
+    if not Ident^.IsForcedKind then
+      Ident^.PossibleKinds := PossibleKinds;
+  end;
+
+  procedure MarkJITBlock;
+  begin
+    {$ifndef SE_HAS_JIT}
+    Exit;
+    {$endif}
+    if not Self.OptimizeJIT then
       Exit;
-    OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushGlobalVar, opPushLocalVar]);
-    OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushGlobalVar, opPushLocalVar]);
-    if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
+    Self.JITBlockSignatureStack.Push(Self.JITBlockCount);
+    Emit([Pointer(opJITBlockPotential), Pointer(Self.JITBlockCount)]);
+    Inc(Self.JITBlockCount);
+  end;
+
+  function VerifyJITBlock(const APossibleKinds: TSEValueKindSet; const AMinOpcodeCount: Integer = 2): TSEValueKindSet;
+  var
+    Sig: NativeInt;
+    BIndex, BIndex2, OpCount: NativeInt;
+    Op, Op2: TSEOpcode;
+    IsInvalidOpcode: Boolean = False;
+  begin
+    Result := APossibleKinds;
+    {$ifndef SE_HAS_JIT}
+    Exit;
+    {$endif}
+    if not Self.OptimizeJIT then
+      Exit;
+    Sig := Self.JITBlockSignatureStack.Pop;
+    BIndex := 0;
+    while BIndex <= Self.Binary.Count - 1 do
     begin
-      if (OpInfoPrev1^.Binary <> Pointer(Self.Binary)) or (OpInfoPrev2^.Binary <> Pointer(Self.Binary)) then
-        Exit;
-      if OpInfoPrev1^.Op = opPushLocalVar then
-        PP := Self.Binary[OpInfoPrev1^.Pos + 2].VarPointer
-      else
-        PP := Pointer(SE_REG_GLOBAL);
-      if OpInfoPrev2^.Op = opPushLocalVar then
-        P := Self.Binary[OpInfoPrev2^.Pos + 2].VarPointer
-      else
-        P := Pointer(SE_REG_GLOBAL);
-      A := Self.Binary[OpInfoPrev2^.Pos + 1];
-      B := Self.Binary[OpInfoPrev1^.Pos + 1];
-      Self.Binary.DeleteRange(Self.Binary.Count - (OpInfoPrev1^.Size + OpInfoPrev2^.Size), OpInfoPrev1^.Size + OpInfoPrev2^.Size);
-      Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 2);
-      Emit([Pointer(NativeInt(opPushVar2)), A.VarPointer, B.VarPointer, Pointer(P), Pointer(PP)]);
-      Result := True;
+      Op := TSEOpcode(NativeInt(Self.Binary.Ptr(BIndex)^.VarPointer));
+      if (Op = opJITBlockPotential) and (Self.Binary.Ptr(BIndex + 1)^.VarPointer = Pointer(Sig)) then
+      begin
+        OpCount := 0;
+        BIndex2 := BIndex + OpcodeSizes[Op];
+        //
+        while BIndex2 <= Self.Binary.Count - 1 do
+        begin
+          Op2 := TSEOpcode(NativeInt(Self.Binary.Ptr(BIndex2)^.VarPointer));
+          if not (Op2 in [
+            opPushConst, opPushGlobalVar, opPushLocalVar, opAssignGlobalVar, opAssignLocalVar,
+            opOperatorInc,
+            opOperatorNegative,
+            opOperatorAdd, opOperatorSub, opOperatorMul, opOperatorDiv, opOperatorMod,
+            opOperatorAdd0, opOperatorMul0, opOperatorDiv0,
+            opOperatorAdd1, opOperatorSub1, opOperatorMul1, opOperatorDiv1,
+            opOperatorEqual, opOperatorNotEqual, opOperatorGreater, opOperatorLesser, opOperatorGreaterOrEqual, opOperatorLesserOrEqual,
+            opOperatorEqual0, opOperatorNotEqual0, opOperatorGreater0, opOperatorLesser0, opOperatorGreaterOrEqual0, opOperatorLesserOrEqual0,
+            opOperatorAnd, opOperatorOr, opOperatorXor, opOperatorNot,
+            opOperatorAnd0, opOperatorOr0,
+            opOperatorShiftLeft, opOperatorShiftRight
+          ]) then
+            IsInvalidOpcode := True;
+          Inc(OpCount);
+          Inc(BIndex2, OpcodeSizes[Op2]);
+        end;
+        //
+        if ((APossibleKinds - [sevkNumber] = []) and (APossibleKinds - [sevkBoolean] = [])) or (OpCount < AMinOpcodeCount) or (IsInvalidOpcode) then
+        begin
+          Self.Binary.DeleteRange(BIndex, OpcodeSizes[Op]);
+        end else
+        begin
+          Self.Binary.Ptr(BIndex + 1)^.VarPointer := Pointer(Self.Binary.Count - 1 - BIndex);
+        end;
+        break;
+      end;
+      Inc(BIndex, OpcodeSizes[Op]);
     end;
   end;
 
-  function EmitPushVar(const Ident: TSEIdent; const IsPotentialRewind: Boolean = False): NativeInt; inline;
+  function EmitPushVar(const Ident: TSEIdent): NativeInt; inline;
   begin
     if Ident.Local > 0 then
       Result := Emit([Pointer(opPushLocalVar), Pointer(Ident.Addr), Pointer(Self.FuncTraversal - Ident.Local)])
     else
       Result := Emit([Pointer(opPushGlobalVar), Pointer(Ident.Addr)]);
-    if not IsPotentialRewind then
-      PeepholePushVar2Optimization;
   end;
 
   function EmitAssignVar(const Ident: TSEIdent): NativeInt; inline;
@@ -8073,6 +11151,10 @@ var
     Result := False;
     if not Self.OptimizePeephole then
       Exit;
+    {$ifdef SE_HAS_JIT}
+    if Self.OptimizeJIT then
+      Exit;
+    {$endif}
     OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushArrayPop]);
     OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushConst]);
     if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
@@ -8357,7 +11439,7 @@ var
       begin
         FuncRefToken.Value := '___f' + Self.InternalIdent;
         FuncRefToken.Kind := tkIdent;
-        FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False);
+        FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False)^;
       end;
     end;
 
@@ -8371,7 +11453,7 @@ var
       AssignReturnFuncRefStart := Self.Binary.Count;
       AssignReturnFuncRefOpStart := Self.OpcodeInfoList.Count;
       EmitAssignVar(FuncRefIdent);
-      EmitPushVar(FuncRefIdent, True);
+      EmitPushVar(FuncRefIdent);
       AssignReturnFuncRefEnd := Self.Binary.Count;
       AssignReturnFuncRefOpEnd := Self.OpcodeInfoList.Count;
       Inc(AssignReturnFuncRefCount);
@@ -8584,7 +11666,8 @@ var
             PushConstCount := 0;
             IsTailed := True;
             NextToken;
-            ParseExpr(False);
+            MarkJITBlock;
+            VerifyJITBlock(ParseExpr(False));
             NextTokenExpected([tkSquareBracketClose]);
             AllocFuncRef;
             AssignReturnFuncRef;
@@ -8635,7 +11718,7 @@ var
               IsFirst := False;
               EmitAssignVar(FuncRefIdent);
             end;
-            EmitPushVar(FuncRefIdent, True);
+            EmitPushVar(FuncRefIdent);
             Tail;
           end;
         end;
@@ -8658,7 +11741,7 @@ var
               begin
                 AllocFuncRef;
                 EmitAssignVar(FuncRefIdent);
-                EmitPushVar(FuncRefIdent, True);
+                EmitPushVar(FuncRefIdent);
                 FuncTail(False);
               end;
             end else
@@ -8723,8 +11806,9 @@ var
                             PushConstCount := 0;
                             IsTailed := True;
                             NextToken;
-                            EmitPushVar(Ident^, True);
-                            ParseExpr(False);
+                            EmitPushVar(Ident^);
+                            MarkJITBlock;
+                            VerifyJITBlock(ParseExpr(False));
                             Emit([Pointer(opPushArrayPop), SENull]);
                             PeepholeArrayAssignOptimization;
                             NextTokenExpected([tkSquareBracketClose]);
@@ -8738,7 +11822,7 @@ var
                             IsTailed := True;
                             NextToken;
                             Token2 := NextTokenExpected([tkIdent]);
-                            EmitPushVar(Ident^, True);
+                            EmitPushVar(Ident^);
                             Emit([Pointer(opPushArrayPop), CreateConstStringValue(Token2.Value)]);
                             Tail;
                             FuncTail;
@@ -8785,9 +11869,9 @@ var
                     Result := Result + [sevkMap];
                     FuncRefToken.Value := '___f' + Self.InternalIdent;
                     FuncRefToken.Kind := tkIdent;
-                    FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False);
+                    FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False)^;
                     EmitAssignVar(FuncRefIdent);
-                    EmitPushVar(FuncRefIdent, True);
+                    EmitPushVar(FuncRefIdent);
                     Tail;
                     FuncTail;
                   end;
@@ -8965,6 +12049,8 @@ var
     // Handle ternary
     if PeekAtNextToken.Kind = tkQuestion then
     begin
+      // We consider jump block as sevkFunction, this will hel the JIT to ignore generate code for the block...
+      Result := Result + [sevkFunction];
       NextToken;
       JumpExpr2 := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]);
       Result := Result + ParseExpr(False);
@@ -8994,13 +12080,14 @@ var
       NextToken;
     while not (Token.Kind = tkBracketClose) do
     begin
-      ParseExpr(True);
+      MarkJITBlock;
+      VerifyJITBlock(ParseExpr(True));
       Inc(ArgCount);
       Token := NextTokenExpected([tkComma, tkBracketClose]);
     end;
     // Allocate stack for this
     if ThisRefIdent <> nil then
-      EmitPushVar(ThisRefIdent^, True)
+      EmitPushVar(ThisRefIdent^)
     else
     begin
       This := FindVar('self');
@@ -9011,7 +12098,7 @@ var
     end;
     // Push map to stack
     Rewind(RewindStartAdd, RewindCount);
-    EmitPushVar(Ident, True);
+    EmitPushVar(Ident);
     Emit([Pointer(opCallRef), Pointer(0), Pointer(ArgCount), Pointer(DeepCount)]);
     if PeekAtNextToken.Kind = tkBracketOpen then
       ParseFuncRefCall;
@@ -9027,7 +12114,7 @@ var
   begin
     FuncToken.Value := '___fn' + Self.InternalIdent;
     FuncToken.Kind := tkIdent;
-    FuncIdent := CreateIdent(ikVariable, FuncToken, True, False);
+    FuncIdent := CreateIdent(ikVariable, FuncToken, True, False)^;
     EmitAssignVar(FuncIdent);
     NextTokenExpected([tkBracketOpen]);
     // Allocate stack for result
@@ -9037,13 +12124,14 @@ var
       NextToken;
     while not (Token.Kind = tkBracketClose) do
     begin
-      ParseExpr(True);
+      MarkJITBlock;
+      VerifyJITBlock(ParseExpr(True));
       Inc(ArgCount);
       Token := NextTokenExpected([tkComma, tkBracketClose]);
     end;
     // Allocate stack for this
     if ThisRefIdent <> nil then
-      EmitPushVar(ThisRefIdent^, True)
+      EmitPushVar(ThisRefIdent^)
     else
     begin
       This := FindVar('self');
@@ -9072,7 +12160,8 @@ var
       NextToken;
     while not (Token.Kind = tkBracketClose) do
     begin
-      ParseExpr(True);
+      MarkJITBlock;
+      VerifyJITBlock(ParseExpr(True));
       Inc(ArgCount);
       Token := NextTokenExpected([tkComma, tkBracketClose]);
     end;
@@ -9130,7 +12219,8 @@ var
       NextTokenExpected([tkBracketOpen]);
       for I := 0 to DefinedArgCount - 1 do
       begin
-        ParseExpr(True);
+        MarkJITBlock;
+        VerifyJITBlock(ParseExpr(True));
         if I < DefinedArgCount - 1 then
           NextTokenExpected([tkComma]);
         Inc(ArgCount);
@@ -9143,7 +12233,8 @@ var
       if PeekAtNextToken.Kind <> tkBracketClose then
       begin
         repeat
-          ParseExpr(True);
+          MarkJITBlock;
+          VerifyJITBlock(ParseExpr(True));
           Inc(ArgCount);
           Token := NextTokenExpected([tkComma, tkBracketClose]);
           if (Token.Kind = tkComma) and (PeekAtNextToken.Kind = tkBracketClose) then
@@ -9187,7 +12278,9 @@ var
     ParentBinaryPos: NativeInt;
     VarSymbols: TStrings;
     This: PSEIdent;
+    Ident: PSEIdent;
     HasOverride: Boolean = False;
+    KindName: String;
   begin
     ReturnList := TList.Create;
     VarSymbols := TStringList.Create;
@@ -9224,6 +12317,51 @@ var
         begin
           Token := NextTokenExpected([tkIdent]);
           CreateIdent(ikVariable, Token, False, False);
+          if PeekAtNextToken.kind = tkColon then
+          begin
+            NextToken;
+            KindName := NextTokenExpected([tkIdent]).Value;
+            Ident := Self.VarList.Ptr(Self.VarList.Count - 1);
+            case KindName of
+              'any':
+                begin
+                  Ident^.IsForcedKind := False;
+                  Ident^.PossibleKinds := [sevkMap];
+                end;
+              'number':
+                begin
+                  Ident^.IsForcedKind := True;
+                  Ident^.PossibleKinds := [sevkNumber];
+                end;
+              'map':
+                begin
+                  Ident^.IsForcedKind := True;
+                  Ident^.PossibleKinds := [sevkMap];
+                end;
+              'string':
+                begin
+                  Ident^.IsForcedKind := True;
+                  Ident^.PossibleKinds := [sevkString];
+                end;
+              'boolean':
+                begin
+                  Ident^.IsForcedKind := True;
+                  Ident^.PossibleKinds := [sevkBoolean];
+                end;
+              'pasobject':
+                begin
+                  Ident^.IsForcedKind := True;
+                  Ident^.PossibleKinds := [sevkPascalObject];
+                end;
+              'function':
+                begin
+                  Ident^.IsForcedKind := True;
+                  Ident^.PossibleKinds := [sevkFunction];
+                end;
+              else
+                Error(Format('Unknown type "%s"', [Name]), PeekAtNextToken);
+            end;
+          end;
           Inc(ArgCount);
         end;
         Token := NextTokenExpected([tkComma, tkBracketClose]);
@@ -9473,18 +12611,26 @@ var
       if IsComparison then
       begin
         OpCount := Self.OpcodeInfoList.Count;
-        ParseExpr(False);
-        if (Self.OptimizePeephole) and
-           ((Self.OpcodeInfoList.Count - OpCount) = 1) and
-           (Self.OpcodeInfoList[OpCount].Op = opPushConst) and
-           (Self.Binary[Self.OpcodeInfoList[OpCount].Pos + 1].VarNumber <> 0) then
+        if Self.OptimizeJIT then
         begin
-          Self.Binary.DeleteRange(Self.Binary.Count - 2, 2);
-          Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 1, 1);
-          IsComparison := False;
+          MarkJITBlock;
+          VerifyJITBlock(ParseExpr(False));
+          JumpEnd := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]);
         end else
         begin
-          JumpEnd := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]);
+          ParseExpr(False);
+          if (Self.OptimizePeephole) and
+            ((Self.OpcodeInfoList.Count - OpCount) = 1) and
+            (Self.OpcodeInfoList[OpCount].Op = opPushConst) and
+            (Self.Binary[Self.OpcodeInfoList[OpCount].Pos + 1].VarNumber <> 0) then
+          begin
+            Self.Binary.DeleteRange(Self.Binary.Count - 2, 2);
+            Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 1, 1);
+            IsComparison := False;
+          end else
+          begin
+            JumpEnd := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]);
+          end;
         end;
       end;
       ParseBlock;
@@ -9530,18 +12676,26 @@ var
       if IsComparison then
       begin
         OpCount := Self.OpcodeInfoList.Count;
-        ParseExpr(False);
-        if (Self.OptimizePeephole) and
-           ((Self.OpcodeInfoList.Count - OpCount) = 1) and
-           (Self.OpcodeInfoList[OpCount].Op = opPushConst) and
-           (Self.Binary[Self.OpcodeInfoList[OpCount].Pos + 1].VarNumber <> 0) then
+        if Self.OptimizeJIT then
         begin
-          Self.Binary.DeleteRange(Self.Binary.Count - 2, 2);
-          Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 1, 1);
-          IsComparison := False;
+          MarkJITBlock;
+          VerifyJITBlock(ParseExpr(False));
+          JumpEnd := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]);
         end else
         begin
-          JumpEnd := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]);
+          ParseExpr(False);
+          if (Self.OptimizePeephole) and
+            ((Self.OpcodeInfoList.Count - OpCount) = 1) and
+            (Self.OpcodeInfoList[OpCount].Op = opPushConst) and
+            (Self.Binary[Self.OpcodeInfoList[OpCount].Pos + 1].VarNumber <> 0) then
+          begin
+            Self.Binary.DeleteRange(Self.Binary.Count - 2, 2);
+            Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 1, 1);
+            IsComparison := False;
+          end else
+          begin
+            JumpEnd := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]);
+          end;
         end;
       end;
       JumpBlock := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
@@ -9572,6 +12726,7 @@ var
     ContinueList: TList;
     I: NativeInt;
     Token: TSEToken;
+    PIdent: PSEIdent;
     VarIdent,
     VarHiddenTargetIdent,
     VarHiddenCountIdent,
@@ -9592,7 +12747,10 @@ var
       // FIXME: tkVariable?
       if Token.Kind = tkIdent then
       begin
-        VarIdent := CreateIdent(ikVariable, Token, True, False);
+        PIdent := CreateIdent(ikVariable, Token, True, False);
+        VarIdent := PIdent^;
+        PIdent^.IsForcedKind := True;
+        PIdent^.PossibleKinds := [sevkNumber];
       end else
       begin
         VarIdent := FindVar(Token.Value)^;
@@ -9601,7 +12759,7 @@ var
 
       VarHiddenTargetName := '___t' + VarIdent.Name;
       Token.Value := VarHiddenTargetName;
-      VarHiddenTargetIdent := CreateIdent(ikVariable, Token, True, False);
+      VarHiddenTargetIdent := CreateIdent(ikVariable, Token, True, False)^;
 
       if Token.Kind = tkEqual then
       begin
@@ -9654,10 +12812,15 @@ var
         end else
           VarHiddenCountName := '___c' + VarIdent.Name;
         VarHiddenArrayName := '___a' + VarIdent.Name;
+
         Token.Value := VarHiddenCountName;
-        VarHiddenCountIdent := CreateIdent(ikVariable, Token, True, False);
+        PIdent := CreateIdent(ikVariable, Token, True, False);
+        VarHiddenCountIdent := PIdent^;
+        PIdent^.IsForcedKind := True;
+        PIdent^.PossibleKinds := [sevkNumber];
+
         Token.Value := VarHiddenArrayName;
-        VarHiddenArrayIdent := CreateIdent(ikVariable, Token, True, False);
+        VarHiddenArrayIdent := CreateIdent(ikVariable, Token, True, False)^;
 
         ParseExpr(False);
 
@@ -9748,9 +12911,10 @@ var
   begin
     Token.Kind := tkIdent;
     Token.Value := '___s' + Self.InternalIdent;
-    VarHiddenIdent := CreateIdent(ikVariable, Token, True, False);
+    VarHiddenIdent := CreateIdent(ikVariable, Token, True, False)^;
 
-    ParseExpr(False);
+    MarkJITBlock;
+    VerifyJITBlock(ParseExpr(False));
     EmitAssignVar(VarHiddenIdent);
 
     NextTokenExpected([tkBegin]);
@@ -9764,7 +12928,8 @@ var
         Token := NextToken;
         if Token.Kind = tkCase then
         begin
-          ParseExpr(False);
+          MarkJITBlock;
+          VerifyJITBlock(ParseExpr(False));
           EmitPushVar(VarHiddenIdent);
           JumpBlock1 := Emit([Pointer(opJumpEqualRel), Pointer(0)]);
           JumpBlock2 := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
@@ -9851,7 +13016,7 @@ var
       AssignReturnFuncRefStart := Self.Binary.Count;
       AssignReturnFuncRefOpStart := Self.OpcodeInfoList.Count;
       EmitAssignVar(FuncRefIdent);
-      EmitPushVar(FuncRefIdent, True);
+      EmitPushVar(FuncRefIdent);
       AssignReturnFuncRefEnd := Self.Binary.Count;
       AssignReturnFuncRefOpEnd := Self.OpcodeInfoList.Count;
       Inc(AssignReturnFuncRefCount);
@@ -9864,7 +13029,7 @@ var
       begin
         FuncRefToken.Value := '___f' + Self.InternalIdent;
         FuncRefToken.Kind := tkIdent;
-        FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False);
+        FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False)^;
       end;
       AssignReturnFuncRef;
       while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
@@ -9916,31 +13081,79 @@ var
     AccessNumber: TSEValue;
     AccessString: String;
     OpInfoPrev1: PSEOpcodeInfo;
+    KindName: String;
   begin
     Ident := FindVar(Name);
     if Ident^.IsAssigned and Ident^.IsConst then
       Error(Format('Cannot reassign value to constant "%s"', [Name]), PeekAtNextToken);
       RewindStartAddr := Self.Binary.Count;
     VarStartTokenPos := Pos;
-    while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
+    if PeekAtNextToken.kind = tkColon then
     begin
-      if IsNew then
-        Error(Format('Variable "%s" is not an array / a map', [Name]), PeekAtNextToken);
-      case PeekAtNextToken.Kind of
-        tkSquareBracketOpen:
+      NextToken;
+      KindName := NextTokenExpected([tkIdent]).Value;
+      case KindName of
+        'any':
           begin
-            NextToken;
-            ParseExpr(False);
-            NextTokenExpected([tkSquareBracketClose]);
+            Ident^.IsForcedKind := False;
+            Ident^.PossibleKinds := [sevkMap];
           end;
-        tkDot:
+        'number':
           begin
-            NextToken;
-            Token2 := NextTokenExpected([tkIdent]);
-            Emit([Pointer(opPushConst), CreateConstStringValue(Token2.Value)]);
+            Ident^.IsForcedKind := True;
+            Ident^.PossibleKinds := [sevkNumber];
           end;
+        'map':
+          begin
+            Ident^.IsForcedKind := True;
+            Ident^.PossibleKinds := [sevkMap];
+          end;
+        'string':
+          begin
+            Ident^.IsForcedKind := True;
+            Ident^.PossibleKinds := [sevkString];
+          end;
+        'boolean':
+          begin
+            Ident^.IsForcedKind := True;
+            Ident^.PossibleKinds := [sevkBoolean];
+          end;
+        'pasobject':
+          begin
+            Ident^.IsForcedKind := True;
+            Ident^.PossibleKinds := [sevkPascalObject];
+          end;
+        'function':
+          begin
+            Ident^.IsForcedKind := True;
+            Ident^.PossibleKinds := [sevkFunction];
+          end;
+        else
+          Error(Format('Unknown type "%s"', [Name]), PeekAtNextToken);
       end;
-      Inc(ArgCount);
+    end else
+    begin
+      while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
+      begin
+        if IsNew then
+          Error(Format('Variable "%s" is not an array / a map', [Name]), PeekAtNextToken);
+        case PeekAtNextToken.Kind of
+          tkSquareBracketOpen:
+            begin
+              NextToken;
+              MarkJITBlock;
+              VerifyJITBlock(ParseExpr(False));
+              NextTokenExpected([tkSquareBracketClose]);
+            end;
+          tkDot:
+            begin
+              NextToken;
+              Token2 := NextTokenExpected([tkIdent]);
+              Emit([Pointer(opPushConst), CreateConstStringValue(Token2.Value)]);
+            end;
+        end;
+        Inc(ArgCount);
+      end;
     end;
 
     Token := PeekAtNextTokenExpected([tkEqual, tkOpAssign, tkBracketOpen]);
@@ -9950,6 +13163,7 @@ var
         begin
           VarEndTokenPos := Pos;
           NextToken;
+          MarkJITBlock;
           if Token.Kind = tkOpAssign then
           begin
             if ArgCount > 0 then
@@ -9960,11 +13174,11 @@ var
                 Self.TokenList.Insert(J, Self.TokenList[I]);
                 Inc(J);
               end;
-              Ident^.PossibleKinds := Ident^.PossibleKinds + ParseExpr(False);
+              UpdateIdentPossibleKinds(Ident, ParseExpr(False));
             end else
               EmitPushVar(Ident^);
           end;
-          Ident^.PossibleKinds := Ident^.PossibleKinds + ParseExpr(False);
+          UpdateIdentPossibleKinds(Ident, ParseExpr(False));
           if Token.Kind = tkOpAssign then
           begin
             case Token.Value of
@@ -9983,11 +13197,14 @@ var
             end;
           end;
           if ArgCount > 0 then
-            EmitAssignArray(Ident^, ArgCount)
-          else
+          begin
+            VerifyJITBlock(Ident^.PossibleKinds);
+            EmitAssignArray(Ident^, ArgCount);
+          end else
           begin
             EmitAssignVar(Ident^);
             PeepholeIncOptimization;
+            VerifyJITBlock(Ident^.PossibleKinds, 3);
           end;
         end;
       tkBracketOpen:
@@ -10024,7 +13241,7 @@ var
     PVarIdent := FindVar(Token.Value);
     if PVarIdent = nil then
     begin
-      VarIdent := CreateIdent(ikVariable, Token, True, False);
+      VarIdent := CreateIdent(ikVariable, Token, True, False)^;
       EmitAssignVar(VarIdent);
     end else
       EmitAssignVar(PVarIdent^);
@@ -10568,7 +13785,7 @@ begin
   FuncNativeInfo.ArgCount := ArgCount;
   FuncNativeInfo.Func := Func;
   FuncNativeInfo.Name := Name;
-  FuncNativeInfo.PossibleKinds := [sevkNumber, sevkString, sevkNull, sevkMap];
+  FuncNativeInfo.PossibleKinds := [sevkNumber, sevkString, sevkNull, sevkMap, sevkFunction];
   Self.FuncNativeList.Add(FuncNativeInfo);
 end;
 
@@ -10600,7 +13817,7 @@ begin
   FuncScriptInfo.CodeSegmentIndex := Self.VM.Binaries.Value^.Size - 1;
   FuncScriptInfo.Name := Name;
   FuncScriptInfo.VarSymbols := TStringList.Create;
-  FuncScriptInfo.PossibleKinds := [sevkNumber, sevkString, sevkNull, sevkMap];
+  FuncScriptInfo.PossibleKinds := [sevkNumber, sevkString, sevkNull, sevkMap, sevkFunction];
   FuncScriptInfo.HasSelf := True;
   FuncScriptInfo.HasOverride := IsOverride;
   Self.FuncScriptList.Add(FuncScriptInfo);
@@ -10637,7 +13854,7 @@ begin
   FuncImportInfo.Name := Name;
   FuncImportInfo.Func := nil;
   FuncImportInfo.CallingConvention := CC;
-  FuncImportInfo.PossibleKinds := [sevkNumber, sevkString, sevkNull, sevkMap];
+  FuncImportInfo.PossibleKinds := [sevkNumber, sevkString, sevkNull, sevkMap, sevkFunction];
   if Lib <> 0 then
   begin
     FuncImportInfo.Func := GetProcAddress(Lib, ActualName);

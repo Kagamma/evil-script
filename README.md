@@ -13,6 +13,10 @@ Enable `SE_LIBFFI` if you need to call external functions from DLLs/SOs.
 #### Running
 - `evil examples/hello.evil`
 
+#### Performance
+- The interpreter uses indirect threading. It compares well to CPython in most cases.
+- On x86-64 CPUs, the interpreter supports JIT compilation. This makes it much faster than pure interpreter mode for number crunching.
+
 #### How to embedded into applications
 - See `Test.pas` and `evil.pas` source code
 - Also see https://github.com/Kagamma/evil-script/tree/main/docs/how-to-use.md
