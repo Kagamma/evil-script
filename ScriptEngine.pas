@@ -799,6 +799,7 @@ type
 
   TSEIdent = record
     PossibleKinds: TSEValueKindSet;
+    IsForcedKind: Boolean;
     Kind: TSEIdentKind;
     Addr: NativeInt;
     IsUsed: Boolean;
@@ -7980,7 +7981,7 @@ var
     P: Pointer;
     IsAssigned: Boolean;
     JITBlock: TSEJITBlock;
-    LabelYes, LabelNo, LabelDone: TX64Label;
+    LabelYes, LabelDone: TX64Label;
     LastOpKind: TSEValueKind;
 
     procedure GenPing(Reg: TX64Reg);
@@ -8084,7 +8085,7 @@ var
       E.AddRegImm32(regR15, OpcodeSizes[opJITBlockPotential] * SizeOf(TSEValue));
       //
       BIndex := BIndex + OpcodeSizes[opJITBlockPotential];
-      //Writeln('JIT from ', BIndex, ' to ', BFinish);
+      Writeln('JIT from ', BIndex, ' to ', BFinish);
       while BIndex <= BFinish do
       begin
         if XMMStackPtr >= 14 then
@@ -8093,7 +8094,7 @@ var
           break;
         end;
         Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
-        //Writeln(' - ', Op);
+        Writeln(' - ', Op);
         case Op of
           opPushConst:
             begin
@@ -8215,7 +8216,7 @@ var
           opOperatorEqual:
             begin
               LabelDone := E.CreateLabel;
-              LabelNo := E.CreateLabel;
+              LabelYes := E.CreateLabel;
               E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
               E.Je(LabelYes);
 
@@ -8235,7 +8236,7 @@ var
           opOperatorNotEqual:
             begin
               LabelDone := E.CreateLabel;
-              LabelNo := E.CreateLabel;
+              LabelYes := E.CreateLabel;
               E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
               E.Jne(LabelYes);
 
@@ -8255,7 +8256,7 @@ var
           opOperatorGreater:
             begin
               LabelDone := E.CreateLabel;
-              LabelNo := E.CreateLabel;
+              LabelYes := E.CreateLabel;
               E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
               E.Ja(LabelYes);
 
@@ -8275,7 +8276,7 @@ var
           opOperatorGreaterOrEqual:
             begin
               LabelDone := E.CreateLabel;
-              LabelNo := E.CreateLabel;
+              LabelYes := E.CreateLabel;
               E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
               E.Jae(LabelYes);
 
@@ -8295,7 +8296,7 @@ var
           opOperatorLesser:
             begin
               LabelDone := E.CreateLabel;
-              LabelNo := E.CreateLabel;
+              LabelYes := E.CreateLabel;
               E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
               E.Jb(LabelYes);
 
@@ -8315,7 +8316,7 @@ var
           opOperatorLesserOrEqual:
             begin
               LabelDone := E.CreateLabel;
-              LabelNo := E.CreateLabel;
+              LabelYes := E.CreateLabel;
               E.ComISD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
               E.Jbe(LabelYes);
 
@@ -8402,7 +8403,7 @@ var
           opOperatorEqual0:
             begin
               LabelDone := E.CreateLabel;
-              LabelNo := E.CreateLabel;
+              LabelYes := E.CreateLabel;
               E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
               E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
               Inc(XMMStackPtr);
@@ -8426,7 +8427,7 @@ var
           opOperatorNotEqual0:
             begin
               LabelDone := E.CreateLabel;
-              LabelNo := E.CreateLabel;
+              LabelYes := E.CreateLabel;
               E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
               E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
               Inc(XMMStackPtr);
@@ -8450,7 +8451,7 @@ var
           opOperatorGreater0:
             begin
               LabelDone := E.CreateLabel;
-              LabelNo := E.CreateLabel;
+              LabelYes := E.CreateLabel;
               E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
               E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
               Inc(XMMStackPtr);
@@ -8474,7 +8475,7 @@ var
           opOperatorGreaterOrEqual0:
             begin
               LabelDone := E.CreateLabel;
-              LabelNo := E.CreateLabel;
+              LabelYes := E.CreateLabel;
               E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
               E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
               Inc(XMMStackPtr);
@@ -8498,7 +8499,7 @@ var
           opOperatorLesser0:
             begin
               LabelDone := E.CreateLabel;
-              LabelNo := E.CreateLabel;
+              LabelYes := E.CreateLabel;
               E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
               E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
               Inc(XMMStackPtr);
@@ -8522,7 +8523,7 @@ var
           opOperatorLesserOrEqual0:
             begin
               LabelDone := E.CreateLabel;
-              LabelNo := E.CreateLabel;
+              LabelYes := E.CreateLabel;
               E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
               E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
               Inc(XMMStackPtr);
@@ -10813,7 +10814,9 @@ var
     Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - Count, Count);
   end;
 
-  function CreateIdent(const Kind: TSEIdentKind; const Token: TSEToken; const IsUsed: Boolean; const IsConst: Boolean): TSEIdent; inline;
+  function CreateIdent(const Kind: TSEIdentKind; const Token: TSEToken; const IsUsed: Boolean; const IsConst: Boolean): PSEIdent; inline;
+  var
+    Ident: TSEIdent;
   begin
     if Kind = ikVariable then
     begin
@@ -10822,27 +10825,29 @@ var
       else
         Self.GlobalVarSymbols.Add(Token.Value);
     end;
-    Result.Kind := Kind;
-    Result.Ln := Token.Ln;
-    Result.Col := Token.Col;
-    Result.Name := Token.Value;
-    Result.Local := Self.FuncTraversal;
-    Result.Block := Self.BlockTraversal;
-    Result.IsUsed := IsUsed;
-    Result.IsConst := IsConst;
-    Result.ConstValue := SENull;
-    Result.IsAssigned := False;
-    Result.PossibleKinds := [];
-    if Result.Local > 0 then
+    Ident.Kind := Kind;
+    Ident.Ln := Token.Ln;
+    Ident.Col := Token.Col;
+    Ident.Name := Token.Value;
+    Ident.Local := Self.FuncTraversal;
+    Ident.Block := Self.BlockTraversal;
+    Ident.IsUsed := IsUsed;
+    Ident.IsConst := IsConst;
+    Ident.ConstValue := SENull;
+    Ident.IsAssigned := False;
+    Ident.PossibleKinds := [];
+    Ident.IsForcedKind := False;
+    if Ident.Local > 0 then
     begin
-      Result.Addr := Self.LocalVarCountList.Last;
+      Ident.Addr := Self.LocalVarCountList.Last;
       Self.LocalVarCountList[Self.LocalVarCountList.Count - 1] := Self.LocalVarCountList.Last + 1;
     end else
     begin
-      Result.Addr := Self.GlobalVarCount;
+      Ident.Addr := Self.GlobalVarCount;
       Inc(Self.GlobalVarCount);
     end;
-    Self.VarList.Add(Result);
+    Self.VarList.Add(Ident);
+    Result := Self.VarList.Ptr(Self.VarList.Count - 1);
   end;
 
   function CreateConstString(const S: String): Cardinal; inline;
@@ -10923,6 +10928,12 @@ var
       Result := Pointer(Self.FuncTraversal - Ident.Local)
     else
       Result := Pointer(SE_REG_GLOBAL);
+  end;
+
+  procedure UpdateIdentPossibleKinds(const Ident: PSEIdent; const PossibleKinds: TSEValueKindSet);
+  begin
+    if not Ident^.IsForcedKind then
+      Ident^.PossibleKinds := PossibleKinds;
   end;
 
   procedure MarkJITBlock;
@@ -11388,7 +11399,7 @@ var
       begin
         FuncRefToken.Value := '___f' + Self.InternalIdent;
         FuncRefToken.Kind := tkIdent;
-        FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False);
+        FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False)^;
       end;
     end;
 
@@ -11615,7 +11626,8 @@ var
             PushConstCount := 0;
             IsTailed := True;
             NextToken;
-            ParseExpr(False);
+            MarkJITBlock;
+            VerifyJITBlock(ParseExpr(False));
             NextTokenExpected([tkSquareBracketClose]);
             AllocFuncRef;
             AssignReturnFuncRef;
@@ -11755,7 +11767,8 @@ var
                             IsTailed := True;
                             NextToken;
                             EmitPushVar(Ident^);
-                            ParseExpr(False);
+                            MarkJITBlock;
+                            VerifyJITBlock(ParseExpr(False));
                             Emit([Pointer(opPushArrayPop), SENull]);
                             PeepholeArrayAssignOptimization;
                             NextTokenExpected([tkSquareBracketClose]);
@@ -11816,7 +11829,7 @@ var
                     Result := Result + [sevkMap];
                     FuncRefToken.Value := '___f' + Self.InternalIdent;
                     FuncRefToken.Kind := tkIdent;
-                    FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False);
+                    FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False)^;
                     EmitAssignVar(FuncRefIdent);
                     EmitPushVar(FuncRefIdent);
                     Tail;
@@ -12061,7 +12074,7 @@ var
   begin
     FuncToken.Value := '___fn' + Self.InternalIdent;
     FuncToken.Kind := tkIdent;
-    FuncIdent := CreateIdent(ikVariable, FuncToken, True, False);
+    FuncIdent := CreateIdent(ikVariable, FuncToken, True, False)^;
     EmitAssignVar(FuncIdent);
     NextTokenExpected([tkBracketOpen]);
     // Allocate stack for result
@@ -12225,7 +12238,9 @@ var
     ParentBinaryPos: NativeInt;
     VarSymbols: TStrings;
     This: PSEIdent;
+    Ident: PSEIdent;
     HasOverride: Boolean = False;
+    KindName: String;
   begin
     ReturnList := TList.Create;
     VarSymbols := TStringList.Create;
@@ -12262,6 +12277,51 @@ var
         begin
           Token := NextTokenExpected([tkIdent]);
           CreateIdent(ikVariable, Token, False, False);
+          if PeekAtNextToken.kind = tkColon then
+          begin
+            NextToken;
+            KindName := NextTokenExpected([tkIdent]).Value;
+            Ident := Self.VarList.Ptr(Self.VarList.Count - 1);
+            case KindName of
+              'any':
+                begin
+                  Ident^.IsForcedKind := False;
+                  Ident^.PossibleKinds := [sevkMap];
+                end;
+              'number':
+                begin
+                  Ident^.IsForcedKind := True;
+                  Ident^.PossibleKinds := [sevkNumber];
+                end;
+              'map':
+                begin
+                  Ident^.IsForcedKind := True;
+                  Ident^.PossibleKinds := [sevkMap];
+                end;
+              'string':
+                begin
+                  Ident^.IsForcedKind := True;
+                  Ident^.PossibleKinds := [sevkString];
+                end;
+              'boolean':
+                begin
+                  Ident^.IsForcedKind := True;
+                  Ident^.PossibleKinds := [sevkBoolean];
+                end;
+              'pasobject':
+                begin
+                  Ident^.IsForcedKind := True;
+                  Ident^.PossibleKinds := [sevkPascalObject];
+                end;
+              'function':
+                begin
+                  Ident^.IsForcedKind := True;
+                  Ident^.PossibleKinds := [sevkFunction];
+                end;
+              else
+                Error(Format('Unknown type "%s"', [Name]), PeekAtNextToken);
+            end;
+          end;
           Inc(ArgCount);
         end;
         Token := NextTokenExpected([tkComma, tkBracketClose]);
@@ -12632,7 +12692,7 @@ var
       // FIXME: tkVariable?
       if Token.Kind = tkIdent then
       begin
-        VarIdent := CreateIdent(ikVariable, Token, True, False);
+        VarIdent := CreateIdent(ikVariable, Token, True, False)^;
       end else
       begin
         VarIdent := FindVar(Token.Value)^;
@@ -12641,7 +12701,7 @@ var
 
       VarHiddenTargetName := '___t' + VarIdent.Name;
       Token.Value := VarHiddenTargetName;
-      VarHiddenTargetIdent := CreateIdent(ikVariable, Token, True, False);
+      VarHiddenTargetIdent := CreateIdent(ikVariable, Token, True, False)^;
 
       if Token.Kind = tkEqual then
       begin
@@ -12695,9 +12755,9 @@ var
           VarHiddenCountName := '___c' + VarIdent.Name;
         VarHiddenArrayName := '___a' + VarIdent.Name;
         Token.Value := VarHiddenCountName;
-        VarHiddenCountIdent := CreateIdent(ikVariable, Token, True, False);
+        VarHiddenCountIdent := CreateIdent(ikVariable, Token, True, False)^;
         Token.Value := VarHiddenArrayName;
-        VarHiddenArrayIdent := CreateIdent(ikVariable, Token, True, False);
+        VarHiddenArrayIdent := CreateIdent(ikVariable, Token, True, False)^;
 
         ParseExpr(False);
 
@@ -12789,7 +12849,7 @@ var
   begin
     Token.Kind := tkIdent;
     Token.Value := '___s' + Self.InternalIdent;
-    VarHiddenIdent := CreateIdent(ikVariable, Token, True, False);
+    VarHiddenIdent := CreateIdent(ikVariable, Token, True, False)^;
 
     MarkJITBlock;
     VerifyJITBlock(ParseExpr(False));
@@ -12907,7 +12967,7 @@ var
       begin
         FuncRefToken.Value := '___f' + Self.InternalIdent;
         FuncRefToken.Kind := tkIdent;
-        FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False);
+        FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False)^;
       end;
       AssignReturnFuncRef;
       while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
@@ -12959,31 +13019,79 @@ var
     AccessNumber: TSEValue;
     AccessString: String;
     OpInfoPrev1: PSEOpcodeInfo;
+    KindName: String;
   begin
     Ident := FindVar(Name);
     if Ident^.IsAssigned and Ident^.IsConst then
       Error(Format('Cannot reassign value to constant "%s"', [Name]), PeekAtNextToken);
       RewindStartAddr := Self.Binary.Count;
     VarStartTokenPos := Pos;
-    while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
+    if PeekAtNextToken.kind = tkColon then
     begin
-      if IsNew then
-        Error(Format('Variable "%s" is not an array / a map', [Name]), PeekAtNextToken);
-      case PeekAtNextToken.Kind of
-        tkSquareBracketOpen:
+      NextToken;
+      KindName := NextTokenExpected([tkIdent]).Value;
+      case KindName of
+        'any':
           begin
-            NextToken;
-            ParseExpr(False);
-            NextTokenExpected([tkSquareBracketClose]);
+            Ident^.IsForcedKind := False;
+            Ident^.PossibleKinds := [sevkMap];
           end;
-        tkDot:
+        'number':
           begin
-            NextToken;
-            Token2 := NextTokenExpected([tkIdent]);
-            Emit([Pointer(opPushConst), CreateConstStringValue(Token2.Value)]);
+            Ident^.IsForcedKind := True;
+            Ident^.PossibleKinds := [sevkNumber];
           end;
+        'map':
+          begin
+            Ident^.IsForcedKind := True;
+            Ident^.PossibleKinds := [sevkMap];
+          end;
+        'string':
+          begin
+            Ident^.IsForcedKind := True;
+            Ident^.PossibleKinds := [sevkString];
+          end;
+        'boolean':
+          begin
+            Ident^.IsForcedKind := True;
+            Ident^.PossibleKinds := [sevkBoolean];
+          end;
+        'pasobject':
+          begin
+            Ident^.IsForcedKind := True;
+            Ident^.PossibleKinds := [sevkPascalObject];
+          end;
+        'function':
+          begin
+            Ident^.IsForcedKind := True;
+            Ident^.PossibleKinds := [sevkFunction];
+          end;
+        else
+          Error(Format('Unknown type "%s"', [Name]), PeekAtNextToken);
       end;
-      Inc(ArgCount);
+    end else
+    begin
+      while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
+      begin
+        if IsNew then
+          Error(Format('Variable "%s" is not an array / a map', [Name]), PeekAtNextToken);
+        case PeekAtNextToken.Kind of
+          tkSquareBracketOpen:
+            begin
+              NextToken;
+              MarkJITBlock;
+              VerifyJITBlock(ParseExpr(False));
+              NextTokenExpected([tkSquareBracketClose]);
+            end;
+          tkDot:
+            begin
+              NextToken;
+              Token2 := NextTokenExpected([tkIdent]);
+              Emit([Pointer(opPushConst), CreateConstStringValue(Token2.Value)]);
+            end;
+        end;
+        Inc(ArgCount);
+      end;
     end;
 
     Token := PeekAtNextTokenExpected([tkEqual, tkOpAssign, tkBracketOpen]);
@@ -13004,11 +13112,11 @@ var
                 Self.TokenList.Insert(J, Self.TokenList[I]);
                 Inc(J);
               end;
-              Ident^.PossibleKinds := Ident^.PossibleKinds + ParseExpr(False);
+              UpdateIdentPossibleKinds(Ident, ParseExpr(False));
             end else
               EmitPushVar(Ident^);
           end;
-          Ident^.PossibleKinds := Ident^.PossibleKinds + ParseExpr(False);
+          UpdateIdentPossibleKinds(Ident, ParseExpr(False));
           if Token.Kind = tkOpAssign then
           begin
             case Token.Value of
@@ -13071,7 +13179,7 @@ var
     PVarIdent := FindVar(Token.Value);
     if PVarIdent = nil then
     begin
-      VarIdent := CreateIdent(ikVariable, Token, True, False);
+      VarIdent := CreateIdent(ikVariable, Token, True, False)^;
       EmitAssignVar(VarIdent);
     end else
       EmitAssignVar(PVarIdent^);
