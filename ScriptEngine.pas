@@ -12309,7 +12309,8 @@ var
 
       TokenResult.Value := 'result';
       TokenResult.Kind := tkIdent;
-      CreateIdent(ikVariable, TokenResult, True, False);
+      Ident := CreateIdent(ikVariable, TokenResult, True, False);
+      Ident^.PossibleKinds := Func^.PossibleKinds;
 
       NextTokenExpected([tkBracketOpen]);
       repeat
@@ -12321,7 +12322,6 @@ var
           begin
             NextToken;
             KindName := NextTokenExpected([tkIdent]).Value;
-            Ident := Self.VarList.Ptr(Self.VarList.Count - 1);
             case KindName of
               'any':
                 begin
