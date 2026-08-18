@@ -8090,7 +8090,7 @@ var
       E.AddRegImm32(regR15, OpcodeSizes[opJITBlockPotential] * SizeOf(TSEValue));
       //
       BIndex := BIndex + OpcodeSizes[opJITBlockPotential];
-     // Writeln('JIT from ', BIndex, ' to ', BFinish);
+      Writeln('JIT from ', BIndex, ' to ', BFinish);
       while BIndex <= BFinish do
       begin
         if XMMStackPtr >= 14 then
@@ -8099,7 +8099,7 @@ var
           break;
         end;
         Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
-       // Writeln(' - ', Op);
+        Writeln(' - ', Op);
         case Op of
           opPushConst:
             begin
@@ -12381,6 +12381,8 @@ var
       if PeekAtNextToken.Kind = tkEqual then
         Self.TokenList.Insert(Pos + 1, TokenResult);
       ParseBlock;
+      Ident := FindVar('result', true);
+      Func^.PossibleKinds := Ident^.PossibleKinds;
 
       This := FindVar('self', True);
       if (not This^.IsUsed) or (not This^.IsAssigned) then
@@ -12876,7 +12878,7 @@ var
     JumpEnd: NativeInt;
   begin
     MarkJITBlock;
-    VerifyJITBlock(ParseExpr(False), 4);
+    VerifyJITBlock(ParseExpr(False), 2);
     JumpBlock1 := Emit([Pointer(opJumpEqual1Rel), True, Pointer(0)]);
     JumpBlock2 := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
     StartBlock1 := Self.Binary.Count;
@@ -13818,7 +13820,7 @@ begin
   FuncScriptInfo.CodeSegmentIndex := Self.VM.Binaries.Value^.Size - 1;
   FuncScriptInfo.Name := Name;
   FuncScriptInfo.VarSymbols := TStringList.Create;
-  FuncScriptInfo.PossibleKinds := [sevkNumber, sevkString, sevkNull, sevkMap, sevkFunction];
+  FuncScriptInfo.PossibleKinds := [sevkNull];
   FuncScriptInfo.HasSelf := True;
   FuncScriptInfo.HasOverride := IsOverride;
   Self.FuncScriptList.Add(FuncScriptInfo);
