@@ -12875,7 +12875,8 @@ var
     JumpBlock2,
     JumpEnd: NativeInt;
   begin
-    ParseExpr(False);
+    MarkJITBlock;
+    VerifyJITBlock(ParseExpr(False), 4);
     JumpBlock1 := Emit([Pointer(opJumpEqual1Rel), True, Pointer(0)]);
     JumpBlock2 := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
     StartBlock1 := Self.Binary.Count;
