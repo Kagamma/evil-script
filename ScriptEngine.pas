@@ -8828,7 +8828,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opJITBlockPotential:{$endif}
         begin
         labelJITBlockPotential:
-          {$ifdef WINDOWS}
+          {$ifdef SE_HAS_JIT}
           if CodePtrLocal[1].VarPointer <> nil then
           begin
             JITHandler(True, CodePtrLocal, nil);
