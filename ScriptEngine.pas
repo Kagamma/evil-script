@@ -1595,6 +1595,11 @@ type
 
   TDynlibMap = specialize TSEDictionary<String, TLibHandle>;
 
+  TSEJITCountPack = bitpacked record
+    ApplyRange: 0..$3FFFFFFF;
+    HotSpot: 0..3;
+  end;
+
 var
   DynlibMap: TDynlibMap;
   VMList: TSEVMList;
@@ -8064,7 +8069,7 @@ var
       E := TX64Emitter.Create;
     try
       BIndex := 0;
-      BFinish := NativeInt(JitCodePtrLocal[1].VarPointer);
+      BFinish := TSEJITCountPack(Cardinal(JitCodePtrLocal[1].VarPointer)).ApplyRange;
 
       XMMStackPtr := 0;
       Result := STATUS_OK;
@@ -8802,6 +8807,25 @@ var
     end;
   end;
 
+  procedure HotSpotHandler;
+  var
+    Bit0_3: Byte;
+  begin
+    EnterCriticalSection(CS);
+    try
+      if TSEJITCountPack(Cardinal(CodePtrLocal[1].VarPointer)).HotSpot = 3 then
+        JITHandler(True, CodePtrLocal, nil)
+      else
+      begin
+        Bit0_3 := TSEJITCountPack(Cardinal(CodePtrLocal[1].VarPointer)).HotSpot;
+        Inc(Bit0_3);
+        TSEJITCountPack(Cardinal(CodePtrLocal[1].VarPointer)).HotSpot := Bit0_3;
+      end;
+    finally
+      LeaveCriticalSection(CS);
+    end;
+  end;
+
 begin
   if Self.IsDone then
     Self.Reset;
@@ -8831,10 +8855,10 @@ labelStart:
           {$ifdef SE_HAS_JIT}
           if CodePtrLocal[1].VarPointer <> nil then
           begin
-            JITHandler(True, CodePtrLocal, nil);
-          end else
+            HotSpotHandler;
+          end;
           {$endif}
-            Inc(CodePtrLocal, 2);
+          Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opJITBlock:{$endif}
@@ -9783,7 +9807,7 @@ begin
   Self.ScopeStack.Capacity := 16;
   Self.LineOfCodeList.Capacity := 1024;
   //
-  Self.JITBlockCount := $1FFFF;
+  Self.JITBlockCount := $1FF;
   Self.VM.Parent := Self;
   if CommonNativeFuncList.Count = 0 then
   begin
