@@ -8100,10 +8100,6 @@ var
         E.MovRegReg64(regR10, regRDI);
         {$endif}
       end;
-      { Move to the next opcode }
-      E.AddRegImm32(regR15, OpcodeSizes[opJITBlockPotential] * SizeOf(TSEValue));
-      //
-      BIndex := BIndex + OpcodeSizes[opJITBlockPotential];
      // Writeln('JIT from ', BIndex, ' to ', BFinish);
       while BIndex <= BFinish do
       begin
@@ -8115,6 +8111,11 @@ var
         Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
        // Writeln(' - ', Op);
         case Op of
+          opJITBlock,
+          opJITBlockPotential:
+            begin
+              E.AddRegImm32(regR15, OpcodeSizes[opJITBlockPotential] * SizeOf(TSEValue));
+            end;
           opPushConst:
             begin
               // TODO: Just in case. We shouldn't need to do this
@@ -11023,6 +11024,7 @@ var
           Op2 := TSEOpcode(NativeInt(Self.Binary.Ptr(BIndex2)^.VarPointer));
           if not (Op2 in [
             opPushConst, opPushGlobalVar, opPushLocalVar, opAssignGlobalVar, opAssignLocalVar,
+            opJITBlockPotential,
             opOperatorInc,
             opOperatorNegative,
             opOperatorAdd, opOperatorSub, opOperatorMul, opOperatorDiv, opOperatorMod,
@@ -11720,6 +11722,7 @@ var
       FuncValue: TSEValue;
       Ind: Cardinal;
       P: Pointer;
+      LogicPossibleKinds: TSEValueKindSet;
 
       procedure FuncTail(IsFirst: Boolean = True);
       begin
@@ -11769,7 +11772,14 @@ var
             end else
             begin
               PeekAtNextTokenExpected([tkNegative, tkNot, tkBracketOpen, tkNumber, tkIdent, tkFunctionDecl]);
+
+              MarkJITBlock;
+              LogicPossibleKinds := Result;
               Logic();
+              if (LogicPossibleKinds - [sevkNull]) <> [] then
+                LogicPossibleKinds := LogicPossibleKinds - [sevkNull];
+              VerifyJITBlock(LogicPossibleKinds);
+
               NextTokenExpected([tkBracketClose]);
             end;
           end;
@@ -12068,24 +12078,35 @@ var
       Self.Binary.DeleteRange(AssignReturnFuncRefStart, AssignReturnFuncRefEnd - AssignReturnFuncRefStart);
       Self.OpcodeInfoList.DeleteRange(AssignReturnFuncRefOpStart, AssignReturnFuncRefOpEnd - AssignReturnFuncRefOpStart);
     end;
+    if (Result - [sevkNull]) <> [] then
+      Result := Result - [sevkNull];
     // Handle ternary
     if PeekAtNextToken.Kind = tkQuestion then
     begin
       // We consider jump block as sevkFunction, this will hel the JIT to ignore generate code for the block...
-      Result := Result + [sevkFunction];
       NextToken;
       JumpExpr2 := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]);
-      Result := Result + ParseExpr(False);
+
+      MarkJITBlock;
+      Result := [sevkNull] + ParseExpr(False);
+      if (Result - [sevkNull]) <> [] then
+        Result := Result - [sevkNull];
+      VerifyJITBlock(Result);
+
       NextTokenExpected([tkColon]);
       JumpEnd := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
       Expr2Block := Self.Binary.Count;
-      Result := Result + ParseExpr(False);
+
+      MarkJITBlock;
+      Result := [sevkNull] + ParseExpr(False);
+      if (Result - [sevkNull]) <> [] then
+        Result := Result - [sevkNull];
+      VerifyJITBlock(Result);
+
       EndBlock := Self.Binary.Count;
       Patch(JumpExpr2 - 1, Pointer(Expr2Block) - (JumpExpr2 - 3));
       Patch(JumpEnd - 1, Pointer(EndBlock) - (JumpEnd - 2));
     end;
-    if (Result - [sevkNull]) <> [] then
-      Result := Result - [sevkNull];
   end;
 
   procedure ParseFuncRefCallByMapRewind(const Ident: TSEIdent; const DeepCount, RewindStartAdd: NativeInt; const ThisRefIdent: PSEIdent = nil);
@@ -12948,12 +12969,8 @@ var
     JumpBlock2,
     JumpEnd: NativeInt;
   begin
-    {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
     MarkJITBlock;
     VerifyJITBlock(ParseExpr(False));
-    {$else}
-    ParseExpr(False);
-    {$endif}
     JumpBlock1 := Emit([Pointer(opJumpEqual1Rel), True, Pointer(0)]);
     JumpBlock2 := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
     StartBlock1 := Self.Binary.Count;
@@ -13057,12 +13074,14 @@ var
           Token := NextToken;
           Emit([Pointer(opPushConst), Token.Value]);
           NextToken;
-          ParseExpr(False);
+          MarkJITBlock;
+          VerifyJITBlock(ParseExpr(False));
           Inc(ArgCount, 2);
         end else
         begin
           Emit([Pointer(opPushConst), I]);
-          ParseExpr(False);
+          MarkJITBlock;
+          VerifyJITBlock(ParseExpr(False));
           Inc(ArgCount, 2);
           Inc(I);
         end;
@@ -13114,7 +13133,8 @@ var
           tkSquareBracketOpen:
             begin
               NextToken;
-              ParseExpr(False);
+              MarkJITBlock;
+              VerifyJITBlock(ParseExpr(False));
               NextTokenExpected([tkSquareBracketClose]);
               AssignReturnFuncRef;
               Emit([Pointer(opPushArrayPop), SENull]);

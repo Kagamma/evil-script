@@ -146,17 +146,17 @@ fn advance(dt) {
   // update velocities
   for i = 0 to N-1 {
     for j = i+1 to N-1 {
-      dx = x[i] - x[j]
-      dy = y[i] - y[j]
-      dz = z[i] - z[j]
-      dist2 = dx*dx + dy*dy + dz*dz
-      dist = sqrt(dist2)
-      mag = dt / (dist2 * dist)
+      dx: number = x[i] - x[j]
+      dy: number = y[i] - y[j]
+      dz: number = z[i] - z[j]
+      dist2: number = dx*dx + dy*dy + dz*dz
+      dist: number = sqrt(dist2)
+      mag: number = dt / (dist2 * dist)
 
       // mutual force
-      fx = dx * mag
-      fy = dy * mag
-      fz = dz * mag
+      fx: number = dx * mag
+      fy: number = dy * mag
+      fz: number = dz * mag
 
       vx[i] -= fx * m[j]
       vy[i] -= fy * m[j]
