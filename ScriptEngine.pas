@@ -8114,8 +8114,9 @@ var
             begin
               { A, either from code, or from stack }
               if JitCodePtrLocal[BIndex + 1].Kind <> sevkNull then
+              begin
                 E.MovRegImm64(regRSI, Trunc(JitCodePtrLocal[BIndex + 2].VarNumber))
-              else
+              end else
               begin
                 E.CvttSD2SI(regRSI, TXMMReg(XMMStackPtr - 1));
                 Dec(XMMStackPtr);
@@ -11488,7 +11489,7 @@ var
     until not IsOptimized;
   end;
 
-  function ParseExpr(const IsParsedAtFuncCall: Boolean = False): TSEValueKindSet;
+  function ParseExpr(const IsParsedAtFuncCall: Boolean): TSEValueKindSet;
   type
     TProc = TSENestedProc;
   var
@@ -11734,11 +11735,12 @@ var
       case PeekAtNextToken.Kind of
         tkSquareBracketOpen:
           begin
+            Result := Result + [sevkMap];
             PushConstCount := 0;
             IsTailed := True;
             NextToken;
             MarkJITBlock;
-            Result := Result + VerifyJITBlock(ParseExpr(False));
+            VerifyJITBlock(ParseExpr(False));
             NextTokenExpected([tkSquareBracketClose]);
             AllocFuncRef;
             AssignReturnFuncRef;
@@ -11879,7 +11881,7 @@ var
                             NextToken;
                             EmitPushVar(Ident^);
                             MarkJITBlock;
-                            Result := Result + VerifyJITBlock(ParseExpr(False));
+                            VerifyJITBlock(ParseExpr(False));
                             Emit([Pointer(opPushArrayPop), SENull]);
                             PeepholeArrayAssignOptimization;
                             NextTokenExpected([tkSquareBracketClose]);
