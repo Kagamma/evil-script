@@ -90,6 +90,8 @@ type
     opPushConstString,
     opPushGlobalVar,
     opPushLocalVar,
+    opPushGlobalMapVar,
+    opPushLocalMapVar,
     opPushArrayPop,
     opPopConst,
     opPopFrame,
@@ -724,6 +726,8 @@ const
     2, // opPushConstString,
     2, // opPushGlobalVar,
     3, // opPushLocalVar,
+    2, // opPushGlobalMapVar,
+    3, // opPushLocalMapVar,
     2, // opPushArrayPop,
     1, // opPopConst,
     1, // opPopFrame,
@@ -7840,18 +7844,20 @@ var
 
 label
   labelStart,
-  labelPushConst, labelPushConstEnd,
-  labelPushConstString, labelPushConstStringEnd,
-  labelPushGlobalVar, labelPushGlobalVarEnd,
-  labelPushLocalVar, labelPushLocalVarEnd,
-  labelPushVar2, labelPushVar2End,
-  labelPushArrayPop, labelPushArrayPopEnd,
-  labelPopConst, labelPopConstEnd,
+  labelPushConst,
+  labelPushConstString,
+  labelPushGlobalVar,
+  labelPushLocalVar,
+  labelPushGlobalMapVar,
+  labelPushLocalMapVar,
+  labelPushVar2,
+  labelPushArrayPop,
+  labelPopConst,
   labelPopFrame,
-  labelAssignGlobalVar, labelAssignGlobalVarEnd,
-  labelAssignGlobalArray, labelAssignGlobalArrayEnd,
-  labelAssignLocalVar, labelAssignLocalVarEnd,
-  labelAssignLocalArray, labelAssignLocalArrayEnd,
+  labelAssignGlobalVar,
+  labelAssignGlobalArray,
+  labelAssignLocalVar,
+  labelAssignLocalArray,
   labelJumpEqualRel,
   labelJumpEqual1Rel,
   labelJumpUnconditionalRel,
@@ -7921,6 +7927,8 @@ var
     @labelPushConstString,
     @labelPushGlobalVar,
     @labelPushLocalVar,
+    @labelPushGlobalMapVar,
+    @labelPushLocalMapVar,
     @labelPushArrayPop,
     @labelPopConst,
     @labelPopFrame,
@@ -9189,16 +9197,18 @@ labelStart:
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opPushGlobalVar:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opPushGlobalVar, opPushGlobalMapVar:{$endif}
         begin
         labelPushGlobalVar:
+        labelPushGlobalMapVar:
           Push(GetGlobal(CodePtrLocal[1].VarPointer)^);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opPushLocalVar:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opPushLocalVar, opPushLocalMapVar:{$endif}
         begin
         labelPushLocalVar:
+        labelPushLocalMapVar:
           Push(GetLocal(CodePtrLocal[1].VarPointer, NativeInt(CodePtrLocal[2].VarPointer))^);
           Inc(CodePtrLocal, 3);
           DispatchGoto;
@@ -11087,6 +11097,14 @@ var
       Result := Emit([Pointer(opPushGlobalVar), Pointer(Ident.Addr)]);
   end;
 
+  function EmitPushMapVar(const Ident: TSEIdent): NativeInt; inline;
+  begin
+    if Ident.Local > 0 then
+      Result := Emit([Pointer(opPushLocalMapVar), Pointer(Ident.Addr), Pointer(Self.FuncTraversal - Ident.Local)])
+    else
+      Result := Emit([Pointer(opPushGlobalMapVar), Pointer(Ident.Addr)]);
+  end;
+
   function EmitAssignVar(const Ident: TSEIdent): NativeInt; inline;
   begin
     if Ident.Local > 0 then
@@ -11855,7 +11873,7 @@ var
                             PushConstCount := 0;
                             IsTailed := True;
                             NextToken;
-                            EmitPushVar(Ident^);
+                            EmitPushMapVar(Ident^);
                             MarkJITBlock;
                             VerifyJITBlock(ParseExpr(False));
                             Emit([Pointer(opPushArrayPop), SENull]);
@@ -11871,7 +11889,7 @@ var
                             IsTailed := True;
                             NextToken;
                             Token2 := NextTokenExpected([tkIdent]);
-                            EmitPushVar(Ident^);
+                            EmitPushMapVar(Ident^);
                             Emit([Pointer(opPushArrayPop), CreateConstStringValue(Token2.Value)]);
                             Tail;
                             FuncTail;
