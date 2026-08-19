@@ -7360,9 +7360,9 @@ begin
   end;
 end;
 
-function SEMapGetNumber(Map: Pointer; I: NativeInt): Double; sysv_abi_default;
+function SEMapGetNumber(P: Pointer; I: NativeInt): Double; sysv_abi_default;
 begin
-  Result := TSEValueMap(Map).Get2(I);
+  Result := TSEValueMap(P).Get2(I);
 end;
 
 procedure TSEVM.Exec;
@@ -8110,6 +8110,39 @@ var
             begin
               E.AddRegImm32(regR15, OpcodeSizes[opJITBlockPotential] * SizeOf(TSEValue));
             end;
+          opPushArrayPop:
+            begin
+              { A, either from code, or from stack }
+              if JitCodePtrLocal[BIndex + 1].Kind <> sevkNull then
+                E.MovRegImm64(regRSI, Trunc(JitCodePtrLocal[BIndex + 2].VarNumber))
+              else
+              begin
+                E.CvttSD2SI(regRSI, TXMMReg(XMMStackPtr - 1));
+                Dec(XMMStackPtr);
+              end;
+              { B }
+              E.MovRegFromSDXMM(regRDI, TXMMReg(XMMStackPtr - 1));
+              Dec(XMMStackPtr);
+              //
+              E.PushReg(regR15);
+              E.PushReg(regR14);
+              E.PushReg(regR13);
+              E.PushReg(regR12);
+              E.PushReg(regR10);
+
+              E.CallAbsolute(regRCX, @SEMapGetNumber);
+
+              E.PopReg(regR10);
+              E.PopReg(regR12);
+              E.PopReg(regR13);
+              E.PopReg(regR14);
+              E.PopReg(regR15);
+              { Result store in xmm0, we push it onto the stack }
+              E.MovSDXMM(TXMMReg(XMMStackPtr), regXMM0);
+              //
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
+              Inc(XMMStackPtr);
+            end;
           opPushConst:
             begin
               // TODO: Just in case. We shouldn't need to do this
@@ -8802,9 +8835,11 @@ var
   begin
     EnterCriticalSection(CS);
     try
-      if TSEJITCountPack(Cardinal(CodePtrLocal[1].VarPointer)).HotSpot = 3 then
-        JITHandler(True, CodePtrLocal, nil)
-      else
+      if TSEJITCountPack(Cardinal(CodePtrLocal[1].VarPointer)).HotSpot >= 3 then
+      begin
+        JITHandler(True, CodePtrLocal, nil);
+        Dec(CodePtrLocal, 2);
+      end else
       begin
         Bit0_3 := TSEJITCountPack(Cardinal(CodePtrLocal[1].VarPointer)).HotSpot;
         Inc(Bit0_3);
@@ -11036,7 +11071,7 @@ var
         begin
           Op2 := TSEOpcode(NativeInt(Self.Binary.Ptr(BIndex2)^.VarPointer));
           if not (Op2 in [
-            opPushConst, opPushGlobalVar, opPushLocalVar, opAssignGlobalVar, opAssignLocalVar,
+            opPushConst, opPushGlobalVar, opPushLocalVar, opPushArrayPop, opAssignGlobalVar, opAssignLocalVar,
             opJITBlockPotential,
             opOperatorInc,
             opOperatorNegative,
@@ -11699,12 +11734,11 @@ var
       case PeekAtNextToken.Kind of
         tkSquareBracketOpen:
           begin
-            Result := Result + [sevkMap];
             PushConstCount := 0;
             IsTailed := True;
             NextToken;
             MarkJITBlock;
-            VerifyJITBlock(ParseExpr(False));
+            Result := Result + VerifyJITBlock(ParseExpr(False));
             NextTokenExpected([tkSquareBracketClose]);
             AllocFuncRef;
             AssignReturnFuncRef;
@@ -11840,13 +11874,12 @@ var
                       case PeekAtNextToken.Kind of
                         tkSquareBracketOpen:
                           begin
-                            Result := Result + [sevkMap];
                             PushConstCount := 0;
                             IsTailed := True;
                             NextToken;
                             EmitPushVar(Ident^);
                             MarkJITBlock;
-                            VerifyJITBlock(ParseExpr(False));
+                            Result := Result + VerifyJITBlock(ParseExpr(False));
                             Emit([Pointer(opPushArrayPop), SENull]);
                             PeepholeArrayAssignOptimization;
                             NextTokenExpected([tkSquareBracketClose]);
