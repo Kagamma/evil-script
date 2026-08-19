@@ -90,8 +90,6 @@ type
     opPushConstString,
     opPushGlobalVar,
     opPushLocalVar,
-    opPushGlobalMapVar,
-    opPushLocalMapVar,
     opPushArrayPop,
     opPopConst,
     opPopFrame,
@@ -726,8 +724,6 @@ const
     2, // opPushConstString,
     2, // opPushGlobalVar,
     3, // opPushLocalVar,
-    2, // opPushGlobalMapVar,
-    3, // opPushLocalMapVar,
     2, // opPushArrayPop,
     1, // opPopConst,
     1, // opPopFrame,
@@ -7364,9 +7360,14 @@ begin
   end;
 end;
 
+function SEMapGetNumber(Map: Pointer; I: NativeInt): Double; sysv_abi_default;
+begin
+  Result := TSEValueMap(Map).Get2(I);
+end;
+
 procedure TSEVM.Exec;
 type
-  TSEJITCodeProc = procedure(A, B, C, D: Pointer);
+  TSEJITCodeProc = procedure(A, B, C, D: Pointer); sysv_abi_default;
 var
   A, B, C, V,
   OA, OB, OC, OV: PSEValue;
@@ -7848,8 +7849,6 @@ label
   labelPushConstString,
   labelPushGlobalVar,
   labelPushLocalVar,
-  labelPushGlobalMapVar,
-  labelPushLocalMapVar,
   labelPushVar2,
   labelPushArrayPop,
   labelPopConst,
@@ -7927,8 +7926,6 @@ var
     @labelPushConstString,
     @labelPushGlobalVar,
     @labelPushLocalVar,
-    @labelPushGlobalMapVar,
-    @labelPushLocalMapVar,
     @labelPushArrayPop,
     @labelPopConst,
     @labelPopFrame,
@@ -8079,26 +8076,11 @@ var
       BIndex := 0;
       BFinish := TSEJITCountPack(Cardinal(JitCodePtrLocal[1].VarPointer)).ApplyRange;
 
-      XMMStackPtr := 0;
+      XMMStackPtr := 3;
       Result := STATUS_OK;
       IsAssigned := False;
       if IsRoot then
       begin
-        {$ifdef WINDOWS}
-        { R8, R9, R10 are for scratch }
-        // R15 = CodePtrLocal
-        E.MovRegMem64(regR15, E.Mem(regRCX, 0));
-        { R13 = @StackPtr }
-        E.MovRegReg64(regR13, regRDX);
-        { R14 = StackPtr }
-        E.MovRegMem64(regR14, E.Mem(regR13, 0));
-        { R12 = GlobalVar }
-        E.MovRegMem64(regR12, E.Mem(regR8, 0));
-        { R11 = FramePtr}
-        E.MovRegMem64(regR11, E.Mem(regR9, 0));
-        // R10 = @CodePtrLocal
-        E.MovRegReg64(regR10, regRCX);
-        {$else}
         // R15 = CodePtrLocal
         E.MovRegMem64(regR15, E.Mem(regRDI, 0));
         { R13 = @StackPtr }
@@ -8111,7 +8093,6 @@ var
         E.MovRegMem64(regR11, E.Mem(regRCX, 0));
         // R10 = @CodePtrLocal
         E.MovRegReg64(regR10, regRDI);
-        {$endif}
       end;
      // Writeln('JIT from ', BIndex, ' to ', BFinish);
       while BIndex <= BFinish do
@@ -8606,11 +8587,11 @@ var
             begin
               GenGetVariable(False);
               E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 3].VarNumber));
-              E.MovSDXMMFromReg(regXMM1, regRAX);
+              E.MovSDXMMFromReg(regXMM4, regRAX);
               { Add }
-              E.AddSD(regXMM0, regXMM1);
+              E.AddSD(regXMM3, regXMM4);
               { Assign to address at R8 }
-              E.MovSDMemFromXMM(E.Mem(regR8, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM0);
+              E.MovSDMemFromXMM(E.Mem(regR8, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM3);
               { Mark as number }
               E.MovRegImm32(regRAX, Cardinal(sevkNumber));
               E.MovMemReg32(E.Mem(regR8, NativeUInt(@TSEValue(nil^).Kind)), regRAX);
@@ -8708,8 +8689,8 @@ var
               // mov r8, qword ptr [r15 + code[1]]
               E.MovRegImm64(regR8, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer) * SizeOf(TSEValue));
               { Assign value from stack to global variable }
-              // movsd qword ptr [r12 + r8 + .VarNumber], xmm0
-              E.MovSDMemFromXMM(E.MemIndex(regR12, regR8, 1, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM0);
+              // movsd qword ptr [r12 + r8 + .VarNumber], xmm3
+              E.MovSDMemFromXMM(E.MemIndex(regR12, regR8, 1, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM3);
               { Mark as LastOpKind }
               // mov dword ptr [r12 + r8 + .Kind], LastOpKind
               E.MovMemImm32(E.MemIndex(regR12, regR8, 1, Cardinal(@TSEValue(nil^).Kind)), Cardinal(LastOpKind));
@@ -8744,8 +8725,8 @@ var
               // lea r8, qword ptr [r8 + rax]
               E.LeaRegMem(regR8, E.MemIndex(regR8, regRAX, 1, 0));
               { Assign value from stack to local variable }
-              // movsd qword ptr [r8 + .VarNumber], xmm0
-              E.MovSDMemFromXMM(E.Mem(regR8, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM0);
+              // movsd qword ptr [r8 + .VarNumber], xmm3
+              E.MovSDMemFromXMM(E.Mem(regR8, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM3);
               { Mark as LastOpKind }
               // mov dword ptr [r8 + .Kind], LastOpKind
               E.MovMemImm32(E.Mem(regR8, Cardinal(@TSEValue(nil^).Kind)), Cardinal(LastOpKind));
@@ -8774,8 +8755,8 @@ var
       begin
         if not IsAssigned then
         begin
-          { Move XMM0 to the stack }
-          E.MovSDMemFromXMM(E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM0);
+          { Move XMM3 to the stack }
+          E.MovSDMemFromXMM(E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM3);
           { Mark this as LastOpKind }
           E.MovMemImm32(E.Mem(regR14, Cardinal(@TSEValue(nil^).Kind)), Cardinal(LastOpKind));
           { Increase stack by 1 }
@@ -9197,18 +9178,16 @@ labelStart:
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opPushGlobalVar, opPushGlobalMapVar:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opPushGlobalVar:{$endif}
         begin
         labelPushGlobalVar:
-        labelPushGlobalMapVar:
           Push(GetGlobal(CodePtrLocal[1].VarPointer)^);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opPushLocalVar, opPushLocalMapVar:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opPushLocalVar:{$endif}
         begin
         labelPushLocalVar:
-        labelPushLocalMapVar:
           Push(GetLocal(CodePtrLocal[1].VarPointer, NativeInt(CodePtrLocal[2].VarPointer))^);
           Inc(CodePtrLocal, 3);
           DispatchGoto;
@@ -11097,14 +11076,6 @@ var
       Result := Emit([Pointer(opPushGlobalVar), Pointer(Ident.Addr)]);
   end;
 
-  function EmitPushMapVar(const Ident: TSEIdent): NativeInt; inline;
-  begin
-    if Ident.Local > 0 then
-      Result := Emit([Pointer(opPushLocalMapVar), Pointer(Ident.Addr), Pointer(Self.FuncTraversal - Ident.Local)])
-    else
-      Result := Emit([Pointer(opPushGlobalMapVar), Pointer(Ident.Addr)]);
-  end;
-
   function EmitAssignVar(const Ident: TSEIdent): NativeInt; inline;
   begin
     if Ident.Local > 0 then
@@ -11873,7 +11844,7 @@ var
                             PushConstCount := 0;
                             IsTailed := True;
                             NextToken;
-                            EmitPushMapVar(Ident^);
+                            EmitPushVar(Ident^);
                             MarkJITBlock;
                             VerifyJITBlock(ParseExpr(False));
                             Emit([Pointer(opPushArrayPop), SENull]);
@@ -11889,7 +11860,7 @@ var
                             IsTailed := True;
                             NextToken;
                             Token2 := NextTokenExpected([tkIdent]);
-                            EmitPushMapVar(Ident^);
+                            EmitPushVar(Ident^);
                             Emit([Pointer(opPushArrayPop), CreateConstStringValue(Token2.Value)]);
                             Tail;
                             FuncTail;
