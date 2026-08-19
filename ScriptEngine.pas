@@ -11722,7 +11722,6 @@ var
       FuncValue: TSEValue;
       Ind: Cardinal;
       P: Pointer;
-      LogicPossibleKinds: TSEValueKindSet;
 
       procedure FuncTail(IsFirst: Boolean = True);
       begin
@@ -11772,14 +11771,8 @@ var
             end else
             begin
               PeekAtNextTokenExpected([tkNegative, tkNot, tkBracketOpen, tkNumber, tkIdent, tkFunctionDecl]);
-
-              //MarkJITBlock;
-              //LogicPossibleKinds := Result;
-              Logic();
-              //if (LogicPossibleKinds - [sevkNull]) <> [] then
-              //  LogicPossibleKinds := LogicPossibleKinds - [sevkNull];
-              //VerifyJITBlock(LogicPossibleKinds);
-
+              MarkJITBlock;
+              Result := VerifyJITBlock(ParseExpr(False));
               NextTokenExpected([tkBracketClose]);
             end;
           end;
