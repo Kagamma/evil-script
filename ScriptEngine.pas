@@ -8800,12 +8800,12 @@ var
         { Increase CodePtr }
         E.MovMemReg64(E.Mem(regR10, 0), regR15);
         // Check the next opcode to see if the next one is also a JITBlockPotential
-        Inc(BIndex, OpcodeSizes[Op]);
+        {Inc(BIndex, OpcodeSizes[Op]);
         Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
         if Op = opJITBlockPotential then
         begin
           Result := JITHandler(False, @JitCodePtrLocal[BIndex], E);
-        end;
+        end;}
         //
         if IsRoot then
         begin
