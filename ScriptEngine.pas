@@ -11773,12 +11773,12 @@ var
             begin
               PeekAtNextTokenExpected([tkNegative, tkNot, tkBracketOpen, tkNumber, tkIdent, tkFunctionDecl]);
 
-              MarkJITBlock;
-              LogicPossibleKinds := Result;
+              //MarkJITBlock;
+              //LogicPossibleKinds := Result;
               Logic();
-              if (LogicPossibleKinds - [sevkNull]) <> [] then
-                LogicPossibleKinds := LogicPossibleKinds - [sevkNull];
-              VerifyJITBlock(LogicPossibleKinds);
+              //if (LogicPossibleKinds - [sevkNull]) <> [] then
+              //  LogicPossibleKinds := LogicPossibleKinds - [sevkNull];
+              //VerifyJITBlock(LogicPossibleKinds);
 
               NextTokenExpected([tkBracketClose]);
             end;
