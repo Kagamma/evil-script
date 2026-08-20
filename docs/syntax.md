@@ -514,7 +514,7 @@ try {
 ```
 
 ### Type annotations
-You can annotate variables and function signatures using built-in types like `number`, `string`, `map`, `buffer`, `function`, `pasobject`, `null`.
+You can annotate variables and function signatures using the following symbols: `number`, `string`, `map`, `buffer`, `function`, `pasobject`, `null`, `map[number]`, `map[string]`, `map[map]`.
 `any` is also supported, which means the variable can hold any type.
 ```
 var a: number = 5
@@ -579,4 +579,4 @@ If assertions are not enabled at compile time, this routine does nothing, and no
 ## Performance tips
 - Use dot notation when accessing maps. Currently dot notation is much faster than using strings. TODO: Optimize for strings as well.
 - Named functions are always faster than anonymous functions or function references.
-- Use `type annotations`, especially `number` type, to help the JIT compiler optimize your code.
+- The JIT compiler at the moment can only optimize code paths that result in number/boolean type. Use `type annotations`, especially `number`, `boolean` and `map[number]` type, to help the JIT compiler optimize your code.
