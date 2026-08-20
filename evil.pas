@@ -89,7 +89,7 @@ begin
   SE := TScriptEngine.Create;
   SE.OptimizePeephole := IsO;
   SE.OptimizeConstantFolding := IsO;
-  SE.OptimizeJIT := IsO;
+  SE.OptimizeJIT := IsJ;
   SE.OptimizeAsserts := IsA;
   SE.StackTraceHandler := @TSEStackTraceHandler(nil).PrintVariables;
   SL := TStringList.Create;
