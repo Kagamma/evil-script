@@ -12422,12 +12422,12 @@ var
               'map':
                 begin
                   Param^.IsForcedKind := True;
-                  Param^.PossibleKinds := [sevkMap];
+                  Param^.PossibleKinds := [sevkMap, sevkNull];
                 end;
               'string':
                 begin
                   Param^.IsForcedKind := True;
-                  Param^.PossibleKinds := [sevkString];
+                  Param^.PossibleKinds := [sevkString, sevkNull];
                 end;
               'boolean':
                 begin
@@ -12437,12 +12437,12 @@ var
               'pasobject':
                 begin
                   Param^.IsForcedKind := True;
-                  Param^.PossibleKinds := [sevkPascalObject];
+                  Param^.PossibleKinds := [sevkPascalObject, sevkNull];
                 end;
               'function':
                 begin
                   Param^.IsForcedKind := True;
-                  Param^.PossibleKinds := [sevkFunction];
+                  Param^.PossibleKinds := [sevkFunction, sevkNull];
                 end;
               else
                 Error(Format('Unknown type "%s"', [Name]), PeekAtNextToken);
@@ -12483,12 +12483,12 @@ var
           'map':
             begin
               Res^.IsForcedKind := True;
-              Res^.PossibleKinds := [sevkMap];
+              Res^.PossibleKinds := [sevkMap, sevkNull];
             end;
           'string':
             begin
               Res^.IsForcedKind := True;
-              Res^.PossibleKinds := [sevkString];
+              Res^.PossibleKinds := [sevkString, sevkNull];
             end;
           'boolean':
             begin
@@ -12498,7 +12498,7 @@ var
           'pasobject':
             begin
               Res^.IsForcedKind := True;
-              Res^.PossibleKinds := [sevkPascalObject];
+              Res^.PossibleKinds := [sevkPascalObject, sevkNull];
             end;
           'function':
             begin
@@ -13242,12 +13242,12 @@ var
         'map':
           begin
             Ident^.IsForcedKind := True;
-            Ident^.PossibleKinds := [sevkMap];
+            Ident^.PossibleKinds := [sevkMap, sevkNull];
           end;
         'string':
           begin
             Ident^.IsForcedKind := True;
-            Ident^.PossibleKinds := [sevkString];
+            Ident^.PossibleKinds := [sevkString, sevkNull];
           end;
         'boolean':
           begin
@@ -13257,7 +13257,7 @@ var
         'pasobject':
           begin
             Ident^.IsForcedKind := True;
-            Ident^.PossibleKinds := [sevkPascalObject];
+            Ident^.PossibleKinds := [sevkPascalObject, sevkNull];
           end;
         'function':
           begin
