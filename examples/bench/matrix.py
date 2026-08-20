@@ -18,17 +18,16 @@ def matrix_mul(a: list[list[float]], b: list[list[float]], n: int) -> list[list[
     c = [[0.0] * n for _ in range(n)]
 
     for i in range(n):
-        ai = a[i]          # cache row of A
         ci = c[i]          # cache row of C
-        for k in range(n):
-            aik = ai[k]    # scalar from A
-            bk = b[k]      # cache row of B
-            for j in range(n):
-                ci[j] += aik * bk[j]
+        for j in range(n):   
+            s = 0
+            for k in range(n):
+                s += a[i][k] * b[k][j]
+            ci[j] = s
     return c
 
 
-def run_benchmark(n: int = 200, iterations: int = 10) -> None:
+def run_benchmark(n: int = 200, iterations: int = 6) -> None:
     print(f"Creating {n}x{n} matrices...")
     A = create_matrix(n, 1.1)
     B = create_matrix(n, 2.2)

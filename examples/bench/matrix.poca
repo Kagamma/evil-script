@@ -13,25 +13,22 @@ fastfunction create_matrix(let n, let value) {
 
 // Optimized naïve matrix multiplication – row caching + fastfunction
 fastfunction matrix_mul(let a, let b, let n) {
-  n = +n;
-  let c = [];
+  n = +n; 
+  let c = new Array(n);
   for (let i = 0; i < n; i++) {
-    let row = [];
-    for (let j = 0; j < n; j++) {
-      row.push(0.0);
-    }
-    c.push(row);
+    let row = new Array(n);
+    row.fill(0.0);
+    c[i] = row;
   }
 
   for (let i = 0; i < n; i++) {
-    let ai = a[i];          // cache row of A
     let ci = c[i];          // cache row of C
-    for (let k = 0; k < n; k++) {
-      let aik = ai[k];      // scalar from A
-      let bk  = b[k];       // cache row of B
-      for (let j = 0; j < n; j++) {
-        ci[j] += aik * bk[j];
-      }
+    for (let j = 0; j < n; j++) {
+      let s = 0;
+      for (let k = 0; k < n; k++) {
+        s += a[i][k] * b[k][j];
+      }  
+      ci[j] = s;
     }
   }
   return c;
