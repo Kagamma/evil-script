@@ -1,0 +1,70 @@
+fastfunction create_matrix(let n, let value) {
+  n = +n;
+  let m = [];
+  for (let i = 0; i < n; i++) {
+    let row = [];
+    for (let j = 0; j < n; j++) {
+      row.push(value);
+    }
+    m.push(row);
+  }
+  return m;
+}
+
+// Optimized naïve matrix multiplication – row caching + fastfunction
+fastfunction matrix_mul(let a, let b, let n) {
+  n = +n;
+  let c = [];
+  for (let i = 0; i < n; i++) {
+    let row = [];
+    for (let j = 0; j < n; j++) {
+      row.push(0.0);
+    }
+    c.push(row);
+  }
+
+  for (let i = 0; i < n; i++) {
+    let ai = a[i];          // cache row of A
+    let ci = c[i];          // cache row of C
+    for (let k = 0; k < n; k++) {
+      let aik = ai[k];      // scalar from A
+      let bk  = b[k];       // cache row of B
+      for (let j = 0; j < n; j++) {
+        ci[j] += aik * bk[j];
+      }
+    }
+  }
+  return c;
+}
+
+function run_benchmark(let n, let iterations) {
+  n = +n;
+  iterations = +iterations;
+
+  puts("Creating ", n, "x", n, " matrices...");
+  let A = create_matrix(n, 1.1);
+  let B = create_matrix(n, 2.2);
+
+  puts("Warm-up...");
+  let C = matrix_mul(A, B, n);
+
+  puts("Benchmarking ", iterations, " multiplications...");
+
+  let t0 = DateTime.now();
+  for (let i = 0; i < iterations; i++) {
+    C = matrix_mul(A, B, n);
+  }
+  let t1 = DateTime.now();
+
+  let elapsed_ms = DateTime.milliseconds(t1 - t0);
+  let avg_ms     = elapsed_ms / iterations;
+  let gflops     = (2.0 * n * n * n * iterations) / (elapsed_ms * 1e6);
+
+  puts("Result sample : C[0][0] = ", C[0][0]);
+  puts("Total time    : ", Math.round(elapsed_ms), " ms");
+  puts("Average       : ", Math.round(avg_ms * 100) / 100, " ms per multiplication");
+  puts("GFLOPS (approx): ", Math.round(gflops * 10000) / 10000);
+}
+
+// ---------- entry point ----------
+run_benchmark(200, 10);

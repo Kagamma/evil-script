@@ -1,0 +1,65 @@
+// Matrix multiplication benchmark for Evil Script
+// Naive O(N³) implementation – good for comparing interpreter / JIT performance
+
+N = 200          // matrix size (try 100, 200, 300, 400…)
+ITERATIONS = 10   // how many times to multiply
+
+// ---------- helpers ----------
+fn create_matrix(n, value) {
+  m = []
+  m[n-1] = null          // pre-size so it stays a proper array
+  for i = 0 to n-1 {
+    row = []
+    row[n-1] = null
+    for j = 0 to n-1 {
+      row[j] = value
+    }
+    m[i] = row
+  }
+  result = m
+}
+
+fn matrix_mul(a: map[number], b: map[number], n: number) {
+  c = []
+  c[n-1] = null
+  for i = 0 to n-1 {
+    row = []
+    row[n-1] = null
+    for j = 0 to n-1 {
+      s = 0.0
+      for k = 0 to n-1 {
+        s += a[i][k] * b[k][j]
+      }
+      row[j] = s
+    }
+    c[i] = row
+  }
+  result = c
+}
+
+// ---------- main ----------
+writeln('Creating ${N}x${N} matrices...')
+
+A = create_matrix(N, 1.1)
+B = create_matrix(N, 2.2)
+
+writeln('Warm-up...')
+C = matrix_mul(A, B, N)
+
+writeln('Benchmarking ${ITERATIONS} multiplications...')
+
+t0 = ticks()
+
+for i = 1 to ITERATIONS {
+  C = matrix_mul(A, B, N)
+}
+
+t1 = ticks()
+
+elapsed = t1 - t0
+avg = elapsed / ITERATIONS
+
+writeln('Result sample: C[0][0] = ', C[0][0])
+writeln('Total time  : ', elapsed, ' ms')
+writeln('Average     : ', avg, ' ms per multiplication')
+writeln('GFLOPS (approx): ', (2.0 * N * N * N * ITERATIONS) / (elapsed * 1e6))
