@@ -21,7 +21,7 @@ Enable `SE_LIBFFI` if you need to call external functions from DLLs/SOs.
 - The interpreter uses indirect threading. It compares well to CPython in most cases.
 - On x86-64 CPUs, the interpreter supports JIT compilation. This makes it much faster than pure interpreter mode for number crunching.
 
-<img width="883" height="749" alt="image" src="https://github.com/user-attachments/assets/0e917891-9753-448d-b445-5584532d1450" />
+<img width="880" height="749" alt="image" src="https://github.com/user-attachments/assets/9d03cc00-d151-4dea-a1ee-ff276cfb40fa" />
 
 poca: https://github.com/BeRo1985/poca
 
