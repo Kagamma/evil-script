@@ -75,7 +75,7 @@ end;
 ```
 Register the function to the script engine:
 ```
-  SE.RegisterFunc('add', @TCustomFunctions(nil).Add, 2);
+  SE.RegisterFunc('add', @TCustomFunctions(nil).Add, 2, [sevkNumber]); // Note: The last parameter [sevkNumber] is not forced and can be omitted. It is there so the JIT compiler can optimize the code better.
   SE.Source := 'a = add(2, 3)';
 ```
 

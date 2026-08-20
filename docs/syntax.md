@@ -24,6 +24,7 @@
   + [Self](#self)
   + [Yield](#yield)
   + [Try-catch](#try-catch)
+  + [Type annotations](#type-annotations)
   + [Comment](#comment)
   + [Import external functions from dynamic libraries](#import-external-functions-from-dynamic-libraries)
   + [Assert](#assert)
@@ -512,6 +513,21 @@ try {
 }
 ```
 
+### Type annotations
+You can annotate variables and function signatures using built-in types like `number`, `string`, `map`, `buffer`, `function`, `pasobject`, `null`.
+`any` is also supported, which means the variable can hold any type.
+```
+var a: number = 5
+var b: string = 'Hello, World!'
+var c: map = ['a': 1, 'b': 2]
+
+// Functions can be annotated as well
+fn foo(a: number, b: string): number {
+  return (a + length(b))
+}
+```
+Note: Type annotations are not enforced, and the script engine will not check if the type is correct. However, the JIT compiler will use type information to optimize the code. Unexpected behaviors may occur if the type is not correct when using the JIT compiler.
+
 ### Comment
 
 ```
@@ -563,3 +579,4 @@ If assertions are not enabled at compile time, this routine does nothing, and no
 ## Performance tips
 - Use dot notation when accessing maps. Currently dot notation is much faster than using strings. TODO: Optimize for strings as well.
 - Named functions are always faster than anonymous functions or function references.
+- Use `type annotations`, especially `number` type, to help the JIT compiler optimize your code.
