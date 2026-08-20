@@ -193,7 +193,10 @@ type
     sevkBoolean,
     sevkFunction,
     sevkPascalObject,
-    sevkConstString
+    sevkConstString,
+    sevkMapNumber,
+    sevkMapString,
+    sevkMapMap
   );
   TSEValueKindSet = set of TSEValueKind;
   PSECommonString = ^RawByteString;
@@ -717,7 +720,8 @@ const
     'atom', 'import', 'do', 'var', 'try', 'catch', 'throw', 'override'
   );
   ValueKindNames: array[TSEValueKind] of RawByteString = (
-    'null', 'number', 'string', 'map', 'buffer', 'pointer', 'boolean', 'function', 'pasobject', 'packedstring'
+    'null', 'number', 'string', 'map', 'buffer', 'pointer', 'boolean', 'function', 'pasobject', 'packedstring',
+    'map[number]', 'map[string]', 'map[map]'
   );
   OpcodeSizes: array[TSEOpcode] of Byte = (
     2, // opPushConst,
@@ -11045,7 +11049,7 @@ var
     Inc(Self.JITBlockCount);
   end;
 
-  function VerifyJITBlock(const APossibleKinds: TSEValueKindSet; const AMinOpcodeCount: Integer = 2): TSEValueKindSet;
+  function VerifyJITBlock(APossibleKinds: TSEValueKindSet; const AMinOpcodeCount: Integer = 2): TSEValueKindSet;
   var
     Sig: NativeInt;
     BIndex, BIndex2, OpCount: NativeInt;
@@ -11090,8 +11094,8 @@ var
           Inc(BIndex2, OpcodeSizes[Op2]);
         end;
         //
-
-        if ((APossibleKinds - [sevkNumber] - [sevkBoolean]) <> []) or (OpCount < AMinOpcodeCount) or (IsInvalidOpcode) then
+        APossibleKinds := APossibleKinds + [sevkNumber, sevkBoolean, sevkMapNumber];
+        if (APossibleKinds <> [sevkNumber, sevkBoolean, sevkMapNumber]) or (OpCount < AMinOpcodeCount) or (IsInvalidOpcode) then
         begin
           Self.Binary.DeleteRange(BIndex, OpcodeSizes[Op]);
         end else
@@ -12349,6 +12353,77 @@ var
       ParseFuncRefCall;
   end;
 
+  procedure ParseTypeAnnotation(const Ident: PSEIdent);
+  var
+    KindName: String;
+  begin
+    if PeekAtNextToken.kind = tkColon then
+    begin
+      NextToken;
+      KindName := NextTokenExpected([tkIdent]).Value;
+      if PeekAtNextToken.Kind = tkSquareBracketOpen then
+      begin
+        NextToken;
+        KindName := KindName + '[' + NextTokenExpected([tkIdent]).Value + ']';
+        NextTokenExpected([tkSquareBracketClose]);
+      end;
+      case KindName of
+        'any':
+          begin
+            Ident^.IsForcedKind := False;
+            Ident^.PossibleKinds := [sevkNull];
+          end;
+        'number':
+          begin
+            Ident^.IsForcedKind := True;
+            Ident^.PossibleKinds := [sevkNumber];
+          end;
+        'map':
+          begin
+            Ident^.IsForcedKind := True;
+            Ident^.PossibleKinds := [sevkMap];
+          end;
+        'string':
+          begin
+            Ident^.IsForcedKind := True;
+            Ident^.PossibleKinds := [sevkString];
+          end;
+        'boolean':
+          begin
+            Ident^.IsForcedKind := True;
+            Ident^.PossibleKinds := [sevkBoolean];
+          end;
+        'pasobject':
+          begin
+            Ident^.IsForcedKind := True;
+            Ident^.PossibleKinds := [sevkPascalObject];
+          end;
+        'function':
+          begin
+            Ident^.IsForcedKind := True;
+            Ident^.PossibleKinds := [sevkFunction];
+          end;
+        'map[number]':
+          begin
+            Ident^.IsForcedKind := True;
+            Ident^.PossibleKinds := [sevkMapNumber];
+          end;
+        'map[string]':
+          begin
+            Ident^.IsForcedKind := True;
+            Ident^.PossibleKinds := [sevkMapString];
+          end;
+        'map[map]':
+          begin
+            Ident^.IsForcedKind := True;
+            Ident^.PossibleKinds := [sevkMapMap];
+          end;
+        else
+          Error(Format('Unknown type "%s"', [KindName]), PeekAtNextToken);
+      end;
+    end;
+  end;
+
   function ParseFuncDecl(const IsAnon: Boolean = False): TSEToken;
   var
     Token, TokenResult: TSEToken;
@@ -12404,50 +12479,7 @@ var
           Token := NextTokenExpected([tkIdent]);
           Param := CreateIdent(ikVariable, Token, False, False);
           Param^.PossibleKinds := [sevkNull];
-          if PeekAtNextToken.kind = tkColon then
-          begin
-            NextToken;
-            KindName := NextTokenExpected([tkIdent]).Value;
-            case KindName of
-              'any':
-                begin
-                  Param^.IsForcedKind := False;
-                  Param^.PossibleKinds := [sevkNull];
-                end;
-              'number':
-                begin
-                  Param^.IsForcedKind := True;
-                  Param^.PossibleKinds := [sevkNumber];
-                end;
-              'map':
-                begin
-                  Param^.IsForcedKind := True;
-                  Param^.PossibleKinds := [sevkMap, sevkNull];
-                end;
-              'string':
-                begin
-                  Param^.IsForcedKind := True;
-                  Param^.PossibleKinds := [sevkString, sevkNull];
-                end;
-              'boolean':
-                begin
-                  Param^.IsForcedKind := True;
-                  Param^.PossibleKinds := [sevkBoolean];
-                end;
-              'pasobject':
-                begin
-                  Param^.IsForcedKind := True;
-                  Param^.PossibleKinds := [sevkPascalObject, sevkNull];
-                end;
-              'function':
-                begin
-                  Param^.IsForcedKind := True;
-                  Param^.PossibleKinds := [sevkFunction, sevkNull];
-                end;
-              else
-                Error(Format('Unknown type "%s"', [Name]), PeekAtNextToken);
-            end;
-          end;
+          ParseTypeAnnotation(Param);
           Inc(ArgCount);
         end;
         Token := NextTokenExpected([tkComma, tkBracketClose]);
@@ -12465,50 +12497,7 @@ var
       Self.Binary := Self.VM.Binaries.Value^.Data[Func^.CodeSegmentIndex];
       Self.CodeSegmentIndex := Func^.CodeSegmentIndex;
       //
-      if PeekAtNextToken.kind = tkColon then
-      begin
-        NextToken;
-        KindName := NextTokenExpected([tkIdent]).Value;
-        case KindName of
-          'any':
-            begin
-              Res^.IsForcedKind := False;
-              Res^.PossibleKinds := [sevkNull];
-            end;
-          'number':
-            begin
-              Res^.IsForcedKind := True;
-              Res^.PossibleKinds := [sevkNumber];
-            end;
-          'map':
-            begin
-              Res^.IsForcedKind := True;
-              Res^.PossibleKinds := [sevkMap, sevkNull];
-            end;
-          'string':
-            begin
-              Res^.IsForcedKind := True;
-              Res^.PossibleKinds := [sevkString, sevkNull];
-            end;
-          'boolean':
-            begin
-              Res^.IsForcedKind := True;
-              Res^.PossibleKinds := [sevkBoolean];
-            end;
-          'pasobject':
-            begin
-              Res^.IsForcedKind := True;
-              Res^.PossibleKinds := [sevkPascalObject, sevkNull];
-            end;
-          'function':
-            begin
-              Res^.IsForcedKind := True;
-              Res^.PossibleKinds := [sevkFunction];
-            end;
-          else
-            Error(Format('Unknown type "%s"', [Name]), PeekAtNextToken);
-        end;
-      end;
+      ParseTypeAnnotation(Res);
       //
       if PeekAtNextToken.Kind = tkEqual then
         Self.TokenList.Insert(Pos + 1, TokenResult);
@@ -13226,47 +13215,7 @@ var
     VarStartTokenPos := Pos;
     if PeekAtNextToken.kind = tkColon then
     begin
-      NextToken;
-      KindName := NextTokenExpected([tkIdent]).Value;
-      case KindName of
-        'any':
-          begin
-            Ident^.IsForcedKind := False;
-            Ident^.PossibleKinds := [sevkNull];
-          end;
-        'number':
-          begin
-            Ident^.IsForcedKind := True;
-            Ident^.PossibleKinds := [sevkNumber];
-          end;
-        'map':
-          begin
-            Ident^.IsForcedKind := True;
-            Ident^.PossibleKinds := [sevkMap, sevkNull];
-          end;
-        'string':
-          begin
-            Ident^.IsForcedKind := True;
-            Ident^.PossibleKinds := [sevkString, sevkNull];
-          end;
-        'boolean':
-          begin
-            Ident^.IsForcedKind := True;
-            Ident^.PossibleKinds := [sevkBoolean];
-          end;
-        'pasobject':
-          begin
-            Ident^.IsForcedKind := True;
-            Ident^.PossibleKinds := [sevkPascalObject, sevkNull];
-          end;
-        'function':
-          begin
-            Ident^.IsForcedKind := True;
-            Ident^.PossibleKinds := [sevkFunction];
-          end;
-        else
-          Error(Format('Unknown type "%s"', [Name]), PeekAtNextToken);
-      end;
+      ParseTypeAnnotation(Ident);
     end else
     begin
       while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
