@@ -11735,7 +11735,6 @@ var
       case PeekAtNextToken.Kind of
         tkSquareBracketOpen:
           begin
-            Result := Result + [sevkMap];
             PushConstCount := 0;
             IsTailed := True;
             NextToken;

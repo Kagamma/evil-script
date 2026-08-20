@@ -52,6 +52,7 @@ var
   IsO: Boolean = True;
   IsA: Boolean = False;
   IsP: Boolean = True;
+  IsJ: Boolean = True;
   I: Integer;
   AsmStr: String;
 
@@ -62,6 +63,7 @@ begin
     Writeln('Options: ');
     Writeln(' -d  : Disassembly');
     Writeln(' -do : Disable optimizations');
+    Writeln(' -dj : Disable JIT');
     Writeln(' -da : Disable assertions');
     Writeln(' -dp : Disable parallel garbage collector');
     Halt;
@@ -72,6 +74,8 @@ begin
       case ParamStr(I) of
         '-d':
           IsD := True;
+        '-dj':
+          IsJ := False;
         '-do':
           IsO := False;
         '-da':
@@ -85,6 +89,7 @@ begin
   SE := TScriptEngine.Create;
   SE.OptimizePeephole := IsO;
   SE.OptimizeConstantFolding := IsO;
+  SE.OptimizeJIT := IsO;
   SE.OptimizeAsserts := IsA;
   SE.StackTraceHandler := @TSEStackTraceHandler(nil).PrintVariables;
   SL := TStringList.Create;
