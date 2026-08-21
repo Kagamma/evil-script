@@ -19,8 +19,8 @@ fn create_matrix(n, value) {
   result = m
 }
 
-fn matrix_mul(a: map[number], b: map[number], n: number) {
-  c: map[number] = create_matrix(n, 0)
+fn matrix_mul(a: map[map[number]], b: map[map[number]], n: number) {
+  c: map[map[number]] = create_matrix(n, 0)
   for i = 0 to n-1 {
     ci = c[i]
     for j = 0 to n-1 {
