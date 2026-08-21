@@ -7366,10 +7366,20 @@ begin
   end;
 end;
 
+{$ifdef UNIX}
+var
+  TempValue: TSEValue;
+
+function SEMapGetJIT(P: Pointer; I: NativeInt): TSEValue; sysv_abi_default;
+begin
+  TempValue := TSEValueMap(P).Get2(I);
+end;
+{$else}
 function SEMapGetJIT(P: Pointer; I: NativeInt): TSEValue; sysv_abi_default;
 begin
   Result := TSEValueMap(P).Get2(I);
 end;
+{$endif}
 
 procedure TSEVM.Exec;
 type
@@ -8169,14 +8179,7 @@ var
               E.PushReg(regR12);
               E.PushReg(regR10);
 
-              {$ifdef UNIX}
-              E.MovRegReg64(regRBP, regRSP);
-              E.AndRegImm32(regRSP, -16);
-              {$endif}
               E.CallAbsolute(regRCX, @SEMapGetJIT);
-              {$ifdef UNIX}
-              E.MovRegReg64(regRSP, regRBP);
-              {$endif}
 
               E.PopReg(regR10);
               E.PopReg(regR12);
@@ -8185,16 +8188,11 @@ var
               E.PopReg(regR15);
 
               {$ifdef UNIX}
-                { For some reasons there's a difference in how FPC pass records on nix system? }
-                { RAX points to the record that contains the result }
                 { Kind }
+                E.MovRegImm64(regRAX, NativeUInt(@TempValue));
                 E.MovRegMem32(regRBX, E.Mem(regRAX, NativeUInt(@TSEValue(nil^).Kind)));
                 { Value }
                 E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.Mem(regRAX, NativeUInt(@TSEValue(nil^).VarPointer)));
-
-                //E.MovRegMem64(regRDI, E.Mem(regRAX, NativeUInt(@TSEValue(nil^).VarPointer)));
-                //E.MovRegReg64(regRDI, regRBX);
-                //E.CallAbsolute(regRCX, @Ping);
               {$else}
                 { On Windows, RAX hold the lower part of TSEValue, while RDX hold the upper part }
                 { Kind }
@@ -11174,7 +11172,7 @@ var
         begin
           Op2 := TSEOpcode(NativeInt(Self.Binary.Ptr(BIndex2)^.VarPointer));
           if not (Op2 in [
-            opPushConst, opPushGlobalVar, opPushLocalVar, {$ifdef Windows}opPushArrayPop,{$endif} opAssignGlobalVar, opAssignLocalVar,
+            opPushConst, opPushGlobalVar, opPushLocalVar, opPushArrayPop, opAssignGlobalVar, opAssignLocalVar,
             opJITBlockPotential,
             opOperatorInc,
             opOperatorNegative,
