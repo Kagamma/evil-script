@@ -11162,7 +11162,7 @@ var
         begin
           Op2 := TSEOpcode(NativeInt(Self.Binary.Ptr(BIndex2)^.VarPointer));
           if not (Op2 in [
-            opPushConst, opPushGlobalVar, opPushLocalVar, opPushArrayPop, opAssignGlobalVar, opAssignLocalVar,
+            opPushConst, opPushGlobalVar, opPushLocalVar, {$ifdef Windows}opPushArrayPop, {$endif}opAssignGlobalVar, opAssignLocalVar,
             opJITBlockPotential,
             opOperatorInc,
             opOperatorNegative,
