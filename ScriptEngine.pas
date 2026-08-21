@@ -7816,6 +7816,39 @@ var
     {$endif}
   end;
 
+  procedure StringSet(TV, C, B: TSEValue);
+  var
+    S1, S2, S: String;
+  begin
+    case B.Kind of
+      sevkString:
+        begin
+          {$ifdef SE_STRING_UTF8}
+            S1 := TV.VarString^;
+            S2 := B.VarString^;
+            UTF8Delete(S1, NativeInt(C) + 1, 1);
+            S := UTF8Copy(S2, 1, 1);
+            UTF8Insert(S, S1, NativeInt(C) + 1);
+            TV.VarString^ := S1;
+          {$else}
+            TV.VarString^[NativeInt(C) + 1] := B.VarString^[1];
+          {$endif}
+        end;
+      sevkNumber:
+        begin
+          {$ifdef SE_STRING_UTF8}
+            S1 := TV.VarString^;
+            UTF8Delete(S1, NativeInt(C) + 1, 1);
+            S := Char(Round(B.VarNumber));
+            UTF8Insert(S, S1, NativeInt(C) + 1);
+            TV.VarString^ := S1;
+          {$else}
+            TV.VarString^[NativeInt(C) + 1] := Char(Round(B.VarNumber));
+          {$endif}
+        end;
+    end;
+  end;
+
 {$ifdef SE_COMPUTED_GOTO}
   {$if defined(CPUX86_64) or defined(CPUi386)}
     {$define DispatchGoto :=
@@ -9538,29 +9571,7 @@ labelStart:
             sevkPascalObject:
               TV.SetProp(C^, B^);
             sevkString:
-              case B^.Kind of
-                sevkString:
-                  begin
-                    {$ifdef SE_STRING_UTF8}
-                      S2 := B^.VarString^;
-                      UTF8Delete(AnsiString(TV.VarString^), NativeInt(C^) + 1, 1);
-                      S := UTF8Copy(S2, 1, 1);
-                      UTF8Insert(S, AnsiString(TV.VarString^), NativeInt(C^) + 1);
-                    {$else}
-                      TV.VarString^[NativeInt(C^) + 1] := B^.VarString^[1];
-                    {$endif}
-                  end;
-                sevkNumber:
-                  begin
-                    {$ifdef SE_STRING_UTF8}
-                      UTF8Delete(AnsiString(TV.VarString^), NativeInt(C^) + 1, 1);
-                      S := Char(Round(B^.VarNumber));
-                      UTF8Insert(S, AnsiString(TV.VarString^), NativeInt(C^) + 1);
-                    {$else}
-                      TV.VarString^[NativeInt(C^) + 1] := Char(Round(B^.VarNumber));
-                    {$endif}
-                  end;
-              end;
+              StringSet(TV, C^, B^);
           end;
           Inc(CodePtrLocal, 3);
           DispatchGoto;
@@ -9590,33 +9601,7 @@ labelStart:
             sevkPascalObject:
               TV.SetProp(C^, B^);
             sevkString:
-              case B^.Kind of
-                sevkString:
-                  begin
-                    {$ifdef SE_STRING_UTF8}
-                      S1 := TV.VarString^;
-                      S2 := B^.VarString^;
-                      UTF8Delete(S1, NativeInt(C^) + 1, 1);
-                      S := UTF8Copy(S2, 1, 1);
-                      UTF8Insert(S, S1, NativeInt(C^) + 1);
-                      TV.VarString^ := S1;
-                    {$else}
-                      TV.VarString^[NativeInt(C^) + 1] := B^.VarString^[1];
-                    {$endif}
-                  end;
-                sevkNumber:
-                  begin
-                    {$ifdef SE_STRING_UTF8}
-                      S1 := TV.VarString^;
-                      UTF8Delete(S1, NativeInt(C^) + 1, 1);
-                      S := Char(Round(B^.VarNumber));
-                      UTF8Insert(S, S1, NativeInt(C^) + 1);
-                      TV.VarString^ := S1;
-                    {$else}
-                      TV.VarString^[NativeInt(C^) + 1] := Char(Round(B^.VarNumber));
-                    {$endif}
-                  end;
-              end;
+              StringSet(TV, C^, B^);
           end;
           Inc(CodePtrLocal, 4);
           DispatchGoto;
