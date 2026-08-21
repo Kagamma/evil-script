@@ -7348,9 +7348,9 @@ end;
 var
   PingCount: Integer = 0;
 
-procedure Ping(A: Int32); sysv_abi_default;
+procedure Ping(A: Int64); sysv_abi_default;
 begin
-  Writeln('PING ', PingCount, ', ', A);
+  Writeln('PING ', PingCount, ', Int: ', HexStr(A, 16), ', Double: ', PDouble(@A)^);
   Inc(PingCount);
 end;
 
@@ -8149,6 +8149,7 @@ var
             end;
           opPushArrayPop:
             begin
+              { There's a difference in how FPC pass variables despite the function has SystemV ABI?}
               { A, either from code, or from stack }
               if JitCodePtrLocal[BIndex + 1].Kind <> sevkNull then
               begin
@@ -8168,7 +8169,14 @@ var
               E.PushReg(regR12);
               E.PushReg(regR10);
 
+              {$ifdef UNIX}
+              E.MovRegReg64(regRBP, regRSP);
+              E.AndRegImm32(regRSP, -16);
+              {$endif}
               E.CallAbsolute(regRCX, @SEMapGetJIT);
+              {$ifdef UNIX}
+              E.MovRegReg64(regRSP, regRBP);
+              {$endif}
 
               E.PopReg(regR10);
               E.PopReg(regR12);
@@ -8176,11 +8184,25 @@ var
               E.PopReg(regR14);
               E.PopReg(regR15);
 
-              { Kind }
-              E.ShrRegImm(regRAX, 32);
-              E.MovRegReg32(regRBX, regRAX);
-              { Result store in rdx, we push it onto the stack }
-              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRDX);
+              {$ifdef UNIX}
+                { For some reasons there's a difference in how FPC pass records on nix system? }
+                { RAX points to the record that contains the result }
+                { Kind }
+                E.MovRegMem32(regRBX, E.Mem(regRAX, NativeUInt(@TSEValue(nil^).Kind)));
+                { Value }
+                E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.Mem(regRAX, NativeUInt(@TSEValue(nil^).VarPointer)));
+
+                //E.MovRegMem64(regRDI, E.Mem(regRAX, NativeUInt(@TSEValue(nil^).VarPointer)));
+                //E.MovRegReg64(regRDI, regRBX);
+                //E.CallAbsolute(regRCX, @Ping);
+              {$else}
+                { On Windows, RAX hold the lower part of TSEValue, while RDX hold the upper part }
+                { Kind }
+                E.ShrRegImm(regRAX, 32);
+                E.MovRegReg32(regRBX, regRAX);
+                { Result store in rdx, we push it onto the stack }
+                E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRDX);
+              {$endif}
               //
               CodeSize := CodeSize + OpcodeSizes[Op];
               Inc(XMMStackPtr);
@@ -8786,11 +8808,11 @@ var
 
           opPushGlobalVar:
             begin
-              { Load global variable index to R8 }
+              { Load global variable index to RAX }
               // mov rax, code[1].VarPointer
               E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer) * SizeOf(TSEValue));
               { Load global variable to stack }
-                // movsd xmm?, qword ptr [r12 + rax + .VarNumber]
+              // movsd xmm?, qword ptr [r12 + rax + .VarNumber]
               E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.MemIndex(regR12, regRAX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
               //
               CodeSize := CodeSize + OpcodeSizes[Op];
