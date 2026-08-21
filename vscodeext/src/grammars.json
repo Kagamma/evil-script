@@ -11,11 +11,11 @@
 			"patterns": [
 				{
 					"name": "keyword.control",
-					"match": "\\b(var|true|false|null|self|if|using|for|while|do|to|downto|in|break|else|continue|step|fn|import|let|switch|case|default|return|yield|try|catch|throw)\\b"
+					"match": "\\b(var|override|true|false|null|self|if|using|for|while|do|to|downto|in|break|else|continue|step|fn|import|let|switch|case|default|return|yield|try|catch|throw)\\b"
 				},
 				{
 					"name": "variable.language",
-					"match": "\\b(const|local|var)\\b"
+					"match": "\\b(const|local|var|number|map|boolean|string|pasobject)\\b"
 				},
 				{
 					"name": "comment.line",
