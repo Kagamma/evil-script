@@ -8117,14 +8117,14 @@ var
               { A, either from code, or from stack }
               if JitCodePtrLocal[BIndex + 1].Kind <> sevkNull then
               begin
-                E.MovRegImm64(regRSI, Trunc(JitCodePtrLocal[BIndex + 2].VarNumber))
+                E.MovRegImm64({$ifdef UNIX}regRDX{$else}regRSI{$endif}, Trunc(JitCodePtrLocal[BIndex + 2].VarNumber))
               end else
               begin
-                E.CvttSD2SI(regRSI, TXMMReg(XMMStackPtr - 1));
+                E.CvttSD2SI({$ifdef UNIX}regRDX{$else}regRSI{$endif}, TXMMReg(XMMStackPtr - 1));
                 Dec(XMMStackPtr);
               end;
               { B }
-              E.MovRegFromSDXMM(regRDI, TXMMReg(XMMStackPtr - 1));
+              E.MovRegFromSDXMM({$ifdef UNIX}regRSI{$else}regRDI{$endif}, TXMMReg(XMMStackPtr - 1));
               Dec(XMMStackPtr);
               //
               E.PushReg(regR15);
@@ -8134,17 +8134,18 @@ var
               E.PushReg(regR10);
 
               E.CallAbsolute(regRCX, @SEMapGetJIT);
-              { Kind }
-              E.ShrRegImm(regRAX, 32);
-              E.MovRegReg32(regRBX, regRAX);
-              { Result store in rdx, we push it onto the stack }
-              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRDX);
 
               E.PopReg(regR10);
               E.PopReg(regR12);
               E.PopReg(regR13);
               E.PopReg(regR14);
               E.PopReg(regR15);
+
+              { Kind }
+              E.ShrRegImm(regRAX, 32);
+              E.MovRegReg32(regRBX, regRAX);
+              { Result store in rdx, we push it onto the stack }
+              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRDX);
               //
               E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
               Inc(XMMStackPtr);
@@ -11162,7 +11163,7 @@ var
         begin
           Op2 := TSEOpcode(NativeInt(Self.Binary.Ptr(BIndex2)^.VarPointer));
           if not (Op2 in [
-            opPushConst, opPushGlobalVar, opPushLocalVar, {$ifdef Windows}opPushArrayPop, {$endif}opAssignGlobalVar, opAssignLocalVar,
+            opPushConst, opPushGlobalVar, opPushLocalVar, {$ifdef Windows}opPushArrayPop,{$endif} opAssignGlobalVar, opAssignLocalVar,
             opJITBlockPotential,
             opOperatorInc,
             opOperatorNegative,
