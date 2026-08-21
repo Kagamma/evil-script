@@ -158,6 +158,7 @@ type
     opPushTrap,
     opPopTrap,
     opThrow,
+    opNop,
 
     opJITBlock,
     opJITBlockPotential
@@ -795,6 +796,7 @@ const
     2, // opPushTrap,
     1, // opPopTrap,
     1, // opThrow
+    1, // opNop
     2, // opJITBlock
     2  // opJITBlockPotential
   );
@@ -7921,6 +7923,7 @@ label
   labelPushTrap,
   labelPopTrap,
   labelThrow,
+  labelNop,
   labelJITBlock,
   labelJITBlockPotential;
 
@@ -7997,6 +8000,7 @@ var
     @labelPushTrap,
     @labelPopTrap,
     @labelThrow,
+    @labelNop,
     @labelJITBlock,
     @labelJITBlockPotential
   );
@@ -8102,10 +8106,11 @@ var
         Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
        // Writeln(' - ', Op);
         case Op of
+          opNop,
           opJITBlock,
           opJITBlockPotential:
             begin
-              E.AddRegImm32(regR15, OpcodeSizes[opJITBlockPotential] * SizeOf(TSEValue));
+              E.AddRegImm32(regR15, OpcodeSizes[Op] * SizeOf(TSEValue));
             end;
           opPushArrayPop:
             begin
@@ -8953,6 +8958,12 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}
       case TSEOpcode(NativeUInt(CodePtrLocal^.VarPointer)) of
       {$endif}
+      {$ifndef SE_COMPUTED_GOTO}opNop:{$endif}
+        begin
+        labelNop:
+          Inc(CodePtrLocal);
+          DispatchGoto;
+        end;
       {$ifndef SE_COMPUTED_GOTO}opJITBlockPotential:{$endif}
         begin
         labelJITBlockPotential:
