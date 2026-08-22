@@ -23,7 +23,7 @@ unit ScriptEngine;
   {$endif}
 {$endif}
 {$ifdef CPUx86_64}
-  {$define SE_HAS_JIT}
+  {.$define SE_HAS_JIT}
   {.$define SE_DISABLE_AGGRESSIVE_JIT} // Enable this if you want stable, but slower JIT behavior
 {$endif}
 // enable this if you have access to LCL's FileUtil
@@ -912,6 +912,8 @@ type
 
   TScriptEngine = TEvilC;
 
+  {$ifdef SE_HAS_JIT}
+
   { ===============================
   X64 emitter
   =============================== }
@@ -1344,6 +1346,7 @@ type
 
     property Code: TX64CodeList read FCode;
   end;
+  {$endif}
 
 function SEValueToText(const Value: TSEValue; const IsRoot: Boolean = True): String;
 function SESize(constref Value: TSEValue): SizeInt; inline;
@@ -1613,6 +1616,7 @@ var
   ConstStringsLookup: TSEStringLookupMap;
   Negative2QWords: array[0..1] of QWord = ($8000000000000000, $8000000000000000);
 
+{$ifdef SE_HAS_JIT}
 { =====================================================================
   Basic Byte emission
   ===================================================================== }
@@ -3398,6 +3402,8 @@ begin
   JITBlockList.Add(JITBlock);
   Result := P;
 end;
+
+{$endif}
 
 { ===================================================================== }
 
@@ -8076,6 +8082,7 @@ var
     @labelJITBlockPotential
   );
 
+{$ifdef SE_HAS_JIT}
   function JITHandler(IsRoot: Boolean; JitCodePtrLocal: PSEValue; E: TX64Emitter): Integer;
   const
     STATUS_OK = 0;
@@ -9016,6 +9023,7 @@ var
       LeaveCriticalSection(CS);
     end;
   end;
+{$endif}
 
 begin
   if Self.IsDone then
