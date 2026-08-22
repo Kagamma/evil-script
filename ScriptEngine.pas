@@ -3354,8 +3354,8 @@ begin
         FpMunMap(JITBlockList.Ptr(I)^.Code, AllocSize);
         RaiseLastOSError;
       end;
-      {$endif}
       FlushInstructionCache(GetCurrentProcess, P, Size);
+      {$endif}
       Exit(P);
     end;
   end;
