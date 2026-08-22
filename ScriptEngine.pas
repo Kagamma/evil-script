@@ -3332,17 +3332,29 @@ begin
   { Look for block with suitable size }
   for I := 0 to JITBlockList.Count - 1 do
   begin
-    if JITBlockList.Ptr(I)^.CodeSize + Size < BLOCK_SIZE then
+    if JITBlockList.Ptr(I)^.CodeSize + Size < JITBlockList.Ptr(I)^.AllocSize then
     begin
-      VirtualProtect(JITBlockList.Ptr(I)^.Code, BLOCK_SIZE, PAGE_READWRITE, OldProtect);
+      {$ifdef Windows}
+      VirtualProtect(JITBlockList.Ptr(I)^.Code, JITBlockList.Ptr(I)^.AllocSize, PAGE_READWRITE, OldProtect);
+      {$else}
+      FpMProtect(JITBlockList.Ptr(I)^.Code, JITBlockList.Ptr(I)^.AllocSize, PROT_READ or PROT_WRITE);
+      {$endif}
       P := JITBlockList.Ptr(I)^.Code + JITBlockList.Ptr(I)^.CodeSize;
       JITBlockList.Ptr(I)^.CodeSize := JITBlockList.Ptr(I)^.CodeSize + Size;
       Move(Self.FCode.Ptr(0)^, P^, Size);
-      if not VirtualProtect(JITBlockList.Ptr(I)^.Code, BLOCK_SIZE, PAGE_EXECUTE_READ, OldProtect) then
+      {$ifdef Windows}
+      if not VirtualProtect(JITBlockList.Ptr(I)^.Code, JITBlockList.Ptr(I)^.AllocSize, PAGE_EXECUTE_READ, OldProtect) then
       begin
-        VirtualFree(P, 0, MEM_RELEASE);
+        VirtualFree(JITBlockList.Ptr(I)^.Code, 0, MEM_RELEASE);
         RaiseLastOSError;
       end;
+      {$else}
+      if FpMProtect(JITBlockList.Ptr(I)^.Code, JITBlockList.Ptr(I)^.AllocSize, PROT_READ or PROT_EXEC) <> 0 then
+      begin
+        FpMunMap(JITBlockList.Ptr(I)^.Code, AllocSize);
+        RaiseLastOSError;
+      end;
+      {$endif}
       FlushInstructionCache(GetCurrentProcess, P, Size);
       Exit(P);
     end;
