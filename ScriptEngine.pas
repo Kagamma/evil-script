@@ -342,7 +342,8 @@ type
 
   TSEValueList = specialize TSEListPtr<TSEValue>;
   TSEJITBlock = record
-    Code: Pointer;
+    Code: PByte;
+    AllocSize,
     CodeSize: NativeUInt;
   end;
   TSEJITBlockList = specialize TSEListPtr<TSEJITBlock>;
@@ -980,7 +981,6 @@ type
     FJumps: TX64JumpPatchList;
 
     FExecutableMemory: Pointer;
-    FExecutableSize: NativeUInt;
 
     procedure EmitByte(B: Byte);
     procedure EmitU16(V: Word);
@@ -1342,10 +1342,9 @@ type
       Finalization
       ----------------------------------------------------------------- }
 
-    function MakeExecutable: Pointer;
+    function MakeExecutable(const JITBlockList: TSEJITBlockList): Pointer;
 
     property Code: TX64CodeList read FCode;
-    property ExecutableSize: NativeUInt read FExecutableSize;
   end;
 
 function SEValueToText(const Value: TSEValue; const IsRoot: Boolean = True): String;
@@ -3313,27 +3312,45 @@ end;
   Executable memory
   ===================================================================== }
 
-function TX64Emitter.MakeExecutable: Pointer;
+function TX64Emitter.MakeExecutable(const JITBlockList: TSEJITBlockList): Pointer;
 var
   Size: NativeUInt;
+  I: Integer;
   AllocSize: NativeUInt;
   P: Pointer;
 {$ifdef WINDOWS}
   OldProtect: DWord;
 {$endif}
+  JITBlock: TSEJITBlock;
 begin
   if Self.FCode.Count = 0 then
     raise Exception.Create('Cannot execute empty code');
 
-  if FExecutableMemory <> nil then
-    raise Exception.Create('Code is already executable');
-
   ResolveLabels;
   Size := NativeUInt(Self.FCode.Count);
-  { Round up to page size (normally 4 KiB). }
-  AllocSize := (Size + 4095) and not NativeUInt(4095);
-  Self.FExecutableSize := AllocSize;
 
+  { Look for block with suitable size }
+  for I := 0 to JITBlockList.Count - 1 do
+  begin
+    if JITBlockList.Ptr(I)^.CodeSize + Size < 16384 then
+    begin
+      VirtualProtect(JITBlockList.Ptr(I)^.Code, 16384, PAGE_READWRITE, OldProtect);
+      P := JITBlockList.Ptr(I)^.Code + JITBlockList.Ptr(I)^.CodeSize;
+      JITBlockList.Ptr(I)^.CodeSize := JITBlockList.Ptr(I)^.CodeSize + Size;
+      Move(Self.FCode.Ptr(0)^, P^, Size);
+      if not VirtualProtect(JITBlockList.Ptr(I)^.Code, 16384, PAGE_EXECUTE_READ, OldProtect) then
+      begin
+        VirtualFree(P, 0, MEM_RELEASE);
+        RaiseLastOSError;
+      end;
+      FlushInstructionCache(GetCurrentProcess, P, Size);
+      Exit(P);
+    end;
+  end;
+
+  { No block fit the code, allocate a new one }
+  { Round up to 4 page size at once (normally 16 KiB) to ease up the heap of the OS. }
+  AllocSize := (Size + 16383) and not NativeUInt(16383);
 {$ifdef WINDOWS}
   P := VirtualAlloc(nil, AllocSize, MEM_COMMIT or MEM_RESERVE, PAGE_READWRITE);
 
@@ -3346,7 +3363,7 @@ begin
     VirtualFree(P, 0, MEM_RELEASE);
     RaiseLastOSError;
   end;
-  FlushInstructionCache(GetCurrentProcess, P, Size);
+  FlushInstructionCache(GetCurrentProcess, P, 16384);
 
 {$else}
   { Unix / Linux path }
@@ -3363,7 +3380,10 @@ begin
   end;
   { Instruction cache is coherent on x86/x86-64; no explicit flush needed. }
 {$endif}
-
+  JITBlock.Code := P;
+  JITBlock.CodeSize := Size;
+  JITBlock.AllocSize := AllocSize;
+  JITBlockList.Add(JITBlock);
   Result := P;
 end;
 
@@ -8056,7 +8076,6 @@ var
     CodeSize: Cardinal;
     P: Pointer;
     IsAssigned: Boolean;
-    JITBlock: TSEJITBlock;
     LabelYes, LabelDone: TX64Label;
     LastOpKind: TSEValueKind = sevkNull;
     LastOpKindInRBX: Boolean = False;
@@ -8954,11 +8973,8 @@ var
           begin
             E.Ret;
             // Patch the code to pass the memory block
-            JITBlock.Code := E.MakeExecutable;
-            JITBlock.CodeSize := E.ExecutableSize;
             JitCodePtrLocal[0] := Pointer(opJITBlock);
-            JitCodePtrLocal[1] := JITBlock.Code;
-            Self.Binaries.Value^.Data[Self.CodeSegmentIndex].JITBlockList.Add(JITBlock);
+            JitCodePtrLocal[1] := E.MakeExecutable(Self.Binaries.Value^.Data[Self.CodeSegmentIndex].JITBlockList);
           end;
         end;
       end;
