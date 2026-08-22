@@ -12457,6 +12457,8 @@ var
       Result := NextTokenExpected([tkIdent]).Value;
       while PeekAtNextToken.Kind = tkSquareBracketOpen do
       begin
+        if (Result <> 'map') and (Result <> 'array') then
+          Error('Only "map" and "array" can be nested', PeekAtNextToken);
         NextToken;
         Result := NextTokenExpected([tkIdent]).Value;
         Inc(Deep);
