@@ -980,8 +980,6 @@ type
     FLabels: TX64LabelInfoList;
     FJumps: TX64JumpPatchList;
 
-    FExecutableMemory: Pointer;
-
     procedure EmitByte(B: Byte);
     procedure EmitU16(V: Word);
     procedure EmitU32(V: LongWord);
@@ -3313,6 +3311,8 @@ end;
   ===================================================================== }
 
 function TX64Emitter.MakeExecutable(const JITBlockList: TSEJITBlockList): Pointer;
+const
+  BLOCK_SIZE = 16384;
 var
   Size: NativeUInt;
   I: Integer;
@@ -3332,13 +3332,13 @@ begin
   { Look for block with suitable size }
   for I := 0 to JITBlockList.Count - 1 do
   begin
-    if JITBlockList.Ptr(I)^.CodeSize + Size < 16384 then
+    if JITBlockList.Ptr(I)^.CodeSize + Size < BLOCK_SIZE then
     begin
-      VirtualProtect(JITBlockList.Ptr(I)^.Code, 16384, PAGE_READWRITE, OldProtect);
+      VirtualProtect(JITBlockList.Ptr(I)^.Code, BLOCK_SIZE, PAGE_READWRITE, OldProtect);
       P := JITBlockList.Ptr(I)^.Code + JITBlockList.Ptr(I)^.CodeSize;
       JITBlockList.Ptr(I)^.CodeSize := JITBlockList.Ptr(I)^.CodeSize + Size;
       Move(Self.FCode.Ptr(0)^, P^, Size);
-      if not VirtualProtect(JITBlockList.Ptr(I)^.Code, 16384, PAGE_EXECUTE_READ, OldProtect) then
+      if not VirtualProtect(JITBlockList.Ptr(I)^.Code, BLOCK_SIZE, PAGE_EXECUTE_READ, OldProtect) then
       begin
         VirtualFree(P, 0, MEM_RELEASE);
         RaiseLastOSError;
@@ -3349,8 +3349,8 @@ begin
   end;
 
   { No block fit the code, allocate a new one }
-  { Round up to 4 page size at once (normally 16 KiB) to ease up the heap of the OS. }
-  AllocSize := (Size + 16383) and not NativeUInt(16383);
+  { Round up to 4 page size at once (normally 16 KiB) to ease up the vmm. }
+  AllocSize := (Size + BLOCK_SIZE - 1) and not NativeUInt(BLOCK_SIZE - 1);
 {$ifdef WINDOWS}
   P := VirtualAlloc(nil, AllocSize, MEM_COMMIT or MEM_RESERVE, PAGE_READWRITE);
 
@@ -3363,7 +3363,7 @@ begin
     VirtualFree(P, 0, MEM_RELEASE);
     RaiseLastOSError;
   end;
-  FlushInstructionCache(GetCurrentProcess, P, 16384);
+  FlushInstructionCache(GetCurrentProcess, P, Size);
 
 {$else}
   { Unix / Linux path }
