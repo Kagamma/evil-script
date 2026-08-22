@@ -3348,13 +3348,13 @@ begin
         VirtualFree(JITBlockList.Ptr(I)^.Code, 0, MEM_RELEASE);
         RaiseLastOSError;
       end;
+      FlushInstructionCache(GetCurrentProcess, P, Size);
       {$else}
       if FpMProtect(JITBlockList.Ptr(I)^.Code, JITBlockList.Ptr(I)^.AllocSize, PROT_READ or PROT_EXEC) <> 0 then
       begin
         FpMunMap(JITBlockList.Ptr(I)^.Code, AllocSize);
         RaiseLastOSError;
       end;
-      FlushInstructionCache(GetCurrentProcess, P, Size);
       {$endif}
       Exit(P);
     end;
