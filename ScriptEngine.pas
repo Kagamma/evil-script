@@ -19,11 +19,13 @@ unit ScriptEngine;
 {.$define SE_LIBFFI}
 {$if defined(CPU32) or defined(CPU64) or defined(SE_LIBFFI)}
   {$ifndef WASI}
-    {$define SE_DYNLIBS}
+    {$ifndef GO32v2}
+      {$define SE_DYNLIBS}
+    {$endif}
   {$endif}
 {$endif}
 {$ifdef CPUx86_64}
-  {.$define SE_HAS_JIT}
+  {$define SE_HAS_JIT}
   {.$define SE_DISABLE_AGGRESSIVE_JIT} // Enable this if you want stable, but slower JIT behavior
 {$endif}
 // enable this if you have access to LCL's FileUtil
@@ -4642,7 +4644,7 @@ class function TBuiltInFunction.SEArrayResize(const VM: TSEVM; const Args: PSEVa
 begin
   if SEMapIsValidArray(Args[0]) then
   begin
-    TSEValueMap(Args[0].VarMap).Count := Args[1];
+    TSEValueMap(Args[0].VarMap).Count := Round(Args[1].VarNumber);
   end;
   Result := Args[0];
 end;
