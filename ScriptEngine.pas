@@ -12982,7 +12982,8 @@ var
 
         Token := NextTokenExpected([tkTo, tkDownto]);
 
-        ParseExpr(False);
+        MarkJITBlock;
+        VerifyJITBlock(ParseExpr(False));
 
         if PeekAtNextToken.Kind = tkStep then
         begin
@@ -13035,7 +13036,8 @@ var
         Token.Value := VarHiddenArrayName;
         VarHiddenArrayIdent := CreateIdent(ikVariable, Token, True, False)^;
 
-        ParseExpr(False);
+        MarkJITBlock;
+        VerifyJITBlock(ParseExpr(False));
 
         EmitAssignVar(VarHiddenArrayIdent);
         Emit([Pointer(opPushConst), 0]);
