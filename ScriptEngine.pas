@@ -3838,7 +3838,7 @@ begin
     VirtualFree(Self.JITBlockList.Ptr(I)^.Code, 0, MEM_RELEASE);
     {$endif}
     {$ifdef UNIX}
-    FpMunMap(Self.JITBlockList.Ptr(I)^.Code, Self.JITBlockList.Ptr(I)^.CodeSize);
+    FpMunMap(Self.JITBlockList.Ptr(I)^.Code, Self.JITBlockList.Ptr(I)^.AllocSize);
     {$endif}
   end;
   Self.JITBlockList.Free;
