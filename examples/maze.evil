@@ -9,7 +9,7 @@ fn pop(a) {
 }
 
 fn generate_maze(w, h) {
-  maze = []
+  maze: map[map[number]] = []
   for i = 0 to w - 1 {
     maze[i] = []
     for j = 0 to h - 1 {
@@ -24,17 +24,21 @@ fn generate_maze(w, h) {
   push(stack, [x, y])
   while length(stack) > 0 {
     neighbors = []
-    if ((x > 1) && (maze[x - 2][y] != 0)) {
-      push(neighbors, [x - 2, y])
+    if (x > 1) {
+      if (maze[x - 2][y] != 0)
+        push(neighbors, [x - 2, y])
     }
-    if ((x < (w - 2)) && (maze[x + 2][y] != 0)) {
-      push(neighbors, [x + 2, y])
+    if (x < (w - 2)) {
+      if (maze[x + 2][y] != 0)
+        push(neighbors, [x + 2, y])
     }
-    if ((y > 1) && (maze[x][y - 2] != 0)) {
-      push(neighbors, [x, y - 2])
+    if (y > 1)  {
+      if (maze[x][y - 2] != 0)
+        push(neighbors, [x, y - 2])
     }
-    if ((y < (h - 2)) && (maze[x][y + 2] != 0)) {
-      push(neighbors, [x, y + 2])
+    if (y < (h - 2)) {
+      if (maze[x][y + 2] != 0)
+        push(neighbors, [x, y + 2])
     }
     if (length(neighbors) > 0) {
       next = neighbors[floor(rnd() * length(neighbors))]
