@@ -5794,7 +5794,7 @@ begin
       R := False = Boolean(Round(V2.VarNumber));
   end
   else
-    R := False;
+    R := V1.VarPointer = V2.VarPointer;
 end;
 
 procedure SEValueNotEqual(out R: TSEValue; constref V1, V2: TSEValue); inline; overload;
@@ -5828,7 +5828,7 @@ begin
       R := False <> Boolean(Round(V2.VarNumber));
   end
   else
-    R := True;
+    R := V1.VarPointer <> V2.VarPointer;
 end;
 
 procedure SEValueShiftLeft(out R: TSEValue; constref V1, V2: TSEValue); inline; overload;
@@ -5892,7 +5892,7 @@ begin
       Result := False = Boolean(Round(V2.VarNumber));
   end
   else
-    Result := False;
+    Result := V1.VarPointer = V2.VarPointer;
 end;
 
 function SEValueNotEqual(constref V1, V2: TSEValue): Boolean; inline; overload;
@@ -5924,7 +5924,7 @@ begin
       Result := False <> Boolean(Round(V2.VarNumber));
   end
   else
-    Result := True;
+    Result := V1.VarPointer <> V2.VarPointer;
 end;
 
 // ----- TSEValue operator overloading
