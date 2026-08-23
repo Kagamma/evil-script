@@ -1,0 +1,78 @@
+// Emulate OOP javascript style
+
+// Helper function to create an object
+fn object_new(class) {
+  result = map_clone(class)
+  result.data = []
+  local co = result
+  local super = result.super
+  while super != null {
+    co.super = map_clone(super)
+    super.data = result.data
+    co = super
+    super = co.super
+  }
+}
+
+// Helper function to extend an object
+fn object_extends(parent, class) {
+  result = map_clone(parent)
+  result.super = map_clone(parent)
+  result += class
+}
+
+Animal = [
+  data: [
+    name: null,
+  ],
+  create: fn(name) {
+    result = self
+    result.data.name = name
+  },
+  make_sound: fn() {
+    writeln('${self.data.name} start making sound')
+  }
+]
+
+Dog = object_extends(Animal, [
+  data: [
+    age: null,
+  ],
+  create: fn(name, age) {
+    result = self
+    self.super.create(name)
+    result.data.age = age
+  },
+  make_sound: fn() {
+    self.super.make_sound()
+    writeln('${self.data.name} barks: Woof Woof!')
+  },
+  show_age: fn() {
+    writeln('${self.data.name} is ${self.data.age} year-old')
+  }
+])
+
+Cat = object_extends(Animal, [
+  make_sound: fn() {
+    self.super.make_sound()
+    writeln('${self.data.name} meows: meow meow!')
+  }
+])
+
+dog = object_new(Dog).create('My dog', 4)  
+dog2 = object_new(Dog).create("My brother's dog", 6)
+cat = object_new(Cat).create('My cat')
+cat2 = object_new(Cat).create("My brother's cat")
+
+dog.show_age()
+dog.make_sound()
+writeln()
+
+dog2.show_age()
+dog2.make_sound() 
+writeln()
+
+cat.make_sound()
+writeln()
+
+cat2.make_sound()
