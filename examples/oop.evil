@@ -1,13 +1,14 @@
-// Emulate OOP javascript style
+// Implement OOP using "self" mechanism
+// Note: Needs to access properties via "props"
 
 // Helper function to create an object
 fn object_new(class) {
   result = map_clone(class)
-  result.data = []
+  result.props = []
   local co = result
   while co.super != null {
     co.super = map_clone(co.super)
-    co.super.data = result.data
+    co.super.props = result.props
     co = co.super
   }
 }
@@ -20,47 +21,47 @@ fn object_extends(parent, class) {
 }
 
 Animal = [
-  data: [
+  props: [
     name: null,
   ],
   create: fn(name) {
     result = self
-    result.data.name = name
+    result.props.name = name
   },
   make_sound: fn() {
-    writeln('${self.data.name} start making sound')
+    writeln('${self.props.name} start making sound')
   }
 ]
 
 Dog = object_extends(Animal, [
-  data: [
+  props: [
     age: null,
   ],
   create: fn(name, age) {
     result = self
     result.super.create(name)
-    result.data.age = age
+    result.props.age = age
   },
   make_sound: fn() {
     self.super.make_sound()
-    writeln('${self.data.name} barks: Woof Woof!')
+    writeln('${self.props.name} barks: Woof Woof!')
   },
   show_age: fn() {
-    writeln('${self.data.name} is ${self.data.age} year-old')
+    writeln('${self.props.name} is ${self.props.age} year-old')
   }
 ])
 
 Cat = object_extends(Animal, [
   make_sound: fn() {
     self.super.make_sound()
-    writeln('${self.data.name} meows: meow meow!')
+    writeln('${self.props.name} meows: meow meow!')
   }
 ])
 
 CatPurr = object_extends(Cat, [
   make_sound: fn() {
     self.super.make_sound()
-    writeln('${self.data.name} purrs!')
+    writeln('${self.props.name} purrs!')
   }
 ])
 
