@@ -40,7 +40,7 @@ Dog = object_extends(Animal, [
   ],
   create: fn(name, age) {
     result = self
-    self.super.create(name)
+    result.super.create(name)
     result.data.age = age
   },
   make_sound: fn() {
