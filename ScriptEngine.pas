@@ -10017,8 +10017,8 @@ begin
     Self.RegisterFunc('string', @TBuiltInFunction(nil).SEString, 1);
     Self.RegisterFunc('number', @TBuiltInFunction(nil).SENumber, 1, [sevkNumber]);
     Self.RegisterFunc('length', @TBuiltInFunction(nil).SELength, 1, [sevkNumber]);
-    Self.RegisterFunc('map_create', @TBuiltInFunction(nil).SEMapCreate, -1);
-    Self.RegisterFunc('___map_create', @TBuiltInFunction(nil).SEMapCreate, -1);
+    Self.RegisterFunc('map_create', @TBuiltInFunction(nil).SEMapCreate, -1, [sevkMap]);
+    Self.RegisterFunc('___map_create', @TBuiltInFunction(nil).SEMapCreate, -1, [sevkMap]);
     Self.RegisterFunc('map_clone', @TBuiltInFunction(nil).SEMapClone, 1);
     Self.RegisterFunc('map_key_delete', @TBuiltInFunction(nil).SEMapKeyDelete, 2);
     Self.RegisterFunc('map_keys_get', @TBuiltInFunction(nil).SEMapKeysGet, 1);
@@ -11972,6 +11972,7 @@ var
         tkSquareBracketOpen:
           begin
             NextToken;
+            Result := Result + [sevkMap];
             ParseArrayAssign;
           end;
         tkNumber:
