@@ -5,12 +5,10 @@ fn object_new(class) {
   result = map_clone(class)
   result.data = []
   local co = result
-  local super = result.super
-  while super != null {
-    co.super = map_clone(super)
+  while co.super != null {
+    co.super = map_clone(co.super)
     co.super.data = result.data
-    co = super
-    super = co.super
+    co = co.super
   }
 }
 
@@ -59,17 +57,24 @@ Cat = object_extends(Animal, [
   }
 ])
 
-dog = object_new(Dog).create('My dog', 4)  
+CatPurr = object_extends(Cat, [
+  make_sound: fn() {
+    self.super.make_sound()
+    writeln('${self.data.name} purrs!')
+  }
+])
+
+dog = object_new(Dog).create('My dog', 4)
 dog2 = object_new(Dog).create("My brother's dog", 6)
 cat = object_new(Cat).create('My cat')
-cat2 = object_new(Cat).create("My brother's cat")
+cat2 = object_new(CatPurr).create("My sister's cat")
 
 dog.show_age()
 dog.make_sound()
 writeln()
 
 dog2.show_age()
-dog2.make_sound() 
+dog2.make_sound()
 writeln()
 
 cat.make_sound()
