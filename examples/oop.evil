@@ -5,7 +5,7 @@
 Object = []
 Object.class = Object
 // Helper method to check if "self" inherited from class "class"
-Object.inherited_from = fn(class) {
+Object.inheritedFrom = fn(class) {
   local this = self
   while this != null {
     if this.class == class {
@@ -17,14 +17,15 @@ Object.inherited_from = fn(class) {
 }
 
 // Helper function to extend a class
-fn class_extends(parent, data) {
+fn class(parent, data) {
   result = parent + data
   result.super = map_clone(parent)
   result.class = result
 } 
 
 // Helper function to create an instance of a class
-fn object_new(class) {
+// and return "create" reference
+fn new(class) {
   result = map_clone(class)
   result.props = []
   local co = result
@@ -35,72 +36,74 @@ fn object_new(class) {
   }
 }
 
-Animal = class_extends(Object, [
+Animal = class(Object, [
   props: [
     name: null,
   ],
-  create: fn(name) {
-    result = self
-    result.props.name = name
+  init: fn(name) {
+    self.props.name = name
+    return (self)
   },
-  make_sound: fn() {
+  makeSound: fn() {
     writeln('${self.props.name} start making sound')
   }
 ])
 
-Dog = class_extends(Animal, [
+Dog = class(Animal, [
   props: [
     age: null,
   ],
-  create: fn(name, age) {
-    result = self
-    result.super.create(name)
-    result.props.age = age
+  init: fn(name, age) {
+    self.super.init(name)
+    self.props.age = age
+    return (self)
   },
-  make_sound: fn() {
-    self.super.make_sound()
+  makeSound: fn() {
+    self.super.makeSound()
     writeln('${self.props.name} barks: Woof Woof!')
   },
-  show_age: fn() {
+  showAge: fn() {
     writeln('${self.props.name} is ${self.props.age} year-old')
   }
 ])
 
-Cat = class_extends(Animal, [
-  make_sound: fn() {
-    self.super.make_sound()
+Cat = class(Animal, [
+  makeSound: fn() {
+    self.super.makeSound()
     writeln('${self.props.name} meows: meow meow!')
   }
 ])
 
-CatPurr = class_extends(Cat, [
-  make_sound: fn() {
-    self.super.make_sound()
+CatPurr = class(Cat, [
+  makeSound: fn() {
+    self.super.makeSound()
     writeln('${self.props.name} purrs!')
   }
 ])
 
-dog = object_new(Dog).create('My dog', 4)
-dog2 = object_new(Dog).create("My brother's dog", 6)
-cat = object_new(Cat).create('My cat')
-cat2 = object_new(CatPurr).create("My sister's cat")
+dog = new(Dog).init('My dog', 4)
+dog2 = new(Dog).init("My brother's dog", 6)
+cat = new(Cat).init('My cat')
+cat2 = new(CatPurr).init("My sister's cat")
 
-dog.show_age()
-dog.make_sound()
+dog.showAge()
+dog.makeSound()
 writeln()
 
-dog2.show_age()
-dog2.make_sound()
+dog2.showAge()
+dog2.makeSound()
 writeln()
 
-cat.make_sound()
+cat.makeSound()
 writeln()
 
-cat2.make_sound()
+cat2.makeSound()
 writeln()
 
-writeln('Is "dog" inherited from class Object? ', dog.inherited_from(Object))
-writeln('Is "dog" inherited from class Animal? ', dog.inherited_from(Animal))
-writeln('Is "dog" inherited from class Dog? ', dog.inherited_from(Dog))
-writeln('Is "dog" inherited from class Cat? ', dog.inherited_from(Cat))
+writeln('Is "dog" inherited from class Object? ', dog.inheritedFrom(Object))
+writeln('Is "dog" inherited from class Animal? ', dog.inheritedFrom(Animal))
+writeln('Is "dog" inherited from class Dog? ', dog.inheritedFrom(Dog))
+writeln('Is "dog" inherited from class Cat? ', dog.inheritedFrom(Cat))
+writeln('Is "dog.class" equal to class Dog? ', dog.class == Dog)
+writeln('Is "dog.class" equal to class Animal? ', dog.class == Animal)
 
