@@ -8,7 +8,7 @@ fn object_new(class) {
   local super = result.super
   while super != null {
     co.super = map_clone(super)
-    super.data = result.data
+    co.super.data = result.data
     co = super
     super = co.super
   }
