@@ -24,7 +24,6 @@ fn class(parent, data) {
 } 
 
 // Helper function to create an instance of a class
-// and return "create" reference
 fn new(class) {
   result = map_clone(class)
   result.props = []
