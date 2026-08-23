@@ -2,25 +2,18 @@
 // Note: Needs to access properties via "props"
 
 // Base class
-tobject = [
-  class: null,
-  // Helper method to check if "self" inherited from class "cls"
-  inherited_from: fn(cls) {
-    local this = self
-    while this != null {
-      if this.class == cls {
-        return (true)
-      }
-      this = this.super
+Object = []
+Object.class = Object
+// Helper method to check if "self" inherited from class "cls"
+Object.inherited_from = fn(cls) {
+  local this = self
+  while this != null {
+    if this.class == cls {
+      return (true)
     }
-    return (false)
+    this = this.super
   }
-]
-            
-// Helper function to create a class
-fn class(data) {
-  result = tobject + data
-  result.class = result
+  return (false)
 }
 
 // Helper function to extend a class
@@ -43,7 +36,7 @@ fn object_new(class) {
   }
 }
 
-Animal = class([
+Animal = class_extends(Object, [
   props: [
     name: null,
   ],
@@ -106,7 +99,8 @@ writeln()
 
 cat2.make_sound()
 writeln()
-                                                                   
+
+writeln('Is "dog" inherited from class Object? ', dog.inherited_from(Object))
 writeln('Is "dog" inherited from class Animal? ', dog.inherited_from(Animal))
 writeln('Is "dog" inherited from class Dog? ', dog.inherited_from(Dog))
 writeln('Is "dog" inherited from class Cat? ', dog.inherited_from(Cat))
