@@ -1,7 +1,37 @@
-// Implement OOP using "self" mechanism
+// Implement OOP using "self" mechanism, with inheritance and method override
 // Note: Needs to access properties via "props"
 
-// Helper function to create an object
+// Base class
+tobject = [
+  class: null,
+  // Helper method to check if "self" inherited from class "cls"
+  inherited_from: fn(cls) {
+    local this = self
+    while this != null {
+      if this.class == cls {
+        return (true)
+      }
+      this = this.super
+    }
+    return (false)
+  }
+]
+            
+// Helper function to create a class
+fn class(data) {
+  result = tobject + data
+  result.class = result
+}
+
+// Helper function to extend a class
+fn class_extends(parent, data) {
+  result = map_clone(parent)
+  result.super = map_clone(parent)
+  result += data
+  result.class = result
+} 
+
+// Helper function to create an instance of a class
 fn object_new(class) {
   result = map_clone(class)
   result.props = []
@@ -13,14 +43,7 @@ fn object_new(class) {
   }
 }
 
-// Helper function to extend an object
-fn object_extends(parent, class) {
-  result = map_clone(parent)
-  result.super = map_clone(parent)
-  result += class
-}
-
-Animal = [
+Animal = class([
   props: [
     name: null,
   ],
@@ -31,9 +54,9 @@ Animal = [
   make_sound: fn() {
     writeln('${self.props.name} start making sound')
   }
-]
+])
 
-Dog = object_extends(Animal, [
+Dog = class_extends(Animal, [
   props: [
     age: null,
   ],
@@ -51,14 +74,14 @@ Dog = object_extends(Animal, [
   }
 ])
 
-Cat = object_extends(Animal, [
+Cat = class_extends(Animal, [
   make_sound: fn() {
     self.super.make_sound()
     writeln('${self.props.name} meows: meow meow!')
   }
 ])
 
-CatPurr = object_extends(Cat, [
+CatPurr = class_extends(Cat, [
   make_sound: fn() {
     self.super.make_sound()
     writeln('${self.props.name} purrs!')
@@ -82,3 +105,9 @@ cat.make_sound()
 writeln()
 
 cat2.make_sound()
+writeln()
+                                                                   
+writeln('Is "dog" inherited from class Animal? ', dog.inherited_from(Animal))
+writeln('Is "dog" inherited from class Dog? ', dog.inherited_from(Dog))
+writeln('Is "dog" inherited from class Cat? ', dog.inherited_from(Cat))
+
