@@ -7,19 +7,19 @@ Object.class = Object
 // Helper method to check if "self" inherited from class "class"
 Object.inheritedFrom = fn(class) {
   local this = self
-  while this != null {
+  do {
     if this.class == class {
       return (true)
     }
     this = this.super
-  }
+  } while this != null
   return (false)
 }
 
 // Helper function to extend a class
-fn class(parent, data) {
-  result = parent + data
-  result.super = map_clone(parent)
+fn class(ancestor, data) {
+  result = ancestor + data
+  result.super = map_clone(ancestor)
   result.class = result
 } 
 
