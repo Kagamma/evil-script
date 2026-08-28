@@ -9,10 +9,10 @@ chars_len = length(chars)
 // Pre-allocate buffers
 output  = []
 zbuffer = []
-for i = 0 to screen_w * screen_h - 1 {
-  output[i]  = ' '
-  zbuffer[i] = 0
-}
+array_resize(output, screen_w * screen_h)    
+array_resize(zbuffer, screen_w * screen_h)
+array_fill(output, ' ')       
+array_fill(zbuffer, 0)
 
 A = 0.0
 B = 0.0
@@ -26,11 +26,9 @@ K1 = screen_w * K2 / (8 * (R1 + R2))
 while true {
   mem_gc()
 
-  // clear buffers
-  for i = 0 to screen_w * screen_h - 1 {
-    output[i]  = ' '
-    zbuffer[i] = 0
-  }
+  // clear buffers   
+  array_fill(output, ' ')
+  array_fill(zbuffer, 0)
 
   cosA = cos(A)
   sinA = sin(A)
@@ -75,11 +73,6 @@ while true {
 
           // map luminance to character
           li = floor(L * 8)
-          if li < 0
-            li = 0
-          if li >= chars_len
-            li = chars_len - 1
-
           output[idx] = chars[li]
         }
       }
