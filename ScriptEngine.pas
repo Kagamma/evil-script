@@ -11873,7 +11873,7 @@ var
             IsTailed := True;
             NextToken;
             MarkJITBlock;
-            VerifyJITBlock(ParseExpr(False));
+            Result := Result + VerifyJITBlock(ParseExpr(False));
             NextTokenExpected([tkSquareBracketClose]);
             AllocFuncRef;
             AssignReturnFuncRef;
@@ -12015,7 +12015,7 @@ var
                             NextToken;
                             EmitPushVar(Ident^);
                             MarkJITBlock;
-                            VerifyJITBlock(ParseExpr(False));
+                            Result := Result + VerifyJITBlock(ParseExpr(False));
                             Emit([Pointer(opPushArrayPop), SENull]);
                             PeepholeArrayAssignOptimization;
                             NextTokenExpected([tkSquareBracketClose]);
