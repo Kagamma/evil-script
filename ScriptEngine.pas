@@ -7437,7 +7437,6 @@ var
   FuncImport, P, PP, PC: Pointer;
   LineOfCode: TSELineOfCode;
   IsScriptException: Boolean = False;
-  CodeProc: TSEJITCodeProc;
 
   procedure GetLineOfCode;
   var
@@ -9071,8 +9070,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opJITBlock:{$endif}
         begin
         labelJITBlock:
-          CodeProc := TSEJITCodeProc(CodePtrLocal[1].VarPointer);// R15 = CodePtrLocal
-          CodeProc(@CodePtrLocal, @Self.StackPtr, @GlobalLocal, @Self.FramePtr);
+          TSEJITCodeProc(CodePtrLocal[1].VarPointer)(@CodePtrLocal, @Self.StackPtr, @GlobalLocal, @Self.FramePtr);
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorInc:{$endif}
