@@ -111,11 +111,13 @@ type
     opOperatorMul0,
     opOperatorDiv0,
 
+    opOperatorConcat1,
     opOperatorAdd1,
     opOperatorSub1,
     opOperatorMul1,
     opOperatorDiv1,
 
+    opOperatorConcat,
     opOperatorAdd,
     opOperatorSub,
     opOperatorMul,
@@ -747,11 +749,13 @@ const
     2, // opOperatorMul0,
     2, // opOperatorDiv0,
 
+    3, // opOperatorConcat1,
     3, // opOperatorAdd1,
     3, // opOperatorSub1,
     3, // opOperatorMul1,
     3, // opOperatorDiv1,
 
+    1, // opOperatorConcat,
     1, // opOperatorAdd,
     1, // opOperatorSub,
     1, // opOperatorMul,
@@ -7953,11 +7957,13 @@ label
   labelOperatorMul0,
   labelOperatorDiv0,
 
+  labelOperatorConcat1,
   labelOperatorAdd1,
   labelOperatorSub1,
   labelOperatorMul1,
   labelOperatorDiv1,
 
+  labelOperatorConcat,
   labelOperatorAdd,
   labelOperatorSub,
   labelOperatorMul,
@@ -8030,11 +8036,13 @@ var
     @labelOperatorMul0,
     @labelOperatorDiv0,
 
+    @labelOperatorConcat1,
     @labelOperatorAdd1,
     @labelOperatorSub1,
     @labelOperatorMul1,
     @labelOperatorDiv1,
 
+    @labelOperatorConcat,
     @labelOperatorAdd,
     @labelOperatorSub,
     @labelOperatorMul,
@@ -9192,6 +9200,16 @@ labelStart:
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
+      {$ifndef SE_COMPUTED_GOTO}opOperatorConcat:{$endif}
+        begin
+        labelOperatorConcat:
+          B := Pop;
+          A := Pop;
+          A^.VarString^ := A^.VarString^ + B^.VarString^;
+          Inc(Self.StackPtr);
+          Inc(CodePtrLocal);
+          DispatchGoto;
+        end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorAdd:{$endif}
         begin
         labelOperatorAdd:
@@ -9321,6 +9339,16 @@ labelStart:
           DispatchGoto;
         end;
 
+      {$ifndef SE_COMPUTED_GOTO}opOperatorConcat1:{$endif}
+        begin
+        labelOperatorConcat1:
+          A := Pop;
+          B := GetVariable(CodePtrLocal[1], {P}CodePtrLocal[2].VarPointer);
+          A^.VarString^ := A^.VarString^ + B^.VarString^;
+          Inc(Self.StackPtr);
+          Inc(CodePtrLocal, 3);
+          DispatchGoto;
+        end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorAdd1:{$endif}
         begin
         labelOperatorAdd1:
@@ -11621,6 +11649,70 @@ var
     until not IsOptimized;
   end;
 
+  { For A := A + B, we avoid to allocate a new string and reuse A instead }
+  function PeepholeStringConcatOptimization: Boolean;
+  var
+    OpInfoPrev0, OpInfoPrev1, OpInfoPrev2, OpInfoPrev3: PSEOpcodeInfo;
+  begin
+    Result := False;
+    if not Self.OptimizePeephole then
+      Exit;
+    OpInfoPrev3 := PeekAtPrevOpExpected(3, [opPushGlobalVar, opPushLocalVar]);
+    OpInfoPrev1 := PeekAtPrevOpExpected(1, [opOperatorAdd]);
+    if (OpInfoPrev1 <> nil) and (OpInfoPrev3 <> nil) and (OpInfoPrev3^.Binary = Pointer(Self.Binary)) and (OpInfoPrev1^.Binary = Pointer(Self.Binary)) then
+    begin
+      OpInfoPrev0 := PeekAtPrevOpExpected(0, [opAssignGlobalVar, opAssignLocalVar]);
+      if OpInfoPrev0 <> nil then
+        case OpInfoPrev0^.Op of
+          opAssignGlobalVar:
+            begin
+              if Self.Binary[OpInfoPrev0^.Pos + 1] = Self.Binary[OpInfoPrev3^.Pos + 1] then
+              begin
+                Self.Binary[OpInfoPrev1^.Pos] := Pointer(opOperatorConcat);
+                Result := True;
+              end;
+            end;
+          opAssignLocalVar:
+            begin
+              if (Self.Binary[OpInfoPrev0^.Pos + 1] = Self.Binary[OpInfoPrev3^.Pos + 1]) and
+                (Self.Binary[OpInfoPrev0^.Pos + 2] = Self.Binary[OpInfoPrev3^.Pos + 2]) then
+              begin
+                Self.Binary[OpInfoPrev1^.Pos] := Pointer(opOperatorConcat);
+                Result := True;
+              end;
+            end;
+        end;
+    end else
+    begin
+      OpInfoPrev2 := PeekAtPrevOpExpected(2, [opPushGlobalVar, opPushLocalVar]);
+      OpInfoPrev1 := PeekAtPrevOpExpected(1, [opOperatorAdd1]);
+      if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) and (OpInfoPrev2^.Binary = Pointer(Self.Binary)) and (OpInfoPrev1^.Binary = Pointer(Self.Binary)) then
+      begin
+        OpInfoPrev0 := PeekAtPrevOpExpected(0, [opAssignGlobalVar, opAssignLocalVar]);
+        if OpInfoPrev0 <> nil then
+          case OpInfoPrev0^.Op of
+            opAssignGlobalVar:
+              begin
+                if Self.Binary[OpInfoPrev0^.Pos + 1] = Self.Binary[OpInfoPrev2^.Pos + 1] then
+                begin
+                  Self.Binary[OpInfoPrev1^.Pos] := Pointer(opOperatorConcat1);
+                  Result := True;
+                end;
+              end;
+            opAssignLocalVar:
+              begin
+                if (Self.Binary[OpInfoPrev0^.Pos + 1] = Self.Binary[OpInfoPrev2^.Pos + 1]) and
+                  (Self.Binary[OpInfoPrev0^.Pos + 2] = Self.Binary[OpInfoPrev2^.Pos + 2]) then
+                begin
+                  Self.Binary[OpInfoPrev1^.Pos] := Pointer(opOperatorConcat1);
+                  Result := True;
+                end;
+              end;
+          end;
+        end;
+    end;
+  end;
+
   function ParseExpr(const IsParsedAtFuncCall: Boolean): TSEValueKindSet;
   type
     TProc = TSENestedProc;
@@ -13420,6 +13512,8 @@ var
           begin
             EmitAssignVar(Ident^);
             PeepholeIncOptimization;
+            if Ident^.PossibleKinds = [sevkString] then
+              PeepholeStringConcatOptimization;
             VerifyJITBlock(Ident^.PossibleKinds, 3);
           end;
         end;
