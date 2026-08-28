@@ -11213,7 +11213,7 @@ var
             opOperatorAdd1, opOperatorSub1, opOperatorMul1, opOperatorDiv1,
             opOperatorEqual, opOperatorNotEqual, opOperatorGreater, opOperatorLesser, opOperatorGreaterOrEqual, opOperatorLesserOrEqual,
             opOperatorEqual0, opOperatorNotEqual0, opOperatorGreater0, opOperatorLesser0, opOperatorGreaterOrEqual0, opOperatorLesserOrEqual0,
-            opOperatorAnd, opOperatorOr, opOperatorXor, opOperatorNot,
+            opOperatorAnd, opOperatorOr, opOperatorXor,
             opOperatorAnd0, opOperatorOr0,
             opOperatorShiftLeft, opOperatorShiftRight
           ]) then
