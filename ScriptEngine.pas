@@ -11650,14 +11650,14 @@ var
   end;
 
   { For A := A + B, we avoid to allocate a new string and reuse A instead }
-  function PeepholeStringConcatOptimization: Boolean;
+  function PeepholeStringConcatOptimization(const FirstExprOpIndex: Integer): Boolean;
   var
-    OpInfoPrev0, OpInfoPrev1, OpInfoPrev2, OpInfoPrev3: PSEOpcodeInfo;
+    OpInfoPrev0, OpInfoPrev1, OpInfoPrev3: PSEOpcodeInfo;
   begin
     Result := False;
     if not Self.OptimizePeephole then
       Exit;
-    OpInfoPrev3 := PeekAtPrevOpExpected(3, [opPushGlobalVar, opPushLocalVar]);
+    OpInfoPrev3 := PeekAtPrevOpExpected(Self.OpcodeInfoList.Count - FirstExprOpIndex - 1, [opPushGlobalVar, opPushLocalVar]);
     OpInfoPrev1 := PeekAtPrevOpExpected(1, [opOperatorAdd]);
     if (OpInfoPrev1 <> nil) and (OpInfoPrev3 <> nil) and (OpInfoPrev3^.Binary = Pointer(Self.Binary)) and (OpInfoPrev1^.Binary = Pointer(Self.Binary)) then
     begin
@@ -11684,16 +11684,15 @@ var
         end;
     end else
     begin
-      OpInfoPrev2 := PeekAtPrevOpExpected(2, [opPushGlobalVar, opPushLocalVar]);
       OpInfoPrev1 := PeekAtPrevOpExpected(1, [opOperatorAdd1]);
-      if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) and (OpInfoPrev2^.Binary = Pointer(Self.Binary)) and (OpInfoPrev1^.Binary = Pointer(Self.Binary)) then
+      if (OpInfoPrev1 <> nil) and (OpInfoPrev3 <> nil) and (OpInfoPrev3^.Binary = Pointer(Self.Binary)) and (OpInfoPrev1^.Binary = Pointer(Self.Binary)) then
       begin
         OpInfoPrev0 := PeekAtPrevOpExpected(0, [opAssignGlobalVar, opAssignLocalVar]);
         if OpInfoPrev0 <> nil then
           case OpInfoPrev0^.Op of
             opAssignGlobalVar:
               begin
-                if Self.Binary[OpInfoPrev0^.Pos + 1] = Self.Binary[OpInfoPrev2^.Pos + 1] then
+                if Self.Binary[OpInfoPrev0^.Pos + 1] = Self.Binary[OpInfoPrev3^.Pos + 1] then
                 begin
                   Self.Binary[OpInfoPrev1^.Pos] := Pointer(opOperatorConcat1);
                   Result := True;
@@ -11701,8 +11700,8 @@ var
               end;
             opAssignLocalVar:
               begin
-                if (Self.Binary[OpInfoPrev0^.Pos + 1] = Self.Binary[OpInfoPrev2^.Pos + 1]) and
-                  (Self.Binary[OpInfoPrev0^.Pos + 2] = Self.Binary[OpInfoPrev2^.Pos + 2]) then
+                if (Self.Binary[OpInfoPrev0^.Pos + 1] = Self.Binary[OpInfoPrev3^.Pos + 1]) and
+                  (Self.Binary[OpInfoPrev0^.Pos + 2] = Self.Binary[OpInfoPrev3^.Pos + 2]) then
                 begin
                   Self.Binary[OpInfoPrev1^.Pos] := Pointer(opOperatorConcat1);
                   Result := True;
@@ -13430,6 +13429,7 @@ var
     AccessString: String;
     OpInfoPrev1: PSEOpcodeInfo;
     KindName: String;
+    FirstExprOpIndex: Integer;
   begin
     Ident := FindVar(Name);
     if Ident^.IsAssigned and Ident^.IsConst then
@@ -13472,6 +13472,7 @@ var
           VarEndTokenPos := Pos;
           NextToken;
           MarkJITBlock;
+          FirstExprOpIndex := Self.OpcodeInfoList.Count;
           if Token.Kind = tkOpAssign then
           begin
             if ArgCount > 0 then
@@ -13513,7 +13514,7 @@ var
             EmitAssignVar(Ident^);
             PeepholeIncOptimization;
             if Ident^.PossibleKinds = [sevkString] then
-              PeepholeStringConcatOptimization;
+              PeepholeStringConcatOptimization(FirstExprOpIndex);
             VerifyJITBlock(Ident^.PossibleKinds, 3);
           end;
         end;
