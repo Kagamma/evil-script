@@ -8107,7 +8107,7 @@ var
     XMMStackPtr: Byte;
     CodeSize: Cardinal;
     P: Pointer;
-    IsAssigned: Boolean;
+    IsCodePtrAssigned: Boolean;
     LabelYes, LabelDone: TX64Label;
     LastOpKind: TSEValueKind = sevkNull;
     LastOpKindInRBX: Boolean = False;
@@ -8171,7 +8171,7 @@ var
       XMMStackPtr := 3;
       CodeSize := 0;
       Result := STATUS_OK;
-      IsAssigned := False;
+      IsCodePtrAssigned := False;
       if IsRoot then
       begin
         // R15 = CodePtrLocal
@@ -8203,6 +8203,13 @@ var
           opJITBlockPotential:
             begin
               CodeSize := CodeSize + OpcodeSizes[Op];
+            end;
+          opJumpUnconditionalRel:
+            begin
+              E.AddRegImm32(regR15, NativeInt(JitCodePtrLocal[BIndex + 1].VarPointer) * SizeOf(TSEValue));
+              E.MovMemReg64(E.Mem(regR10, 0), regR15);
+              IsCodePtrAssigned := True;
+              break;
             end;
           opPushArrayPop:
             begin
@@ -8799,7 +8806,6 @@ var
               E.MovMemReg32(E.Mem(regR8, NativeUInt(@TSEValue(nil^).Kind)), regRAX);
               //
               CodeSize := CodeSize + OpcodeSizes[Op];
-              IsAssigned := True;
             end;
           opOperatorAdd1:
             begin
@@ -8901,7 +8907,7 @@ var
               E.MovRegImm64(regR8, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer) * SizeOf(TSEValue));
               { Assign value from stack to global variable }
               // movsd qword ptr [r12 + r8 + .VarNumber], xmm3
-              E.MovSDMemFromXMM(E.MemIndex(regR12, regR8, 1, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM3);
+              E.MovSDMemFromXMM(E.MemIndex(regR12, regR8, 1, NativeUInt(@TSEValue(nil^).VarNumber)), TXMMReg(XMMStackPtr - 1));
               { Mark as LastOpKind }
               // mov dword ptr [r12 + r8 + .Kind], LastOpKind
 
@@ -8911,7 +8917,7 @@ var
                 E.MovMemImm32(E.MemIndex(regR12, regR8, 1, Cardinal(@TSEValue(nil^).Kind)), Cardinal(LastOpKind));
               //
               CodeSize := CodeSize + OpcodeSizes[Op];
-              IsAssigned := True;
+              Dec(XMMStackPtr);
             end;
           opAssignLocalVar:
             begin
@@ -8940,7 +8946,7 @@ var
               E.LeaRegMem(regR8, E.MemIndex(regR8, regRAX, 1, 0));
               { Assign value from stack to local variable }
               // movsd qword ptr [r8 + .VarNumber], xmm3
-              E.MovSDMemFromXMM(E.Mem(regR8, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM3);
+              E.MovSDMemFromXMM(E.Mem(regR8, NativeUInt(@TSEValue(nil^).VarNumber)), TXMMReg(XMMStackPtr - 1));
               { Mark as LastOpKind }
               // mov dword ptr [r8 + .Kind], LastOpKind
               if LastOpKindInRBX then
@@ -8949,7 +8955,7 @@ var
                 E.MovMemImm32(E.Mem(regR8, Cardinal(@TSEValue(nil^).Kind)), Cardinal(LastOpKind));
               //
               CodeSize := CodeSize + OpcodeSizes[Op];
-              IsAssigned := True;
+              Dec(XMMStackPtr);
             end;
           else
             begin
@@ -8969,7 +8975,7 @@ var
         JitCodePtrLocal[1] := nil;
       end else
       begin
-        if not IsAssigned then
+        if XMMStackPtr = 4 then
         begin
           { Move XMM3 to the stack }
           E.MovSDMemFromXMM(E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM3);
@@ -8981,10 +8987,15 @@ var
           { Increase stack by 1 }
           E.AddRegImm32(regR14, SizeOf(TSEValue));
           E.MovMemReg64(E.Mem(regR13, 0), regR14);
-        end;
+        end else
+        if XMMStackPtr > 4 then
+          raise Exception.Create('JIT error: XMMStackPtr > 4');
         { Increase CodePtr }
-        E.AddRegImm32(regR15, CodeSize * SizeOf(TSEValue));
-        E.MovMemReg64(E.Mem(regR10, 0), regR15);
+        if not IsCodePtrAssigned then
+        begin
+          E.AddRegImm32(regR15, CodeSize * SizeOf(TSEValue));
+          E.MovMemReg64(E.Mem(regR10, 0), regR15);
+        end;
         // Check the next opcode to see if the next one is also a JITBlockPotential
         {Inc(BIndex, OpcodeSizes[Op]);
         Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
@@ -11250,6 +11261,7 @@ var
             opOperatorEqual0, opOperatorNotEqual0, opOperatorGreater0, opOperatorLesser0, opOperatorGreaterOrEqual0, opOperatorLesserOrEqual0,
             opOperatorAnd, opOperatorOr, opOperatorXor,
             opOperatorAnd0, opOperatorOr0,
+            opJumpUnconditionalRel,
             opOperatorShiftLeft, opOperatorShiftRight
           ]) then
             IsInvalidOpcode := True;
