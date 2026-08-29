@@ -7426,7 +7426,7 @@ type
   TSEJITCodeProc = procedure(A, B, C, D: Pointer); sysv_abi_default;
 var
   A, B, C, V,
-  OA, OB, OC, OTV: PSEValue;
+  OA, OB, OC, OV: PSEValue;
   TV, TV2: TSEValue;
   S, S1, S2: String;
   WS, WS1, WS2: UnicodeString;
@@ -9640,7 +9640,7 @@ labelStart:
         begin
         labelAssignGlobalArray:
           A := @CodePtrLocal[1];
-          OTV := GetGlobalInt(NativeInt(A^));
+          TV := GetGlobalInt(NativeInt(A^))^;
           B := Pop;
           ArgCount := CodePtrLocal[2];
           if ArgCount = 1 then
@@ -9651,17 +9651,17 @@ labelStart:
             C := Self.StackPtr;
             for I := 1 to ArgCount - 1 do
             begin
-              SEMapGet(OTV^, OTV^, C^);
+              SEMapGet(TV, TV, C^);
               Inc(C);
             end;
           end;
-          case OTV^.Kind of
+          case TV.Kind of
             sevkMap:
-              SEMapSet(OTV^, C^, B^);
+              SEMapSet(TV, C^, B^);
             sevkPascalObject:
-              OTV^.SetProp(C^, B^);
+              TV.SetProp(C^, B^);
             sevkString:
-              StringSet(OTV, C^, B^);
+              StringSet(GetGlobalInt(NativeInt(A^)), C^, B^);
           end;
           Inc(CodePtrLocal, 3);
           DispatchGoto;
@@ -9670,7 +9670,7 @@ labelStart:
         begin
         labelAssignLocalArray:
           A := @CodePtrLocal[1];
-          OTV := GetLocalInt(NativeInt(A^), NativeInt(CodePtrLocal[3].VarPointer));
+          TV := GetLocalInt(NativeInt(A^), NativeInt(CodePtrLocal[3].VarPointer))^;
           B := Pop;
           ArgCount := CodePtrLocal[2];
           if ArgCount = 1 then
@@ -9681,17 +9681,17 @@ labelStart:
             C := Self.StackPtr;
             for I := 1 to ArgCount - 1 do
             begin
-              SEMapGet(OTV^, OTV^, C^);
+              SEMapGet(TV, TV, C^);
               Inc(C);
             end;
           end;
-          case OTV^.Kind of
+          case TV.Kind of
             sevkMap:
-              SEMapSet(OTV^, C^, B^);
+              SEMapSet(TV, C^, B^);
             sevkPascalObject:
-              OTV^.SetProp(C^, B^);
+              TV.SetProp(C^, B^);
             sevkString:
-              StringSet(OTV, C^, B^);
+              StringSet(GetLocalInt(NativeInt(A^), NativeInt(CodePtrLocal[3].VarPointer)), C^, B^);
           end;
           Inc(CodePtrLocal, 4);
           DispatchGoto;
