@@ -9218,7 +9218,7 @@ labelStart:
         labelOperatorConcat:
           B := Pop;
           A := Pop;
-          if StringRefCount(A^.VarString^) <= 1 then
+          if StringRefCount(A^.VarString^) <= 2 then
             A^.VarString^ := A^.VarString^ + B^.VarString^
           else
             GC.AllocString(Self.StackPtr, A^.VarString^ + B^.VarString^);
@@ -9437,7 +9437,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opPushConstString:{$endif}
         begin
         labelPushConstString:
-          Push(ConstStrings[NativeInt(CodePtrLocal[1].VarPointer)]);
+          Push(ConstStrings.Ptr(NativeInt(CodePtrLocal[1].VarPointer))^);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
