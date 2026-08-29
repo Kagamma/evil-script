@@ -7426,7 +7426,7 @@ type
   TSEJITCodeProc = procedure(A, B, C, D: Pointer); sysv_abi_default;
 var
   A, B, C, V,
-  OA, OB, OC, OV: PSEValue;
+  OA, OB, OC, OTV: PSEValue;
   TV, TV2: TSEValue;
   S, S1, S2: String;
   WS, WS1, WS2: UnicodeString;
@@ -7865,34 +7865,38 @@ var
     {$endif}
   end;
 
-  procedure StringSet(TV, C, B: TSEValue);
+  procedure StringSet(TV: PSEValue; C, B: TSEValue);
   var
     S1, S2, S: String;
   begin
     case B.Kind of
       sevkString:
         begin
+          if StringRefCount(TV^.VarString^) > 1 then
+            GC.AllocString(TV, TV^.VarString^);
           {$ifdef SE_STRING_UTF8}
-            S1 := TV.VarString^;
+            S1 := TV^.VarString^;
             S2 := B.VarString^;
             UTF8Delete(S1, NativeInt(C) + 1, 1);
             S := UTF8Copy(S2, 1, 1);
             UTF8Insert(S, S1, NativeInt(C) + 1);
-            TV.VarString^ := S1;
+            TV^.VarString^ := S1;
           {$else}
-            TV.VarString^[NativeInt(C) + 1] := B.VarString^[1];
+            TV^.VarString^[NativeInt(C) + 1] := B.VarString^[1];
           {$endif}
         end;
       sevkNumber:
         begin
+          if StringRefCount(TV^.VarString^) > 1 then
+            GC.AllocString(TV, TV^.VarString^);
           {$ifdef SE_STRING_UTF8}
-            S1 := TV.VarString^;
+            S1 := TV^.VarString^;
             UTF8Delete(S1, NativeInt(C) + 1, 1);
             S := Char(Round(B.VarNumber));
             UTF8Insert(S, S1, NativeInt(C) + 1);
-            TV.VarString^ := S1;
+            TV^.VarString^ := S1;
           {$else}
-            TV.VarString^[NativeInt(C) + 1] := Char(Round(B.VarNumber));
+            TV^.VarString^[NativeInt(C) + 1] := Char(Round(B.VarNumber));
           {$endif}
         end;
     end;
@@ -9636,7 +9640,7 @@ labelStart:
         begin
         labelAssignGlobalArray:
           A := @CodePtrLocal[1];
-          TV := GetGlobalInt(NativeInt(A^))^;
+          OTV := GetGlobalInt(NativeInt(A^));
           B := Pop;
           ArgCount := CodePtrLocal[2];
           if ArgCount = 1 then
@@ -9647,17 +9651,17 @@ labelStart:
             C := Self.StackPtr;
             for I := 1 to ArgCount - 1 do
             begin
-              SEMapGet(TV, TV, C^);
+              SEMapGet(OTV^, OTV^, C^);
               Inc(C);
             end;
           end;
-          case TV.Kind of
+          case OTV^.Kind of
             sevkMap:
-              SEMapSet(TV, C^, B^);
+              SEMapSet(OTV^, C^, B^);
             sevkPascalObject:
-              TV.SetProp(C^, B^);
+              OTV^.SetProp(C^, B^);
             sevkString:
-              StringSet(TV, C^, B^);
+              StringSet(OTV, C^, B^);
           end;
           Inc(CodePtrLocal, 3);
           DispatchGoto;
@@ -9666,7 +9670,7 @@ labelStart:
         begin
         labelAssignLocalArray:
           A := @CodePtrLocal[1];
-          TV := GetLocalInt(NativeInt(A^), NativeInt(CodePtrLocal[3].VarPointer))^;
+          OTV := GetLocalInt(NativeInt(A^), NativeInt(CodePtrLocal[3].VarPointer));
           B := Pop;
           ArgCount := CodePtrLocal[2];
           if ArgCount = 1 then
@@ -9677,17 +9681,17 @@ labelStart:
             C := Self.StackPtr;
             for I := 1 to ArgCount - 1 do
             begin
-              SEMapGet(TV, TV, C^);
+              SEMapGet(OTV^, OTV^, C^);
               Inc(C);
             end;
           end;
-          case TV.Kind of
+          case OTV^.Kind of
             sevkMap:
-              SEMapSet(TV, C^, B^);
+              SEMapSet(OTV^, C^, B^);
             sevkPascalObject:
-              TV.SetProp(C^, B^);
+              OTV^.SetProp(C^, B^);
             sevkString:
-              StringSet(TV, C^, B^);
+              StringSet(OTV, C^, B^);
           end;
           Inc(CodePtrLocal, 4);
           DispatchGoto;
