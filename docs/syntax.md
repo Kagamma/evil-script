@@ -577,7 +577,6 @@ With assertions on, `assert` tests if expr is false, and if so, raise an excepti
 If assertions are not enabled at compile time, this routine does nothing, and no code is generated for the `assert` call.
 
 ## Performance tips
-- Use dot notation when accessing maps. Currently dot notation is much faster than using strings. TODO: Optimize for strings as well.
 - Named functions are always faster than anonymous functions or function references.
 - The JIT compiler at the moment can only optimize code paths that result in number/boolean type. Use `type annotations`, especially `number`, `boolean` and `map[number]` type, to help the JIT compiler optimize your code.
 - Without annotations, the JIT compiler will rely on static type checking during interpretation to determine the type of a variable, which works fine for named variables and functions, but not work well for maps.

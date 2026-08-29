@@ -500,7 +500,6 @@ type
   PSEFuncImportInfo = ^TSEFuncImportInfo;
 
   TSEStringLookupMap = specialize TSEDictionary<String, Cardinal>;
-  TSEStringList = class(specialize TSEListPtr<RawByteString>);
   TSEFuncNativeList = class(specialize TSEListPtr<TSEFuncNativeInfo>);
   TSEFuncScriptList = class(specialize TSEListPtr<TSEFuncScriptInfo>);
   TSEFuncImportList = class(specialize TSEListPtr<TSEFuncImportInfo>);
@@ -1618,7 +1617,7 @@ var
   CommonNativeFuncList: TSEFuncNativeList;
   FunctionAssert: array of TSEValue;
   FunctionThrow: array of TSEValue;
-  ConstStrings: TSEStringList;
+  ConstStrings: TSEValueList;
   ConstStringsLookup: TSEStringLookupMap;
   Negative2QWords: array[0..1] of QWord = ($8000000000000000, $8000000000000000);
 
@@ -3578,7 +3577,7 @@ begin
         Result := 'pasobject@' + IntToStr(NativeUInt(Value.VarPascalObject^.Value));
       end;
     sevkConstString:
-      Result := '.' + ConstStrings.Ptr(Value.VarConstStringIndex)^;
+      Result := ConstStrings.Ptr(Value.VarConstStringIndex)^.VarString^;
     else
       Result := Value;
   end;
@@ -3656,7 +3655,7 @@ begin
       end;
     sevkConstString:
       begin
-        Result := TSEValueMap(V.VarMap).Get2(ConstStrings.Ptr(I.VarConstStringIndex));
+        Result := TSEValueMap(V.VarMap).Get2(ConstStrings.Ptr(I.VarConstStringIndex)^.VarString);
       end;
     else
       Exit(SENull);
@@ -3676,7 +3675,7 @@ begin
       end;
     sevkConstString:
       begin
-        R := TSEValueMap(V.VarMap).Get2(ConstStrings.Ptr(I.VarConstStringIndex));
+        R := TSEValueMap(V.VarMap).Get2(ConstStrings.Ptr(I.VarConstStringIndex)^.VarString);
       end;
     else
       R := SENull;
@@ -3701,7 +3700,7 @@ begin
     sevkNumber:
       TSEValueMap(V.VarMap).Set2(Round(I.VarNumber), A);
     sevkConstString:
-      TSEValueMap(V.VarMap).Set2(ConstStrings.Ptr(I.VarConstStringIndex), A);
+      TSEValueMap(V.VarMap).Set2(ConstStrings.Ptr(I.VarConstStringIndex)^.VarString, A);
   end;
 end;
 
@@ -3934,7 +3933,7 @@ begin
       sevkString:
         PName := I.VarString^;
       sevkConstString:
-        PName := ConstStrings.Ptr(I.VarConstStringIndex)^;
+        PName := ConstStrings.Ptr(I.VarConstStringIndex)^.VarString^;
     end;
     RttiType := Ctx.GetType(Obj.ClassType);
     for Prop in RttiType.GetProperties do
@@ -3966,7 +3965,7 @@ begin
       sevkString:
         PName := I.VarString^;
       sevkConstString:
-        PName := ConstStrings.Ptr(I.VarConstStringIndex)^;
+        PName := ConstStrings.Ptr(I.VarConstStringIndex)^.VarString^;
     end;
     RttiType := Ctx.GetType(Obj.ClassType);
     for Prop in RttiType.GetProperties do
@@ -4803,12 +4802,12 @@ end;
 
 class function TBuiltInFunction.SEStringDelete(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  {$ifdef SE_STRING_UTF8}
-  UTF8Delete(AnsiString(Args[0].VarString^), Round(Args[1].VarNumber + 1), Round(Args[2].VarNumber));
-  {$else}
-  Delete(Args[0].VarString^, Round(Args[1].VarNumber + 1), Round(Args[2].VarNumber));
-  {$endif}
   Result := Args[0].VarString^;
+  {$ifdef SE_STRING_UTF8}
+  UTF8Delete(AnsiString(Result.VarString^), Round(Args[1].VarNumber + 1), Round(Args[2].VarNumber));
+  {$else}
+  Delete(Result.VarString^, Round(Args[1].VarNumber + 1), Round(Args[2].VarNumber));
+  {$endif}
 end;
 
 class function TBuiltInFunction.SEStringCompare(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -4818,12 +4817,12 @@ end;
 
 class function TBuiltInFunction.SEStringInsert(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  {$ifdef SE_STRING_UTF8}
-  UTF8Insert(AnsiString(Args[1].VarString^), AnsiString(Args[0].VarString^), Round(Args[2].VarNumber + 1));
-  {$else}
-  Insert(Args[1].VarString^, Args[0].VarString^, Round(Args[2].VarNumber + 1));
-  {$endif}
   Result := Args[0].VarString^;
+  {$ifdef SE_STRING_UTF8}
+  UTF8Insert(AnsiString(Args[1].VarString^), AnsiString(Result.VarString^), Round(Args[2].VarNumber + 1));
+  {$else}
+  Insert(Args[1].VarString^, Result.VarString^, Round(Args[2].VarNumber + 1));
+  {$endif}
 end;
 
 class function TBuiltInFunction.SEStringReplace(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -4845,33 +4844,31 @@ end;
 class function TBuiltInFunction.SEStringFormat(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 var
   I: NativeInt;
-  S: String;
 begin
-  S := Args[0].VarString^;
+  Result := Args[0].VarString^;
   for I := 1 to ArgCount do
   begin
-    S := StringReplace(S, '{' + IntToStr(I - 1) + '}', SEValueToText(Args[1]), [rfReplaceAll]);
+    Result.VarString^ := StringReplace(Result.VarString^, '{' + IntToStr(I - 1) + '}', SEValueToText(Args[1]), [rfReplaceAll]);
   end;
-  Result := S;
 end;
 
 class function TBuiltInFunction.SEStringUpperCase(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Result := '';
+  GC.AllocString(@Result, '');
   case Args[0].Kind of
-    sevkString: Result := UpperCase(Args[0].VarString^);
+    sevkString: Result.VarString^ := UpperCase(Args[0].VarString^);
     sevkBoolean,
-    sevkNumber: Result := UpperCase(Char(Round(Args[0].VarNumber)));
+    sevkNumber: Result.VarString^ := UpperCase(Char(Round(Args[0].VarNumber)));
   end;
 end;
 
 class function TBuiltInFunction.SEStringLowerCase(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Result := '';
+  GC.AllocString(@Result, '');
   case Args[0].Kind of
-    sevkString: Result := LowerCase(Args[0].VarString^);
+    sevkString: Result.VarString^ := LowerCase(Args[0].VarString^);
     sevkBoolean,
-    sevkNumber: Result := LowerCase(Char(Round(Args[0].VarNumber)));
+    sevkNumber: Result.VarString^ := LowerCase(Char(Round(Args[0].VarNumber)));
   end;
 end;
 
@@ -4882,7 +4879,7 @@ var
   C: NativeInt = 0;
   V: TSEValue;
 begin
-  GC.AllocMap(@Result);
+  GC.AllocString(@Result, '');
   R := TRegExpr.Create(Args[1].VarString^);
   if R.Exec(Args[0].VarString^) then
   repeat
@@ -6944,7 +6941,7 @@ var
           end;
         end;
       end;
-      Mark(@ScriptVarMap);
+      Self.Mark(@ScriptVarMap);
       Self.FPhase := segcpSweep;
     end;
   end;
@@ -9440,7 +9437,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opPushConstString:{$endif}
         begin
         labelPushConstString:
-          Push(ConstStrings.Ptr(NativeInt(CodePtrLocal[1].VarPointer))^);
+          Push(ConstStrings[NativeInt(CodePtrLocal[1].VarPointer)]);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
@@ -11134,6 +11131,7 @@ var
     if not ConstStringsLookup.TryGetValue(S, Result) then
     begin
       ConstStrings.Add(S);
+      GC.UnManaged(ConstStrings.Ptr(ConstStrings.Count - 1));
       Result := ConstStrings.Count - 1;
       ConstStringsLookup.Add(S, Result);
     end;
@@ -14313,14 +14311,13 @@ end;
 
 var
   I: NativeInt;
+  V: TSEValue;
 
 initialization
   SEStackSize := 2048;
   SEThreadStackSize := 256;
   SEFrameSize := 1024;
   SETrapSize := 1024;
-  ConstStrings := TSEStringList.Create;
-  ConstStringsLookup := TSEStringLookupMap.Create;
   CommonNativeFuncList := TSEFuncNativeList.Create;
   {$ifdef SE_THREADS}
   InitCriticalSection(CS);
@@ -14332,6 +14329,8 @@ initialization
   SENull.VarNumber := Floor(0);
   DynlibMap := TDynlibMap.Create;
   GC := TSEGarbageCollector.Create;
+  ConstStrings := TSEValueList.Create;
+  ConstStringsLookup := TSEStringLookupMap.Create;
   {$ifdef SE_THREADS}
   GCMarkJob := TSEGarbageCollectorMarkJob.Create;
   {$endif}
@@ -14381,6 +14380,8 @@ finalization
   DoneCriticalSection(CS);
   {$endif}
   CommonNativeFuncList.Free;
+  for V in ConstStrings do
+    Dispose(V.VarString);
   ConstStringsLookup.Free;
   ConstStrings.Free;
 
