@@ -9031,15 +9031,20 @@ var
   begin
     EnterCriticalSection(CS);
     try
-      if TSEJITCountPack(Cardinal(CodePtrLocal[1].VarPointer)).HotSpot >= 3 then
+      if Cardinal(CodePtrLocal[1].VarPointer) <> opJITBlockPotential then
+        Dec(CodePtrLocal, 2)
+      else
       begin
-        JITHandler(True, CodePtrLocal, nil);
-        Dec(CodePtrLocal, 2);
-      end else
-      begin
-        Bit0_3 := TSEJITCountPack(Cardinal(CodePtrLocal[1].VarPointer)).HotSpot;
-        Inc(Bit0_3);
-        TSEJITCountPack(Cardinal(CodePtrLocal[1].VarPointer)).HotSpot := Bit0_3;
+        if TSEJITCountPack(Cardinal(CodePtrLocal[1].VarPointer)).HotSpot >= 3 then
+        begin
+          JITHandler(True, CodePtrLocal, nil);
+          Dec(CodePtrLocal, 2);
+        end else
+        begin
+          Bit0_3 := TSEJITCountPack(Cardinal(CodePtrLocal[1].VarPointer)).HotSpot;
+          Inc(Bit0_3);
+          TSEJITCountPack(Cardinal(CodePtrLocal[1].VarPointer)).HotSpot := Bit0_3;
+        end;
       end;
     finally
       LeaveCriticalSection(CS);
