@@ -9031,7 +9031,7 @@ var
   begin
     EnterCriticalSection(CS);
     try
-      if Cardinal(CodePtrLocal[1].VarPointer) <> opJITBlockPotential then
+      if TSEOpcode(Cardinal(CodePtrLocal[1].VarPointer)) <> opJITBlockPotential then
         Dec(CodePtrLocal, 2)
       else
       begin
