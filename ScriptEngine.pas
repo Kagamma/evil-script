@@ -8800,7 +8800,6 @@ var
               //
               CodeSize := CodeSize + OpcodeSizes[Op];
               IsAssigned := True;
-              break;
             end;
           opOperatorAdd1:
             begin
@@ -8913,7 +8912,6 @@ var
               //
               CodeSize := CodeSize + OpcodeSizes[Op];
               IsAssigned := True;
-              break;
             end;
           opAssignLocalVar:
             begin
@@ -8952,7 +8950,6 @@ var
               //
               CodeSize := CodeSize + OpcodeSizes[Op];
               IsAssigned := True;
-              break;
             end;
           else
             begin
