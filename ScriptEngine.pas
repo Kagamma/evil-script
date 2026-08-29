@@ -10073,7 +10073,7 @@ begin
     Self.RegisterFunc('string_lowercase', @TBuiltInFunction(nil).SEStringLowerCase, 1, [sevkString]);
     Self.RegisterFunc('string_find_regex', @TBuiltInFunction(nil).SEStringFindRegex, 2);
     Self.RegisterFunc('string_compare', @TBuiltInFunction(nil).SEStringCompare, 2);
-    Self.RegisterFunc('string_trim', @TBuiltInFunction(nil).SEStringTrim, 1), [sevkString];
+    Self.RegisterFunc('string_trim', @TBuiltInFunction(nil).SEStringTrim, 1, [sevkString]);
     Self.RegisterFunc('string_trim_left', @TBuiltInFunction(nil).SEStringTrimLeft, 1, [sevkString]);
     Self.RegisterFunc('string_trim_right', @TBuiltInFunction(nil).SEStringTrimRight, 1, [sevkString]);
     Self.RegisterFunc('string_extract_name', @TBuiltInFunction(nil).SEStringExtractName, 1, [sevkString]);
