@@ -1,0 +1,10 @@
+N = 500000
+t = ticks()
+
+s = ''
+for i = 0 to N - 1
+  s = s + 'ab'
+
+writeln('Time: ', ticks() - t, 'ms')
+writeln('N: ', N)
+writeln('Length: ', length(s))
