@@ -9205,7 +9205,10 @@ labelStart:
         labelOperatorConcat:
           B := Pop;
           A := Pop;
-          A^.VarString^ := A^.VarString^ + B^.VarString^;
+          if StringRefCount(A^.VarString^) <= 1 then
+            A^.VarString^ := A^.VarString^ + B^.VarString^
+          else
+            GC.AllocString(Self.StackPtr, A^.VarString^ + B^.VarString^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -9344,7 +9347,10 @@ labelStart:
         labelOperatorConcat1:
           A := Pop;
           B := GetVariable(CodePtrLocal[1], {P}CodePtrLocal[2].VarPointer);
-          A^.VarString^ := A^.VarString^ + B^.VarString^;
+          if StringRefCount(A^.VarString^) <= 1 then
+            A^.VarString^ := A^.VarString^ + B^.VarString^
+          else
+            GC.AllocString(Self.StackPtr, A^.VarString^ + B^.VarString^);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 3);
           DispatchGoto;
