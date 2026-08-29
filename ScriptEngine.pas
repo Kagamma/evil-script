@@ -7426,7 +7426,7 @@ type
   TSEJITCodeProc = procedure(A, B, C, D: Pointer); sysv_abi_default;
 var
   A, B, C, V,
-  OA, OB, OC, OV: PSEValue;
+  OA, OB, OC, OTV: PSEValue;
   TV, TV2: TSEValue;
   S, S1, S2: String;
   WS, WS1, WS2: UnicodeString;
