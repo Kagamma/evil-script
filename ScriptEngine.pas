@@ -38,7 +38,7 @@ unit ScriptEngine;
 {.$define SE_PROFILER}
 // enable this to replace FP's TDirectory with avk959's TGChainHashMap. It is a lot faster than TDirectory.
 // requires https://github.com/avk959/LGenerics
-{$define SE_MAP_AVK959}
+{.$define SE_MAP_AVK959}
 // Enable this if you want multi-threading support
 {$ifndef GO32v2}
   {$define SE_THREADS}
@@ -330,7 +330,7 @@ type
     FParent: TSEShape;
     FPropertyName: String;
     FPropertyHash: Cardinal;
-    FPropertyOffset: SizeInt;
+    FPropertyOffset: Integer;
     FSlotCount: Integer;
     FLiveCount: Integer;
     FTombstoneCount: Integer;
@@ -343,23 +343,23 @@ type
     procedure BuildKeys;
   public
     constructor CreateRoot(AID: NativeUInt);
-    constructor CreateChild(AID: NativeUInt; AParent: TSEShape; const APropertyName: String; AOffset: SizeInt);
+    constructor CreateChild(AID: NativeUInt; AParent: TSEShape; const APropertyName: String; AOffset: Integer);
     constructor CreateDelete(AID: NativeUInt; AParent: TSEShape; const APropertyName: String);
     destructor Destroy; override;
     function FindTransition(const Name: String): TSEShape;
     procedure AddTransition(const Name: String; AShape: TSEShape);
     procedure RemoveTransition(const Name: String);
-    function TryGetOffset(const Name: String; out Offset: SizeInt): Boolean;
-    function TryGetOffsetHash(Hash: Cardinal; const Name: String; out Offset: SizeInt): Boolean;
-    function GetOffset(const Name: String): SizeInt;
-    function GetOffsetHash(Hash: Cardinal; const Name: String): SizeInt;
+    function TryGetOffset(const Name: String; out Offset: Integer): Boolean;
+    function TryGetOffsetHash(Hash: Cardinal; const Name: String; out Offset: Integer): Boolean;
+    function GetOffset(const Name: String): Integer;
+    function GetOffsetHash(Hash: Cardinal; const Name: String): Integer;
     function HasProperty(const Name: String): Boolean;
     function GetKeys: TStringDynArray;
     property ID: NativeUInt read FID;
     property Parent: TSEShape read FParent;
     property PropertyName: String read FPropertyName;
     property PropertyHash: Cardinal read FPropertyHash;
-    property PropertyOffset: SizeInt read FPropertyOffset;
+    property PropertyOffset: Integer read FPropertyOffset;
     property SlotCount: Integer read FSlotCount;
     property LiveCount: Integer read FLiveCount;
     property TombstoneCount: Integer read FTombstoneCount;
@@ -368,6 +368,7 @@ type
 
   TSEShapeManager = class
   private
+    FLock: TRTLCriticalSection;
     FShapeRoot: TSEShape;
     FShapes: TSEShapeList;
     FNextID: NativeUInt;
@@ -400,12 +401,14 @@ type
     procedure Unlock; inline;
     function TryLock: Boolean; inline;
     procedure ToMap;
+    procedure Set2(const Key: PSEString; constref AValue: TSEValue; var Index: Integer); overload; inline;
     procedure Set2(const Key: PString; constref AValue: TSEValue); overload; inline;
-    procedure Set2(const Index: SizeInt; constref AValue: TSEValue); overload; inline;
+    procedure Set2(const Index: Integer; constref AValue: TSEValue); overload; inline;
     function Get2(const Key: PString): TSEValue; overload; inline;
-    function Get2(const Index: SizeInt): TSEValue; overload; inline;
+    function Get2(const Key: PSEString; var Index: Integer): TSEValue;
+    function Get2(const Index: Integer): TSEValue; overload; inline;
     procedure Del2(const Key: PString); overload; inline;
-    procedure Del2(const Index: SizeInt); overload; inline;
+    procedure Del2(const Index: Integer); overload; inline;
     function Ptr(const I: NativeInt): PSEValue;
     procedure Reset;
     property Shape: TSEShape read FShape;
@@ -799,13 +802,13 @@ const
     2, // opPushConstString,
     2, // opPushGlobalVar,
     3, // opPushLocalVar,
-    2, // opPushArrayPop,
+    3, // opPushArrayPop, the last slot is used for inline cache
     1, // opPopConst,
     1, // opPopFrame,
     2, // opAssignGlobalVar,
-    3, // opAssignGlobalArray,
+    4, // opAssignGlobalArray, the last slot is used for inline cache
     3, // opAssignLocalVar,
-    4, // opAssignLocalArray,
+    5, // opAssignLocalArray, the last slot is used for inline cache
     2, // opJumpEqualRel,
     3, // opJumpEqual1Rel,
     2, // opJumpUnconditionalRel,
@@ -3535,7 +3538,7 @@ begin
   FKeysBuilt := True;
 end;
 
-constructor TSEShape.CreateChild(AID: NativeUInt; AParent: TSEShape; const APropertyName: String; AOffset: SizeInt);
+constructor TSEShape.CreateChild(AID: NativeUInt; AParent: TSEShape; const APropertyName: String; AOffset: Integer);
 begin
   inherited Create;
 
@@ -3605,12 +3608,12 @@ begin
   FTransitions.Remove(Name);
 end;
 
-function TSEShape.TryGetOffset(const Name: String; out Offset: SizeInt): Boolean;
+function TSEShape.TryGetOffset(const Name: String; out Offset: Integer): Boolean;
 begin
   Result := TryGetOffsetHash(SEHashString(Name), Name, Offset);
 end;
 
-function TSEShape.TryGetOffsetHash(Hash: Cardinal; const Name: String; out Offset: SizeInt): Boolean;
+function TSEShape.TryGetOffsetHash(Hash: Cardinal; const Name: String; out Offset: Integer): Boolean;
 var
   CachedShape: TSEShape;
   Current: TSEShape;
@@ -3675,12 +3678,12 @@ begin
   Result := False;
 end;
 
-function TSEShape.GetOffset(const Name: String): SizeInt;
+function TSEShape.GetOffset(const Name: String): Integer;
 begin
   Result := GetOffsetHash(SEHashString(Name), Name);
 end;
 
-function TSEShape.GetOffsetHash(Hash: Cardinal; const Name: String): SizeInt;
+function TSEShape.GetOffsetHash(Hash: Cardinal; const Name: String): Integer;
 begin
   if not TryGetOffsetHash(Hash, Name, Result) then
     raise Exception.CreateFmt('Property "%s" does not exist in shape %d', [Name, FID]);
@@ -3688,7 +3691,7 @@ end;
 
 function TSEShape.HasProperty(const Name: String): Boolean;
 var
-  Offset: SizeInt;
+  Offset: Integer;
 begin
   Result := TryGetOffset(Name, Offset);
 end;
@@ -3763,6 +3766,9 @@ begin
   Inc(FNextID);
 
   RegisterShape(FShapeRoot);
+  {$ifdef SE_THREADS}
+  InitCriticalSection(FLock);
+  {$endif}
 end;
 
 procedure TSEShapeManager.RegisterShape(AShape: TSEShape);
@@ -3774,52 +3780,70 @@ function TSEShapeManager.AddProperty(AParent: TSEShape; const Name: String): TSE
 var
   Existing: TSEShape;
 begin
-  if AParent = nil then
-    raise Exception.Create('Parent shape cannot be nil');
+  {$ifdef SE_THREADS}
+  EnterCriticalSection(FLock);
+  {$endif}
+  try
+    if AParent = nil then
+      raise Exception.Create('Parent shape cannot be nil');
 
-  { If this exact transition already exists, reuse the existing shape. }
+    { If this exact transition already exists, reuse the existing shape. }
 
-  Existing := AParent.FindTransition(Name);
+    Existing := AParent.FindTransition(Name);
 
-  if Existing <> nil then
-    Exit(Existing);
+    if Existing <> nil then
+      Exit(Existing);
 
-  { The caller is expected to have already determined
-    that the property does not exist in the layout. }
+    { The caller is expected to have already determined
+      that the property does not exist in the layout. }
 
-  Result := TSEShape.CreateChild(FNextID, AParent, Name, AParent.FSlotCount);
-  Inc(FNextID);
+    Result := TSEShape.CreateChild(FNextID, AParent, Name, AParent.FSlotCount);
+    Inc(FNextID);
 
-  AParent.AddTransition(Name, Result);
-  RegisterShape(Result);
+    AParent.AddTransition(Name, Result);
+    RegisterShape(Result);
+  finally
+    {$ifdef SE_THREADS}
+    LeaveCriticalSection(FLock);
+    {$endif}
+  end;
 end;
 
 function TSEShapeManager.RemoveProperty(AParent: TSEShape; const Name: String): TSEShape;
 var
   Existing: TSEShape;
 begin
-  if AParent = nil then
-    raise Exception.Create('Parent shape cannot be nil');
+  {$ifdef SE_THREADS}
+  EnterCriticalSection(FLock);
+  {$endif}
+  try
+    if AParent = nil then
+      raise Exception.Create('Parent shape cannot be nil');
 
-  { Reuse an existing delete transition. }
+    { Reuse an existing delete transition. }
 
-  Existing := AParent.FindTransition(Name);
+    Existing := AParent.FindTransition(Name);
 
-  if Existing <> nil then
-    Exit(Existing);
+    if Existing <> nil then
+      Exit(Existing);
 
-  { Verify that the property actually exists. }
+    { Verify that the property actually exists. }
 
-  if not AParent.HasProperty(Name) then
-    raise Exception.CreateFmt('Property "%s" does not exist in shape %d', [Name, AParent.ID]);
+    if not AParent.HasProperty(Name) then
+      raise Exception.CreateFmt('Property "%s" does not exist in shape %d', [Name, AParent.ID]);
 
-  { Create a tombstone. }
+    { Create a tombstone. }
 
-  Result := TSEShape.CreateDelete(FNextID, AParent, Name);
-  Inc(FNextID);
+    Result := TSEShape.CreateDelete(FNextID, AParent, Name);
+    Inc(FNextID);
 
-  AParent.AddTransition(Name, Result);
-  RegisterShape(Result);
+    AParent.AddTransition(Name, Result);
+    RegisterShape(Result);
+  finally
+    {$ifdef SE_THREADS}
+    LeaveCriticalSection(FLock);
+    {$endif}
+  end;
 end;
 
 procedure TSEShapeManager.BeginMark;
@@ -3905,6 +3929,9 @@ begin
     FShapes[I].Free;
 
   FShapes.Free;
+  {$ifdef SE_THREADS}
+  DoneCriticalSection(FLock);
+  {$endif}
 
   inherited Destroy;
 end;
@@ -4536,7 +4563,7 @@ end;
 
 function TSEValueHelper.ContainsKey(constref S: String): Boolean; inline; overload;
 var
-  Index: SizeInt;
+  Index: Integer;
 begin
   if Self.Kind <> sevkMap then
     Exit(False);
@@ -6882,9 +6909,39 @@ begin
   end;
 end;
 
+procedure TSEValueMap.Set2(const Key: PSEString; constref AValue: TSEValue; var Index: Integer);
+var
+  HasResult: Boolean;
+begin
+  if Self.FIsValidArray then
+    Self.ToMap;
+  Self.Lock;
+  try
+    if Key^.Hash <> 0 then
+      HasResult := Self.FShape.TryGetOffsetHash(Key^.Hash, Key^.Data, Index)
+    else
+      HasResult := Self.FShape.TryGetOffset(Key^.Data, Index);
+    if HasResult then
+    begin
+      Self.FItems[Index] := AValue;
+    end else
+    begin
+      Self.FShape := ShapeManager.AddProperty(Self.FShape, Key^.Data);
+      Index := Self.FShape.PropertyOffset;
+      if Index > Self.Count - 1 then
+      begin
+        Self.Count := Index + 1;
+      end;
+      Self.FItems[Index] := AValue;
+    end;
+  finally
+    Self.Unlock;
+  end;
+end;
+
 procedure TSEValueMap.Set2(const Key: PString; constref AValue: TSEValue);
 var
-  Index: SizeInt;
+  Index: Integer;
 begin
   if Self.FIsValidArray then
     Self.ToMap;
@@ -6908,7 +6965,7 @@ begin
   end;
 end;
 
-procedure TSEValueMap.Set2(const Index: SizeInt; constref AValue: TSEValue);
+procedure TSEValueMap.Set2(const Index: Integer; constref AValue: TSEValue);
 begin
   if Index < 0 then
     Exit;
@@ -6934,7 +6991,7 @@ begin
   end;
 end;
 
-procedure TSEValueMap.Del2(const Index: SizeInt);
+procedure TSEValueMap.Del2(const Index: Integer);
 begin
   Self.Lock;
   try
@@ -6949,9 +7006,8 @@ end;
 
 function TSEValueMap.Get2(const Key: PString): TSEValue;
 var
-  Index: SizeInt;
+  Index: Integer;
 begin
-  Result := SENull;
   if Self.FShape.TryGetOffset(Key^, Index) then
   begin
     Result := Self.FItems[Index];
@@ -6959,7 +7015,22 @@ begin
     Result := SENull;
 end;
 
-function TSEValueMap.Get2(const Index: SizeInt): TSEValue;
+function TSEValueMap.Get2(const Key: PSEString; var Index: Integer): TSEValue;
+var
+  HasResult: Boolean;
+begin
+  if Key^.Hash <> 0 then
+    HasResult := Self.FShape.TryGetOffsetHash(Key^.Hash, Key^.Data, Index)
+  else
+    HasResult := Self.FShape.TryGetOffset(Key^.Data, Index);
+  if HasResult then
+  begin
+    Result := Self.FItems[Index];
+  end else
+    Result := SENull;
+end;
+
+function TSEValueMap.Get2(const Index: Integer): TSEValue;
 begin
   if (Index <= Self.Count - 1) and (Index >= 0) then
     Result := Self.FItems[Index]
@@ -7303,6 +7374,8 @@ begin
         begin
           if PValue^.VarMap <> nil then
           begin
+            if not TSEValueMap(PValue^.VarMap).IsValidArray then
+              ShapeManager.MarkShape(TSEValueMap(PValue^.VarMap).Shape);
             if SEMapIsValidArray(PValue^) then
             begin
               TSEValueMap(PValue^.VarMap).Lock;
@@ -7398,6 +7471,7 @@ var
   var
     I, J: NativeInt;
   begin
+    ShapeManager.BeginMark;
   {$ifdef SE_THREADS}
     if Self.EnableParallel then
     begin
@@ -7526,6 +7600,7 @@ begin
         begin
           Sweep(1);
         end;
+        ShapeManager.Sweep;
         {$ifdef SE_LOG}
         Writeln('[GC] Number of objects after cleaning: ', Self.FObjects);
         Writeln('[GC] Number of old objects after cleaning: ', Self.FObjectsOld);
@@ -8412,6 +8487,79 @@ var
             TV^.VarString^.Data[NativeInt(C) + 1] := Char(Round(B.VarNumber));
           {$endif}
         end;
+    end;
+  end;
+
+  function ResolveMapGet(const B, A: TSEValue; const CacheSite: PSEValue): TSEValue; inline;
+  begin
+    if TSEValueMap(B.VarMap).IsValidArray then
+      Result := SEMapGet(B, A)
+    else
+    begin
+      if (CacheSite^.VarPointer = Pointer(TSEValueMap(B.VarMap).Shape)) and (Integer(CacheSite^.Ref) >= 0) then
+      begin
+        Result := TSEValueMap(B.VarMap)[CacheSite^.Ref];
+      end else
+      begin
+        {$ifdef SE_THREADS}
+        EnterCriticalSection(CS);
+        {$endif}
+        try
+          CacheSite^.VarPointer := TSEValueMap(B.VarMap).Shape;
+          case A.Kind of
+            sevkString:
+              begin
+                Result := TSEValueMap(B.VarMap).Get2(A.VarString, Integer(CacheSite^.Ref));
+              end;
+            sevkConstString:
+              begin
+                Result := TSEValueMap(B.VarMap).Get2(ConstStrings.Ptr(A.VarConstStringIndex)^.VarString, Integer(CacheSite^.Ref));
+              end;
+            else
+              Result := SENull;
+          end;
+        finally
+          {$ifdef SE_THREADS}
+          LeaveCriticalSection(CS);
+          {$endif}
+        end;
+      end;
+    end;
+  end;
+
+  procedure ResolveMapSet(const TV, C, B: TSEValue; const CacheSite: PSEValue); inline;
+  begin
+    if TSEValueMap(TV.VarMap).IsValidArray then
+      TSEValueMap(TV.VarMap).Set2(Round(C.VarNumber), B)
+    else
+    begin
+      if (CacheSite^.VarPointer = Pointer(TSEValueMap(TV.VarMap).Shape)) and (Integer(CacheSite^.Ref) >= 0) then
+      begin
+        TSEValueMap(TV.VarMap)[CacheSite^.Ref] := B;
+      end else
+      begin
+        {$ifdef SE_THREADS}
+        EnterCriticalSection(CS);
+        {$endif}
+        try
+          case C.Kind of
+            sevkString:
+              begin
+                TSEValueMap(TV.VarMap).Set2(C.VarString, B, Integer(CacheSite^.Ref));
+                CacheSite^.VarPointer := Pointer(TSEValueMap(TV.VarMap).Shape);
+              end;
+            sevkConstString:
+              begin
+                TSEValueMap(TV.VarMap).Set2(ConstStrings.Ptr(C.VarConstStringIndex)^.VarString, B, Integer(CacheSite^.Ref));
+                CacheSite^.VarPointer := Pointer(TSEValueMap(TV.VarMap).Shape);
+              end;
+          end;
+        finally
+          {$ifdef SE_THREADS}
+          LeaveCriticalSection(CS);
+          {$endif}
+        end;
+      end;
     end;
   end;
 
@@ -9985,7 +10133,7 @@ labelStart:
           B := Pop;
           case B^.Kind of
             sevkMap:
-              Push(SEMapGet(B^, A^));
+              Push(ResolveMapGet(B^, A^, @CodePtrLocal[2]));
             sevkPascalObject:
               Push(B^.GetProp(A^));
             sevkString:
@@ -9997,7 +10145,7 @@ labelStart:
             else
               Push(SENull);
           end;
-          Inc(CodePtrLocal, 2);
+          Inc(CodePtrLocal, 3);
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opPopConst:{$endif}
@@ -10187,13 +10335,13 @@ labelStart:
           end;
           case TV.Kind of
             sevkMap:
-              SEMapSet(TV, C^, B^);
+              ResolveMapSet(TV, C^, B^, @CodePtrLocal[3]);
             sevkPascalObject:
               TV.SetProp(C^, B^);
             sevkString:
               StringSet(GetGlobalInt(NativeInt(A^)), C^, B^);
           end;
-          Inc(CodePtrLocal, 3);
+          Inc(CodePtrLocal, 4);
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opAssignLocalArray:{$endif}
@@ -10217,13 +10365,13 @@ labelStart:
           end;
           case TV.Kind of
             sevkMap:
-              SEMapSet(TV, C^, B^);
+              ResolveMapSet(TV, C^, B^, @CodePtrLocal[4]);
             sevkPascalObject:
               TV.SetProp(C^, B^);
             sevkString:
               StringSet(GetLocalInt(NativeInt(A^), NativeInt(CodePtrLocal[3].VarPointer)), C^, B^);
           end;
-          Inc(CodePtrLocal, 4);
+          Inc(CodePtrLocal, 5);
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opPushConstFromConstList:{$endif}
@@ -11829,9 +11977,9 @@ var
   function EmitAssignArray(const Ident: TSEIdent; const ArgCount: NativeInt): NativeInt; inline;
   begin
     if Ident.Local > 0 then
-      Result := Emit([Pointer(opAssignLocalArray), Ident.Addr, ArgCount, Pointer(Self.FuncTraversal - Ident.Local)])
+      Result := Emit([Pointer(opAssignLocalArray), Ident.Addr, ArgCount, Pointer(Self.FuncTraversal - Ident.Local), Pointer(0)])
     else
-      Result := Emit([Pointer(opAssignGlobalArray), Ident.Addr, ArgCount]);
+      Result := Emit([Pointer(opAssignGlobalArray), Ident.Addr, ArgCount, Pointer(0)]);
   end;
 
   procedure Patch(const Addr: NativeInt; const Data: TSEValue); inline;
@@ -11942,7 +12090,7 @@ var
       A := Self.Binary[OpInfoPrev2^.Pos + 1];
       Self.Binary.DeleteRange(Self.Binary.Count - Size, Size);
       Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 2);
-      Emit([Pointer(opPushArrayPop), A]);
+      Emit([Pointer(opPushArrayPop), A, Pointer(0)]);
       Result := True;
     end;
   end;
@@ -12512,7 +12660,7 @@ var
             NextTokenExpected([tkSquareBracketClose]);
             AllocFuncRef;
             AssignReturnFuncRef;
-            EmitExpr([Pointer(opPushArrayPop), SENull]);
+            EmitExpr([Pointer(opPushArrayPop), SENull, Pointer(0)]);
             PeepholeArrayAssignOptimization;
             Tail;
           end;
@@ -12525,7 +12673,7 @@ var
             Token := NextTokenExpected([tkIdent]);
             AllocFuncRef;
             AssignReturnFuncRef;
-            EmitExpr([Pointer(opPushArrayPop), CreateConstStringValue(Token.Value)]);
+            EmitExpr([Pointer(opPushArrayPop), CreateConstStringValue(Token.Value), Pointer(0)]);
             Tail;
           end;
       end;
@@ -12651,7 +12799,7 @@ var
                             EmitPushVar(Ident^);
                             MarkJITBlock;
                             Result := Result + VerifyJITBlock(ParseExpr(False));
-                            Emit([Pointer(opPushArrayPop), SENull]);
+                            Emit([Pointer(opPushArrayPop), SENull, Pointer(0)]);
                             PeepholeArrayAssignOptimization;
                             NextTokenExpected([tkSquareBracketClose]);
                             Tail;
@@ -12665,7 +12813,7 @@ var
                             NextToken;
                             Token2 := NextTokenExpected([tkIdent]);
                             EmitPushVar(Ident^);
-                            Emit([Pointer(opPushArrayPop), CreateConstStringValue(Token2.Value)]);
+                            Emit([Pointer(opPushArrayPop), CreateConstStringValue(Token2.Value), Pointer(0)]);
                             Tail;
                             FuncTail;
                           end;
@@ -13731,7 +13879,7 @@ var
 
         EmitPushVar(VarHiddenArrayIdent);
         EmitPushVar(VarHiddenCountIdent);
-        Emit([Pointer(opPushArrayPop), SENull]);
+        Emit([Pointer(opPushArrayPop), SENull, Pointer(0)]);
         PeepholeArrayAssignOptimization;
         EmitAssignVar(VarIdent);
 
@@ -13934,7 +14082,7 @@ var
               VerifyJITBlock(ParseExpr(False));
               NextTokenExpected([tkSquareBracketClose]);
               AssignReturnFuncRef;
-              Emit([Pointer(opPushArrayPop), SENull]);
+              Emit([Pointer(opPushArrayPop), SENull, Pointer(0)]);
               PeepholeArrayAssignOptimization;
             end;
           tkDot:
@@ -13942,7 +14090,7 @@ var
               NextToken;
               Token := NextTokenExpected([tkIdent]);
               AssignReturnFuncRef;
-              Emit([Pointer(opPushArrayPop), CreateConstStringValue(Token.Value)]);
+              Emit([Pointer(opPushArrayPop), CreateConstStringValue(Token.Value), Pointer(0)]);
             end;
         end;
       end;
