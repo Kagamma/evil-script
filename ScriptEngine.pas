@@ -336,7 +336,8 @@ type
     FTombstoneCount: Integer;
     FIsDeleted: Boolean;
     FMarked: Boolean;
-    FTransitions: TSEStringShapeDictionary;
+    FAddTransitions: TSEStringShapeDictionary;
+    FDeletedTransitions: TSEStringShapeDictionary;
     FLookup: TSEHashShapeDictionary;
     FKeys: TStringDynArray;
     FKeysBuilt: Boolean;
@@ -346,9 +347,12 @@ type
     constructor CreateChild(AID: NativeUInt; AParent: TSEShape; const APropertyName: String; AOffset: Integer);
     constructor CreateDelete(AID: NativeUInt; AParent: TSEShape; const APropertyName: String);
     destructor Destroy; override;
-    function FindTransition(const Name: String): TSEShape;
-    procedure AddTransition(const Name: String; AShape: TSEShape);
-    procedure RemoveTransition(const Name: String);
+    function FindAddTransition(const Name: String): TSEShape;
+    function FindDeletedTransition(const Name: String): TSEShape;
+    procedure AddAddTransition(const Name: String; AShape: TSEShape);
+    procedure AddDeletedTransition(const Name: String; AShape: TSEShape);
+    procedure RemoveAddTransition(const Name: String);
+    procedure RemoveDeletedTransition(const Name: String);
     function TryGetOffset(const Name: String; out Offset: Integer): Boolean;
     function TryGetOffsetHash(Hash: Cardinal; const Name: String; out Offset: Integer): Boolean;
     function GetOffset(const Name: String): Integer;
@@ -3503,16 +3507,12 @@ var
   I: Integer;
 begin
   Result := 2166136261;
-
   if Length(S) = 0 then
     Exit;
-
   P := PByte(PChar(S));
-
   for I := 1 to Length(S) do
   begin
-    Result := Result xor P^;
-    Result := Result * 16777619;
+    Result := (Result xor P^) * 16777619;
     Inc(P);
   end;
 end;
@@ -3533,7 +3533,8 @@ begin
   FIsDeleted := False;
   FMarked := False;
 
-  FTransitions := TSEStringShapeDictionary.Create;
+  FAddTransitions := TSEStringShapeDictionary.Create;
+  FDeletedTransitions := TSEStringShapeDictionary.Create;
   FLookup := nil;
 
   SetLength(FKeys, 0);
@@ -3555,7 +3556,8 @@ begin
   FIsDeleted := False;
   FMarked := False;
 
-  FTransitions := TSEStringShapeDictionary.Create;
+  FAddTransitions := TSEStringShapeDictionary.Create;
+  FDeletedTransitions := TSEStringShapeDictionary.Create;
   FLookup := nil;
 
   SetLength(FKeys, 0);
@@ -3577,7 +3579,8 @@ begin
   FIsDeleted := True;
   FMarked := False;
 
-  FTransitions := TSEStringShapeDictionary.Create;
+  FAddTransitions := TSEStringShapeDictionary.Create;
+  FDeletedTransitions := TSEStringShapeDictionary.Create;
   FLookup := nil;
 
   SetLength(FKeys, 0);
@@ -3587,25 +3590,43 @@ end;
 destructor TSEShape.Destroy;
 begin
   FLookup.Free;
-  FTransitions.Free;
+  FAddTransitions.Free;
+  FDeletedTransitions.Free;
   inherited Destroy;
 end;
 
-function TSEShape.FindTransition(const Name: String): TSEShape;
+function TSEShape.FindAddTransition(const Name: String): TSEShape;
 begin
-  if FTransitions.TryGetValue(Name, Result) then
+  if FAddTransitions.TryGetValue(Name, Result) then
     Exit;
   Result := nil;
 end;
 
-procedure TSEShape.AddTransition(const Name: String; AShape: TSEShape);
+function TSEShape.FindDeletedTransition(const Name: String): TSEShape;
 begin
-  FTransitions.Add(Name, AShape);
+  if FDeletedTransitions.TryGetValue(Name, Result) then
+    Exit;
+  Result := nil;
 end;
 
-procedure TSEShape.RemoveTransition(const Name: String);
+procedure TSEShape.AddAddTransition(const Name: String; AShape: TSEShape);
 begin
-  FTransitions.Remove(Name);
+  FAddTransitions.Add(Name, AShape);
+end;
+
+procedure TSEShape.RemoveAddTransition(const Name: String);
+begin
+  FAddTransitions.Remove(Name);
+end;
+
+procedure TSEShape.AddDeletedTransition(const Name: String; AShape: TSEShape);
+begin
+  FDeletedTransitions.Add(Name, AShape);
+end;
+
+procedure TSEShape.RemoveDeletedTransition(const Name: String);
+begin
+  FDeletedTransitions.Remove(Name);
 end;
 
 function TSEShape.TryGetOffset(const Name: String; out Offset: Integer): Boolean;
@@ -3779,7 +3800,7 @@ begin
 
     { If this exact transition already exists, reuse the existing shape. }
 
-    Existing := AParent.FindTransition(Name);
+    Existing := AParent.FindAddTransition(Name);
 
     if Existing <> nil then
       Exit(Existing);
@@ -3790,7 +3811,7 @@ begin
     Result := TSEShape.CreateChild(FNextID, AParent, Name, AParent.FSlotCount);
     Inc(FNextID);
 
-    AParent.AddTransition(Name, Result);
+    AParent.AddAddTransition(Name, Result);
     RegisterShape(Result);
   finally
     {$ifdef SE_THREADS}
@@ -3812,7 +3833,7 @@ begin
 
     { Reuse an existing delete transition. }
 
-    Existing := AParent.FindTransition(Name);
+    Existing := AParent.FindDeletedTransition(Name);
 
     if Existing <> nil then
       Exit(Existing);
@@ -3827,7 +3848,7 @@ begin
     Result := TSEShape.CreateDelete(FNextID, AParent, Name);
     Inc(FNextID);
 
-    AParent.AddTransition(Name, Result);
+    AParent.AddDeletedTransition(Name, Result);
     RegisterShape(Result);
   finally
     {$ifdef SE_THREADS}
@@ -3889,10 +3910,17 @@ begin
         still points to this exact shape. }
       if Parent <> nil then
       begin
-        Child := Parent.FindTransition(Shape.FPropertyName);
-
-        if Child = Shape then
-          Parent.RemoveTransition(Shape.FPropertyName);
+        if Shape.IsDeleted then
+        begin
+          Child := Parent.FindDeletedTransition(Shape.PropertyName);
+          if Child = Shape then
+            Parent.RemoveDeletedTransition(Shape.PropertyName);
+        end else
+        begin
+          Child := Parent.FindAddTransition(Shape.PropertyName);
+          if Child = Shape then
+            Parent.RemoveAddTransition(Shape.PropertyName);
+        end;
       end;
       FShapes.Delete(I);
       Shape.Free;
