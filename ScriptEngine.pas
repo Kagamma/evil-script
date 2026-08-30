@@ -368,7 +368,9 @@ type
 
   TSEShapeManager = class
   private
+    {$ifdef SE_THREADS}
     FLock: TRTLCriticalSection;
+    {$endif}
     FShapeRoot: TSEShape;
     FShapes: TSEShapeList;
     FNextID: NativeUInt;
@@ -3586,7 +3588,6 @@ destructor TSEShape.Destroy;
 begin
   FLookup.Free;
   FTransitions.Free;
-
   inherited Destroy;
 end;
 
@@ -3594,7 +3595,6 @@ function TSEShape.FindTransition(const Name: String): TSEShape;
 begin
   if FTransitions.TryGetValue(Name, Result) then
     Exit;
-
   Result := nil;
 end;
 
@@ -3619,29 +3619,24 @@ var
   Current: TSEShape;
 begin
   { Fast path: cached hash. }
-
   if FLookup <> nil then
   begin
     if FLookup.TryGetValue(Hash, CachedShape) then
     begin
       { Verify the name in case of a hash collision. }
-
       if CachedShape.FPropertyName = Name then
       begin
         Offset := CachedShape.FPropertyOffset;
         Result := Offset >= 0;
         Exit;
       end;
-
       { Hash collision. Do not trust the cached entry.
         Fall through to the parent-chain lookup. }
     end;
   end;
 
   { Slow path: walk the shape chain. }
-
   Current := Self;
-
   while Current <> nil do
   begin
     if Current.FPropertyHash = Hash then
@@ -3652,9 +3647,7 @@ begin
           Offset := -1
         else
           Offset := Current.FPropertyOffset;
-
         { Cache only if there is no conflicting hash entry. }
-
         if FLookup = nil then
           FLookup := TSEHashShapeDictionary.Create;
 
@@ -3670,10 +3663,8 @@ begin
         Exit;
       end;
     end;
-
     Current := Current.FParent;
   end;
-
   Offset := -1;
   Result := False;
 end;
@@ -3722,8 +3713,7 @@ begin
       FKeys[I] := ParentKeys[I];
 
     FKeys[High(FKeys)] := FPropertyName;
-  end
-  else
+  end else
   begin
     SetLength(FKeys, Length(ParentKeys));
     Count := 0;
@@ -3888,7 +3878,6 @@ var
   Child: TSEShape;
 begin
   I := FShapes.Count - 1;
-
   while I >= 0 do
   begin
     Shape := FShapes[I];
@@ -3896,10 +3885,8 @@ begin
     if (Shape <> FShapeRoot) and (not Shape.FMarked) then
     begin
       Parent := Shape.FParent;
-
       { Remove the parent's transition only if it
         still points to this exact shape. }
-
       if Parent <> nil then
       begin
         Child := Parent.FindTransition(Shape.FPropertyName);
@@ -3907,11 +3894,9 @@ begin
         if Child = Shape then
           Parent.RemoveTransition(Shape.FPropertyName);
       end;
-
       FShapes.Delete(I);
       Shape.Free;
     end;
-
     Dec(I);
   end;
 end;
@@ -3927,12 +3912,10 @@ var
 begin
   for I := FShapes.Count - 1 downto 0 do
     FShapes[I].Free;
-
   FShapes.Free;
   {$ifdef SE_THREADS}
   DoneCriticalSection(FLock);
   {$endif}
-
   inherited Destroy;
 end;
 
