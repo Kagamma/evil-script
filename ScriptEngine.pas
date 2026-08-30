@@ -3876,7 +3876,6 @@ end;
 
 procedure TSEShapeManager.Mark(AShape: TSEShape);
 begin
-  Exit;
   if AShape <> nil then
     MarkShape(AShape);
 end;
@@ -3888,7 +3887,6 @@ var
   Parent: TSEShape;
   Child: TSEShape;
 begin
-  Exit;
   I := FShapes.Count - 1;
 
   while I >= 0 do
