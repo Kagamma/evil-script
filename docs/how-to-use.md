@@ -176,7 +176,7 @@ A 16-byte data structure. `TSEValue.Kind` stores the type of variable, which can
     ```
       V := 'This is a string';
       // Equivalent to GC.AllocString(@V, 'This is a string');
-      // You can access the string directly via V.VarString^
+      // You can access the string directly via V.VarString^.Data
     ```
 - Creates a new map:
     ```

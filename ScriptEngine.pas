@@ -212,6 +212,11 @@ type
     IsManaged: Boolean;
   end;
   PSEPascalObject = ^TSEPascalObject;
+  TSEString = record
+    Data: RawByteString;
+    Hash: Cardinal;
+  end;
+  PSEString = ^TSEString;
 
   TSEListStack = specialize TStack<TList>;
   TSEScopeStack = specialize TStack<NativeInt>;
@@ -232,7 +237,7 @@ type
         );
       sevkString:
         (
-          VarString: PSECommonString;
+          VarString: PSEString;
         );
       sevkMap:
         (
@@ -3516,9 +3521,9 @@ begin
     sevkString:
       begin
         if IsRoot then
-          Result := Value.VarString^
+          Result := Value.VarString^.Data
         else
-          Result := '"' + Value.VarString^ + '"';
+          Result := '"' + Value.VarString^.Data + '"';
       end;
     sevkNumber:
       Result := PointFloatToStr(Value.VarNumber);
@@ -3577,7 +3582,7 @@ begin
         Result := 'pasobject@' + IntToStr(NativeUInt(Value.VarPascalObject^.Value));
       end;
     sevkConstString:
-      Result := ConstStrings.Ptr(Value.VarConstStringIndex)^.VarString^;
+      Result := ConstStrings.Ptr(Value.VarConstStringIndex)^.VarString^.Data;
     else
       Result := Value;
   end;
@@ -3599,7 +3604,7 @@ begin
       end;
     sevkString:
       begin
-        Result := Length(Value.VarString^);
+        Result := Length(Value.VarString^.Data);
       end;
     else
       Result := -1;
@@ -3621,7 +3626,7 @@ begin
   case I.Kind of
     sevkString:
       begin
-        TSEValueMap(V.VarMap).Del2(I.VarString);
+        TSEValueMap(V.VarMap).Del2(@I.VarString^.Data);
       end;
     sevkNumber:
       begin
@@ -3647,7 +3652,7 @@ begin
   case I.Kind of
     sevkString:
       begin
-        Result := TSEValueMap(V.VarMap).Get2(I.VarString);
+        Result := TSEValueMap(V.VarMap).Get2(@I.VarString^.Data);
       end;
     sevkNumber:
       begin
@@ -3655,7 +3660,7 @@ begin
       end;
     sevkConstString:
       begin
-        Result := TSEValueMap(V.VarMap).Get2(ConstStrings.Ptr(I.VarConstStringIndex)^.VarString);
+        Result := TSEValueMap(V.VarMap).Get2(@ConstStrings.Ptr(I.VarConstStringIndex)^.VarString^.Data);
       end;
     else
       Exit(SENull);
@@ -3667,7 +3672,7 @@ begin
   case I.Kind of
     sevkString:
       begin
-        R := TSEValueMap(V.VarMap).Get2(I.VarString);
+        R := TSEValueMap(V.VarMap).Get2(@I.VarString^.Data);
       end;
     sevkNumber:
       begin
@@ -3675,7 +3680,7 @@ begin
       end;
     sevkConstString:
       begin
-        R := TSEValueMap(V.VarMap).Get2(ConstStrings.Ptr(I.VarConstStringIndex)^.VarString);
+        R := TSEValueMap(V.VarMap).Get2(@ConstStrings.Ptr(I.VarConstStringIndex)^.VarString^.Data);
       end;
     else
       R := SENull;
@@ -3696,11 +3701,11 @@ procedure SEMapSet(constref V, I: TSEValue; constref A: TSEValue); inline; overl
 begin
   case I.Kind of
     sevkString:
-      TSEValueMap(V.VarMap).Set2(I.VarString, A);
+      TSEValueMap(V.VarMap).Set2(@I.VarString^.Data, A);
     sevkNumber:
       TSEValueMap(V.VarMap).Set2(Round(I.VarNumber), A);
     sevkConstString:
-      TSEValueMap(V.VarMap).Set2(ConstStrings.Ptr(I.VarConstStringIndex)^.VarString, A);
+      TSEValueMap(V.VarMap).Set2(@ConstStrings.Ptr(I.VarConstStringIndex)^.VarString^.Data, A);
   end;
 end;
 
@@ -3817,7 +3822,7 @@ begin
       end;
     sevkString:
       begin
-        S := V.VarString^;
+        S := V.VarString^.Data;
         GC.AllocString(@Result, S);
       end;
     sevkMap:
@@ -3931,9 +3936,9 @@ begin
   try
     case I.Kind of
       sevkString:
-        PName := I.VarString^;
+        PName := I.VarString^.Data;
       sevkConstString:
-        PName := ConstStrings.Ptr(I.VarConstStringIndex)^.VarString^;
+        PName := ConstStrings.Ptr(I.VarConstStringIndex)^.VarString^.Data;
     end;
     RttiType := Ctx.GetType(Obj.ClassType);
     for Prop in RttiType.GetProperties do
@@ -3963,9 +3968,9 @@ begin
   try
     case I.Kind of
       sevkString:
-        PName := I.VarString^;
+        PName := I.VarString^.Data;
       sevkConstString:
-        PName := ConstStrings.Ptr(I.VarConstStringIndex)^.VarString^;
+        PName := ConstStrings.Ptr(I.VarConstStringIndex)^.VarString^.Data;
     end;
     RttiType := Ctx.GetType(Obj.ClassType);
     for Prop in RttiType.GetProperties do
@@ -3986,7 +3991,7 @@ begin
           tkAString,
           tkWString,
           tkSString:
-            V := A.VarString^;
+            V := A.VarString^.Data;
           tkUChar,
           tkWChar,
           tkChar:
@@ -4360,8 +4365,8 @@ end;
 class function TBuiltInFunction.SEStringToBuffer(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   SEValidateType(@Args[0], sevkString, 1, {$I %CURRENTROUTINE%});
-  GC.AllocBuffer(@Result, Length(Args[0].VarString^));
-  Move(Args[0].VarString^[1], PByte(Result.VarBuffer^.Ptr)[0], Length(Args[0].VarString^));
+  GC.AllocBuffer(@Result, Length(Args[0].VarString^.Data));
+  Move(Args[0].VarString^.Data[1], PByte(Result.VarBuffer^.Ptr)[0], Length(Args[0].VarString^.Data));
 end;
 
 class function TBuiltInFunction.SEBufferToString(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -4523,7 +4528,7 @@ begin
   {$endif}
   try
     try
-      Exit(SEMapGet(ScriptVarMap, Args[0].VarString^))
+      Exit(SEMapGet(ScriptVarMap, Args[0].VarString^.Data))
     except
       on E: Exception do
         Result := SENull;
@@ -4541,7 +4546,7 @@ begin
   EnterCriticalSection(CS);
   {$endif}
   try
-    SEMapSet(ScriptVarMap, Args[0].VarString^, Args[1]);
+    SEMapSet(ScriptVarMap, Args[0].VarString^.Data, Args[1]);
     Result := SENull;
   finally
     {$ifdef SE_THREADS}
@@ -4565,9 +4570,9 @@ begin
   case Args[0].Kind of
     sevkString:
       {$ifdef SE_STRING_UTF8}
-      Exit(UTF8Length(String(Args[0].VarString^)));
+      Exit(UTF8Length(String(Args[0].VarString^.Data)));
       {$else}
-      Exit(Length(String(Args[0].VarString^)));
+      Exit(Length(String(Args[0].VarString^.Data)));
       {$endif}
     sevkMap, sevkBuffer:
       begin
@@ -4586,7 +4591,7 @@ begin
   while I < ArgCount - 1 do
   begin
     if Args[I].Kind = sevkString then
-      SEMapSet(Result, Args[I].VarString^, Args[I + 1])
+      SEMapSet(Result, Args[I].VarString^.Data, Args[I + 1])
     else
       SEMapSet(Result, Round(Args[I].VarNumber), Args[I + 1]);
     Inc(I, 2);
@@ -4769,7 +4774,7 @@ begin
   A := SplitString(Args[0], #10);
   for V in A do
     for I := 0 to SESize(Args[1]) - 1 do
-      if StringIndexOf(V, SEMapGet(Args[1], I).VarString^) >= 0 then
+      if StringIndexOf(V, SEMapGet(Args[1], I).VarString^.Data) >= 0 then
       begin
         if Result = '' then
           Result := V
@@ -4781,7 +4786,7 @@ end;
 class function TBuiltInFunction.SEStringResize(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   Result := Args[0];
-  SetLength(Result.VarString^, Round(Args[0].VarNumber));
+  SetLength(Result.VarString^.Data, Round(Args[0].VarNumber));
 end;
 
 class function TBuiltInFunction.SEStringSplit(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -4797,31 +4802,31 @@ end;
 
 class function TBuiltInFunction.SEStringFind(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Result := StringIndexOf(Args[0].VarString^, Args[1]);
+  Result := StringIndexOf(Args[0].VarString^.Data, Args[1]);
 end;
 
 class function TBuiltInFunction.SEStringDelete(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Result := Args[0].VarString^;
+  Result := Args[0].VarString^.Data;
   {$ifdef SE_STRING_UTF8}
-  UTF8Delete(AnsiString(Result.VarString^), Round(Args[1].VarNumber + 1), Round(Args[2].VarNumber));
+  UTF8Delete(AnsiString(Result.VarString^.Data), Round(Args[1].VarNumber + 1), Round(Args[2].VarNumber));
   {$else}
-  Delete(Result.VarString^, Round(Args[1].VarNumber + 1), Round(Args[2].VarNumber));
+  Delete(Result.VarString^.Data, Round(Args[1].VarNumber + 1), Round(Args[2].VarNumber));
   {$endif}
 end;
 
 class function TBuiltInFunction.SEStringCompare(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Result := CompareStr(Args[0].VarString^, Args[1].VarString^);
+  Result := CompareStr(Args[0].VarString^.Data, Args[1].VarString^.Data);
 end;
 
 class function TBuiltInFunction.SEStringInsert(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Result := Args[0].VarString^;
+  Result := Args[0].VarString^.Data;
   {$ifdef SE_STRING_UTF8}
-  UTF8Insert(AnsiString(Args[1].VarString^), AnsiString(Result.VarString^), Round(Args[2].VarNumber + 1));
+  UTF8Insert(AnsiString(Args[1].VarString^.Data), AnsiString(Result.VarString^.Data), Round(Args[2].VarNumber + 1));
   {$else}
-  Insert(Args[1].VarString^, Result.VarString^, Round(Args[2].VarNumber + 1));
+  Insert(Args[1].VarString^.Data, Result.VarString^.Data, Round(Args[2].VarNumber + 1));
   {$endif}
 end;
 
@@ -4845,10 +4850,10 @@ class function TBuiltInFunction.SEStringFormat(const VM: TSEVM; const Args: PSEV
 var
   I: NativeInt;
 begin
-  Result := Args[0].VarString^;
+  Result := Args[0].VarString^.Data;
   for I := 1 to ArgCount do
   begin
-    Result.VarString^ := StringReplace(Result.VarString^, '{' + IntToStr(I - 1) + '}', SEValueToText(Args[1]), [rfReplaceAll]);
+    Result.VarString^.Data := StringReplace(Result.VarString^.Data, '{' + IntToStr(I - 1) + '}', SEValueToText(Args[1]), [rfReplaceAll]);
   end;
 end;
 
@@ -4856,9 +4861,9 @@ class function TBuiltInFunction.SEStringUpperCase(const VM: TSEVM; const Args: P
 begin
   GC.AllocString(@Result, '');
   case Args[0].Kind of
-    sevkString: Result.VarString^ := UpperCase(Args[0].VarString^);
+    sevkString: Result.VarString^.Data := UpperCase(Args[0].VarString^.Data);
     sevkBoolean,
-    sevkNumber: Result.VarString^ := UpperCase(Char(Round(Args[0].VarNumber)));
+    sevkNumber: Result.VarString^.Data := UpperCase(Char(Round(Args[0].VarNumber)));
   end;
 end;
 
@@ -4866,9 +4871,9 @@ class function TBuiltInFunction.SEStringLowerCase(const VM: TSEVM; const Args: P
 begin
   GC.AllocString(@Result, '');
   case Args[0].Kind of
-    sevkString: Result.VarString^ := LowerCase(Args[0].VarString^);
+    sevkString: Result.VarString^.Data := LowerCase(Args[0].VarString^.Data);
     sevkBoolean,
-    sevkNumber: Result.VarString^ := LowerCase(Char(Round(Args[0].VarNumber)));
+    sevkNumber: Result.VarString^.Data := LowerCase(Char(Round(Args[0].VarNumber)));
   end;
 end;
 
@@ -4880,8 +4885,8 @@ var
   V: TSEValue;
 begin
   GC.AllocString(@Result, '');
-  R := TRegExpr.Create(Args[1].VarString^);
-  if R.Exec(Args[0].VarString^) then
+  R := TRegExpr.Create(Args[1].VarString^.Data);
+  if R.Exec(Args[0].VarString^.Data) then
   repeat
     for I := 1 to R.SubExprMatchCount do
     begin
@@ -4911,17 +4916,17 @@ end;
 
 class function TBuiltInFunction.SEStringExtractName(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Result := ExtractFileName(Args[0].VarString^);
+  Result := ExtractFileName(Args[0].VarString^.Data);
 end;
 
 class function TBuiltInFunction.SEStringExtractPath(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Result := ExtractFilePath(Args[0].VarString^);
+  Result := ExtractFilePath(Args[0].VarString^.Data);
 end;
 
 class function TBuiltInFunction.SEStringExtractExt(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Result := ExtractFileExt(Args[0].VarString^);
+  Result := ExtractFileExt(Args[0].VarString^.Data);
 end;
 
 class function TBuiltInFunction.SESin(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -5057,7 +5062,7 @@ end;
 
 class function TBuiltInFunction.SEOrd(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Result := Byte(Args[0].VarString^[1]);
+  Result := Byte(Args[0].VarString^.Data[1]);
 end;
 
 class function TBuiltInFunction.SECoroutineCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -5237,13 +5242,13 @@ class function TBuiltInFunction.SEFileWriteText(const VM: TSEVM; const Args: PSE
 var
   FS: TFileStream;
 begin
-  if FileExists(Args[0].VarString^) then
+  if FileExists(Args[0].VarString^.Data) then
     FS := TFileStream.Create(Args[0], fmOpenWrite)
   else
     FS := TFileStream.Create(Args[0], fmCreate);
   try
     FS.Position := FS.Size;
-    FS.Write(Args[1].VarString^[1], Length(Args[1].VarString^));
+    FS.Write(Args[1].VarString^.Data[1], Length(Args[1].VarString^.Data));
   finally
     FS.Free;
   end;
@@ -5253,7 +5258,7 @@ class function TBuiltInFunction.SEFileWriteBinary(const VM: TSEVM; const Args: P
 var
   FS: TFileStream;
 begin
-  if FileExists(Args[0].VarString^) then
+  if FileExists(Args[0].VarString^.Data) then
     FS := TFileStream.Create(Args[0], fmOpenWrite)
   else
     FS := TFileStream.Create(Args[0], fmCreate);
@@ -5269,27 +5274,27 @@ class function TBuiltInFunction.SEFileCopy(const VM: TSEVM; const Args: PSEValue
 begin
   Result := False;
   {$ifdef SE_HAS_FILEUTIL}
-  if FileExists(Args[0].VarString^) then
+  if FileExists(Args[0].VarString^.Data) then
   begin
-    Result := CopyFile(Args[0].VarString^, Args[1], [cffOverwriteFile], False);
+    Result := CopyFile(Args[0].VarString^.Data, Args[1], [cffOverwriteFile], False);
   end;
   {$endif}
 end;
 
 class function TBuiltInFunction.SEFileExists(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Result := FileExists(Args[0].VarString^);
+  Result := FileExists(Args[0].VarString^.Data);
 end;
 
 class function TBuiltInFunction.SEFileDelete(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  DeleteFile(Args[0].VarString^);
+  DeleteFile(Args[0].VarString^.Data);
   Result := SENull;
 end;
 
 class function TBuiltInFunction.SEFileRename(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  RenameFile(Args[0].VarString^, Args[1].VarString^);
+  RenameFile(Args[0].VarString^.Data, Args[1].VarString^.Data);
   Result := SENull;
 end;
 
@@ -5317,9 +5322,9 @@ var
   F: File of Byte;
 begin
   Result := 0;
-  if FileExists(Args[0].VarString^) then
+  if FileExists(Args[0].VarString^.Data) then
   begin
-    AssignFile(F, Args[0].VarString^);
+    AssignFile(F, Args[0].VarString^.Data);
     Reset(F);
     Result := FileSize(F);
     CloseFile(F);
@@ -5331,15 +5336,15 @@ var
   F: File of Byte;
 begin
   Result := -1;
-  if FileExists(Args[0].VarString^) then
+  if FileExists(Args[0].VarString^.Data) then
   begin
-    Result := FileAge(Args[0].VarString^);
+    Result := FileAge(Args[0].VarString^.Data);
   end;
 end;
 
 class function TBuiltInFunction.SEDirectoryCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  ForceDirectories(Args[0].VarString^);
+  ForceDirectories(Args[0].VarString^.Data);
   Result := SENull;
 end;
 
@@ -5372,7 +5377,7 @@ end;
 
 class function TBuiltInFunction.SEDirectoryExists(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Result := DirectoryExists(Args[0].VarString^);
+  Result := DirectoryExists(Args[0].VarString^.Data);
 end;
 
 class function TBuiltInFunction.SEBase64Encode(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -5480,7 +5485,7 @@ var
 begin
   SEValidateType(@Args[0], sevkString, 1, {$I %CURRENTROUTINE%});
   Result := SENull;
-  Json := GetJSON(Args[0].VarString^);
+  Json := GetJSON(Args[0].VarString^.Data);
   try
     try
       if Json.JSONType = jtArray then
@@ -5529,7 +5534,7 @@ class function TBuiltInFunction.SEJSONStringify(const VM: TSEVM; const Args: PSE
         SB.Append(',');
       case V.Kind of
         sevkString:
-          SB.Append('"' + StringToJSONString(V.VarString^) + '"');
+          SB.Append('"' + StringToJSONString(V.VarString^.Data) + '"');
         sevkNumber:
           SB.Append(PointFloatToStr(V.VarNumber));
         sevkBoolean:
@@ -5569,7 +5574,7 @@ class function TBuiltInFunction.SEJSONStringify(const VM: TSEVM; const Args: PSE
         SB.Append('"' + StringToJSONString(Key) + '":');
         case V.Kind of
           sevkString:
-            SB.Append('"' + StringToJSONString(V.VarString^) + '"');
+            SB.Append('"' + StringToJSONString(V.VarString^.Data) + '"');
           sevkNumber:
             SB.Append(PointFloatToStr(V.VarNumber));
           sevkBoolean:
@@ -5641,7 +5646,7 @@ begin
       end;
     sevkString:
       begin
-        GC.AllocString(@R, V1.VarString^ + V2.VarString^);
+        GC.AllocString(@R, V1.VarString^.Data + V2.VarString^.Data);
       end;
     sevkMap:
       begin
@@ -5715,7 +5720,7 @@ begin
       end;
     sevkString:
       begin
-        R := not (Length(V.VarString^) > 0);
+        R := not (Length(V.VarString^.Data) > 0);
       end;
     sevkFunction,
     sevkPascalObject,
@@ -5771,7 +5776,7 @@ begin
     sevkNumber, sevkBoolean:
       R := V1.VarNumber = V2.VarNumber;
     sevkString:
-      R := V1.VarString^ = V2.VarString^;
+      R := V1.VarString^.Data = V2.VarString^.Data;
     sevkFunction:
       R := (V1.VarFuncKind = V2.VarFuncKind) and (V1.VarFuncIndx = V2.VarFuncIndx);
     sevkNull:
@@ -5786,7 +5791,7 @@ begin
     sevkNumber:
       R := (V1.VarNumber <> 0) = Boolean(Round(V2.VarNumber));
     sevkString:
-      R := (Length(V1.VarString^) > 0) = Boolean(Round(V2.VarNumber));
+      R := (Length(V1.VarString^.Data) > 0) = Boolean(Round(V2.VarNumber));
     sevkMap,
     sevkPascalObject,
     sevkFunction:
@@ -5805,7 +5810,7 @@ begin
     sevkNumber, sevkBoolean:
       R := V1.VarNumber <> V2.VarNumber;
     sevkString:
-      R := V1.VarString^ <> V2.VarString^;
+      R := V1.VarString^.Data <> V2.VarString^.Data;
     sevkFunction:
       R := (V1.VarFuncKind <> V2.VarFuncKind) or (V1.VarFuncIndx <> V2.VarFuncIndx);
     sevkNull:
@@ -5820,7 +5825,7 @@ begin
     sevkNumber:
       R := (V1.VarNumber <> 0) <> Boolean(Round(V2.VarNumber));
     sevkString:
-      R := (Length(V1.VarString^) > 0) <> Boolean(Round(V2.VarNumber));
+      R := (Length(V1.VarString^.Data) > 0) <> Boolean(Round(V2.VarNumber));
     sevkMap,
     sevkPascalObject,
     sevkFunction:
@@ -5871,7 +5876,7 @@ begin
     sevkNumber, sevkBoolean:
       Result := V1.VarNumber = V2.VarNumber;
     sevkString:
-      Result := V1.VarString^ = V2.VarString^;
+      Result := V1.VarString^.Data = V2.VarString^.Data;
     sevkFunction:
       Result := (V1.VarFuncKind = V2.VarFuncKind) and (V1.VarFuncIndx = V2.VarFuncIndx);
     sevkNull:
@@ -5884,7 +5889,7 @@ begin
     sevkNumber:
       Result := (V1.VarNumber <> 0) = Boolean(Round(V2.VarNumber));
     sevkString:
-      Result := (Length(V1.VarString^) > 0) = Boolean(Round(V2.VarNumber));
+      Result := (Length(V1.VarString^.Data) > 0) = Boolean(Round(V2.VarNumber));
     sevkMap,
     sevkPascalObject,
     sevkFunction:
@@ -5903,7 +5908,7 @@ begin
     sevkNumber, sevkBoolean:
       Result := V1.VarNumber <> V2.VarNumber;
     sevkString:
-      Result := V1.VarString^ <> V2.VarString^;
+      Result := V1.VarString^.Data <> V2.VarString^.Data;
     sevkFunction:
       Result := (V1.VarFuncKind <> V2.VarFuncKind) or (V1.VarFuncIndx <> V2.VarFuncIndx);
     sevkNull:
@@ -5916,7 +5921,7 @@ begin
     sevkNumber:
       Result := (V1.VarNumber <> 0) <> Boolean(Round(V2.VarNumber));
     sevkString:
-      Result := (Length(V1.VarString^) > 0) <> Boolean(Round(V2.VarNumber));
+      Result := (Length(V1.VarString^.Data) > 0) <> Boolean(Round(V2.VarNumber));
     sevkMap,
     sevkPascalObject,
     sevkFunction:
@@ -5982,7 +5987,7 @@ end;
 operator := (V: TSEValue) R: String; inline;
 begin
   if V.Kind = sevkString then
-    R := V.VarString^
+    R := V.VarString^.Data
   else
     R := '';
 end;
@@ -6009,7 +6014,7 @@ begin
     sevkNumber:
       R := V.VarNumber;
     sevkString:
-      R := V.VarString^;
+      R := V.VarString^.Data;
     sevkPascalObject:
       R := V.VarPascalObject^.Value;
     sevkBuffer:
@@ -6063,7 +6068,7 @@ var
 begin
   if V1.Kind = sevkString then
   begin
-    S := V1.VarString^;
+    S := V1.VarString^.Data;
     R := S + V2;
   end else
     R := V2;
@@ -6113,9 +6118,9 @@ begin
     sevkString:
       begin
         if V2.Kind = sevkString then
-          GC.AllocString(@R, V1.VarString^ + V2.VarString^)
+          GC.AllocString(@R, V1.VarString^.Data + V2.VarString^.Data)
         else
-          GC.AllocString(@R, V1.VarString^);
+          GC.AllocString(@R, V1.VarString^.Data);
       end;
     sevkMap:
       begin
@@ -6212,7 +6217,7 @@ end;
 
 operator = (V1: TSEValue; V2: String) R: Boolean; inline;
 begin
-  R := V1.VarString^ = V2;
+  R := V1.VarString^.Data = V2;
 end;
 
 operator <> (V1: TSEValue; V2: TSENumber) R: Boolean; inline;
@@ -6222,7 +6227,7 @@ end;
 
 operator <> (V1: TSEValue; V2: String) R: Boolean; inline;
 begin
-  R := V1.VarString^ <> V2;
+  R := V1.VarString^.Data <> V2;
 end;
 
 operator < (V1, V2: TSEValue) R: Boolean; inline;
@@ -6250,7 +6255,7 @@ begin
     sevkBoolean:
       R := Boolean(Round(V1.VarNumber)) = Boolean(Round(V2.VarNumber));
     sevkString:
-      R := V1.VarString^ = V2.VarString^;
+      R := V1.VarString^.Data = V2.VarString^.Data;
     sevkNull:
       R := True;
     sevkPascalObject:
@@ -6263,7 +6268,7 @@ begin
     sevkNumber:
       R := (V1.VarNumber <> 0) = Boolean(Round(V2.VarNumber));
     sevkString:
-      R := (Length(V1.VarString^) > 0) = Boolean(Round(V2.VarNumber));
+      R := (Length(V1.VarString^.Data) > 0) = Boolean(Round(V2.VarNumber));
     sevkMap,
     sevkPascalObject,
     sevkFunction:
@@ -6283,7 +6288,7 @@ begin
     sevkBoolean:
       R := Boolean(Round(V1.VarNumber)) <> Boolean(Round(V2.VarNumber));
     sevkString:
-      R := V1.VarString^ <> V2.VarString^;
+      R := V1.VarString^.Data <> V2.VarString^.Data;
     sevkNull:
       R := False;
     sevkPascalObject:
@@ -6296,7 +6301,7 @@ begin
     sevkNumber:
       R := (V1.VarNumber <> 0) <> Boolean(Round(V2.VarNumber));
     sevkString:
-      R := (Length(V1.VarString^) > 0) <> Boolean(Round(V2.VarNumber));
+      R := (Length(V1.VarString^.Data) > 0) <> Boolean(Round(V2.VarNumber));
     sevkMap,
     sevkPascalObject,
     sevkFunction:
@@ -7094,7 +7099,7 @@ begin
   try
     PValue^.Kind := sevkString;
     New(PValue^.VarString);
-    PValue^.VarString^ := S;
+    PValue^.VarString^.Data := S;
     Self.AddToList(PValue);
   finally
     {$ifdef SE_THREADS}
@@ -7731,7 +7736,7 @@ var
             A := Pop;
             if A^.Kind = sevkString then
             begin
-              ImportBufferString[I] := A^.VarString^ + #0;
+              ImportBufferString[I] := A^.VarString^.Data + #0;
               PChar((@ImportBufferData[I * 8])^) := PChar(ImportBufferString[I]);
             end else
             if A^.Kind = sevkBuffer then
@@ -7746,7 +7751,7 @@ var
             A := Pop;
             if A^.Kind = sevkString then
             begin
-              ImportBufferWideString[I] := UTF8Decode(A^.VarString^ + #0);
+              ImportBufferWideString[I] := UTF8Decode(A^.VarString^.Data + #0);
               PChar((@ImportBufferData[I * 8])^) := PChar(ImportBufferWideString[I]);
             end else
             if A^.Kind = sevkBuffer then
@@ -7869,31 +7874,31 @@ var
     case B.Kind of
       sevkString:
         begin
-          if StringRefCount(TV^.VarString^) > 1 then
-            GC.AllocString(TV, TV^.VarString^);
+          if StringRefCount(TV^.VarString^.Data) > 1 then
+            GC.AllocString(TV, TV^.VarString^.Data);
           {$ifdef SE_STRING_UTF8}
-            S1 := TV^.VarString^;
-            S2 := B.VarString^;
+            S1 := TV^.VarString^.Data;
+            S2 := B.VarString^.Data;
             UTF8Delete(S1, NativeInt(C) + 1, 1);
             S := UTF8Copy(S2, 1, 1);
             UTF8Insert(S, S1, NativeInt(C) + 1);
-            TV^.VarString^ := S1;
+            TV^.VarString^.Data := S1;
           {$else}
-            TV^.VarString^[NativeInt(C) + 1] := B.VarString^[1];
+            TV^.VarString^.Data[NativeInt(C) + 1] := B.VarString^.Data[1];
           {$endif}
         end;
       sevkNumber:
         begin
-          if StringRefCount(TV^.VarString^) > 1 then
-            GC.AllocString(TV, TV^.VarString^);
+          if StringRefCount(TV^.VarString^.Data) > 1 then
+            GC.AllocString(TV, TV^.VarString^.Data);
           {$ifdef SE_STRING_UTF8}
-            S1 := TV^.VarString^;
+            S1 := TV^.VarString^.Data;
             UTF8Delete(S1, NativeInt(C) + 1, 1);
             S := Char(Round(B.VarNumber));
             UTF8Insert(S, S1, NativeInt(C) + 1);
-            TV^.VarString^ := S1;
+            TV^.VarString^.Data := S1;
           {$else}
-            TV^.VarString^[NativeInt(C) + 1] := Char(Round(B.VarNumber));
+            TV^.VarString^.Data[NativeInt(C) + 1] := Char(Round(B.VarNumber));
           {$endif}
         end;
     end;
@@ -9031,7 +9036,7 @@ var
   begin
     EnterCriticalSection(CS);
     try
-      if TSEOpcode(Cardinal(CodePtrLocal[1].VarPointer)) <> opJITBlockPotential then
+      if TSEOpcode(Cardinal(CodePtrLocal[0].VarPointer)) <> opJITBlockPotential then
         Dec(CodePtrLocal, 2)
       else
       begin
@@ -9223,10 +9228,10 @@ labelStart:
         labelOperatorConcat:
           B := Pop;
           A := Pop;
-          if StringRefCount(A^.VarString^) <= 2 then
-            A^.VarString^ := A^.VarString^ + B^.VarString^
+          if StringRefCount(A^.VarString^.Data) <= 2 then
+            A^.VarString^.Data := A^.VarString^.Data + B^.VarString^.Data
           else
-            GC.AllocString(Self.StackPtr, A^.VarString^ + B^.VarString^);
+            GC.AllocString(Self.StackPtr, A^.VarString^.Data + B^.VarString^.Data);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -9365,10 +9370,10 @@ labelStart:
         labelOperatorConcat1:
           A := Pop;
           B := GetVariable(CodePtrLocal[1], {P}CodePtrLocal[2].VarPointer);
-          if StringRefCount(A^.VarString^) <= 1 then
-            A^.VarString^ := A^.VarString^ + B^.VarString^
+          if StringRefCount(A^.VarString^.Data) <= 1 then
+            A^.VarString^.Data := A^.VarString^.Data + B^.VarString^.Data
           else
-            GC.AllocString(Self.StackPtr, A^.VarString^ + B^.VarString^);
+            GC.AllocString(Self.StackPtr, A^.VarString^.Data + B^.VarString^.Data);
           Inc(Self.StackPtr);
           Inc(CodePtrLocal, 3);
           DispatchGoto;
@@ -9474,9 +9479,9 @@ labelStart:
               Push(B^.GetProp(A^));
             sevkString:
               {$ifdef SE_STRING_UTF8}
-                Push(UTF8Copy(B^.VarString^, NativeInt(A^) + 1, 1));
+                Push(UTF8Copy(B^.VarString^.Data, NativeInt(A^) + 1, 1));
               {$else}
-                Push(B^.VarString^[NativeInt(A^) + 1]);
+                Push(B^.VarString^.Data[NativeInt(A^) + 1]);
               {$endif}
             else
               Push(SENull);
@@ -11175,7 +11180,7 @@ var
       // Use EmitConstString() instead
       OpcodeInfo.Op := opPushConstString;
       Self.Binary.Add(Pointer(opPushConstString));
-      Self.Binary.Add(Pointer(CreateConstString(Data[1].VarString^)));
+      Self.Binary.Add(Pointer(CreateConstString(Data[1].VarString^.Data)));
     end else
     begin
       OpcodeInfo.Op := TSEOpcode(NativeInt(Data[0].VarPointer));
