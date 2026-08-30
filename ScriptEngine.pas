@@ -3555,7 +3555,7 @@ begin
   FLiveCount := AParent.FLiveCount + 1;
   FTombstoneCount := AParent.FTombstoneCount;
   FIsDeleted := False;
-  FGarbage := True;
+  FGarbage := False;
 
   FActiveTransitions := TSEStringShapeDictionary.Create;
   FDeletedTransitions := TSEStringShapeDictionary.Create;
@@ -3793,7 +3793,7 @@ begin
   {$endif}
   try
     if AParent = nil then
-      raise Exception.Create('Parent shape cannot be nil');
+      raise Exception.Create('AddProperty: Parent shape cannot be nil');
 
     { If this exact transition already exists, reuse the existing shape. }
 
@@ -3826,7 +3826,7 @@ begin
   {$endif}
   try
     if AParent = nil then
-      raise Exception.Create('Parent shape cannot be nil');
+      raise Exception.Create('RemoveProperty: Parent shape cannot be nil');
 
     { Reuse an existing delete transition. }
 
@@ -15103,3 +15103,4 @@ finalization
   ShapeManager.Free;
 
 end.
+
