@@ -3876,6 +3876,7 @@ end;
 
 procedure TSEShapeManager.Mark(AShape: TSEShape);
 begin
+  Exit;
   if AShape <> nil then
     MarkShape(AShape);
 end;
@@ -3887,6 +3888,7 @@ var
   Parent: TSEShape;
   Child: TSEShape;
 begin
+  Exit;
   I := FShapes.Count - 1;
 
   while I >= 0 do
@@ -7375,7 +7377,7 @@ begin
           if PValue^.VarMap <> nil then
           begin
             if not TSEValueMap(PValue^.VarMap).IsValidArray then
-              ShapeManager.MarkShape(TSEValueMap(PValue^.VarMap).Shape);
+              ShapeManager.Mark(TSEValueMap(PValue^.VarMap).Shape);
             if SEMapIsValidArray(PValue^) then
             begin
               TSEValueMap(PValue^.VarMap).Lock;
@@ -10134,6 +10136,7 @@ labelStart:
           case B^.Kind of
             sevkMap:
               Push(ResolveMapGet(B^, A^, @CodePtrLocal[2]));
+              //Push(SEMapGet(B^, A^));
             sevkPascalObject:
               Push(B^.GetProp(A^));
             sevkString:
@@ -10336,6 +10339,7 @@ labelStart:
           case TV.Kind of
             sevkMap:
               ResolveMapSet(TV, C^, B^, @CodePtrLocal[3]);
+              //SEMapSet(TV, C^, B^);
             sevkPascalObject:
               TV.SetProp(C^, B^);
             sevkString:
@@ -10366,6 +10370,7 @@ labelStart:
           case TV.Kind of
             sevkMap:
               ResolveMapSet(TV, C^, B^, @CodePtrLocal[4]);
+              //SEMapSet(TV, C^, B^);
             sevkPascalObject:
               TV.SetProp(C^, B^);
             sevkString:
