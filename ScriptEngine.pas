@@ -8494,74 +8494,61 @@ var
 
   function ResolveMapGet(const B, A: TSEValue; const CacheSite: PSEValue): TSEValue; inline;
   begin
-    if TSEValueMap(B.VarMap).IsValidArray then
-      Result := SEMapGet(B, A)
-    else
-    begin
-      if (CacheSite^.VarPointer = Pointer(TSEValueMap(B.VarMap).Shape)) and (Integer(CacheSite^.Ref) >= 0) then
-      begin
-        Result := TSEValueMap(B.VarMap)[CacheSite^.Ref];
-      end else
-      begin
-        {$ifdef SE_THREADS}
-        EnterCriticalSection(CS);
-        {$endif}
-        try
-          CacheSite^.VarPointer := TSEValueMap(B.VarMap).Shape;
-          case A.Kind of
-            sevkString:
-              begin
-                Result := TSEValueMap(B.VarMap).Get2(A.VarString, Integer(CacheSite^.Ref));
-              end;
-            sevkConstString:
-              begin
-                Result := TSEValueMap(B.VarMap).Get2(ConstStrings.Ptr(A.VarConstStringIndex)^.VarString, Integer(CacheSite^.Ref));
-              end;
-            else
-              Result := SENull;
+    case A.Kind of
+      sevkNumber:
+        Result := TSEValueMap(B.VarMap).Get2(Round(A.VarNumber));
+      sevkString:
+        Result := TSEValueMap(B.VarMap).Get2(@A.VarString^.Data);
+      sevkConstString:
+        begin
+          if (CacheSite^.VarPointer = Pointer(TSEValueMap(B.VarMap).Shape)) and (Integer(CacheSite^.Ref) >= 0) then
+          begin
+            Result := TSEValueMap(B.VarMap)[CacheSite^.Ref];
+          end else
+          begin
+            {$ifdef SE_THREADS}
+            EnterCriticalSection(CS);
+            {$endif}
+            try
+              Result := TSEValueMap(B.VarMap).Get2(ConstStrings.Ptr(A.VarConstStringIndex)^.VarString, Integer(CacheSite^.Ref));
+              CacheSite^.VarPointer := Pointer(TSEValueMap(B.VarMap).Shape);
+            finally
+              {$ifdef SE_THREADS}
+              LeaveCriticalSection(CS);
+              {$endif}
+            end;
           end;
-        finally
-          {$ifdef SE_THREADS}
-          LeaveCriticalSection(CS);
-          {$endif}
         end;
-      end;
     end;
   end;
 
   procedure ResolveMapSet(const TV, C, B: TSEValue; const CacheSite: PSEValue); inline;
   begin
-    if TSEValueMap(TV.VarMap).IsValidArray then
-      TSEValueMap(TV.VarMap).Set2(Round(C.VarNumber), B)
-    else
-    begin
-      if (CacheSite^.VarPointer = Pointer(TSEValueMap(TV.VarMap).Shape)) and (Integer(CacheSite^.Ref) >= 0) then
-      begin
-        TSEValueMap(TV.VarMap)[CacheSite^.Ref] := B;
-      end else
-      begin
-        {$ifdef SE_THREADS}
-        EnterCriticalSection(CS);
-        {$endif}
-        try
-          case C.Kind of
-            sevkString:
-              begin
-                TSEValueMap(TV.VarMap).Set2(C.VarString, B, Integer(CacheSite^.Ref));
-                CacheSite^.VarPointer := Pointer(TSEValueMap(TV.VarMap).Shape);
-              end;
-            sevkConstString:
-              begin
-                TSEValueMap(TV.VarMap).Set2(ConstStrings.Ptr(C.VarConstStringIndex)^.VarString, B, Integer(CacheSite^.Ref));
-                CacheSite^.VarPointer := Pointer(TSEValueMap(TV.VarMap).Shape);
-              end;
+    case C.Kind of
+      sevkNumber:
+        TSEValueMap(TV.VarMap).Set2(Round(C.VarNumber), B);
+      sevkString:
+        TSEValueMap(TV.VarMap).Set2(@C.VarString^.Data, B);
+      sevkConstString:
+        begin
+          if (CacheSite^.VarPointer = Pointer(TSEValueMap(TV.VarMap).Shape)) and (Integer(CacheSite^.Ref) >= 0) then
+          begin
+            TSEValueMap(TV.VarMap)[CacheSite^.Ref] := B;
+          end else
+          begin
+            {$ifdef SE_THREADS}
+            EnterCriticalSection(CS);
+            {$endif}
+            try
+              TSEValueMap(TV.VarMap).Set2(ConstStrings.Ptr(C.VarConstStringIndex)^.VarString, B, Integer(CacheSite^.Ref));
+              CacheSite^.VarPointer := Pointer(TSEValueMap(TV.VarMap).Shape);
+            finally
+              {$ifdef SE_THREADS}
+              LeaveCriticalSection(CS);
+              {$endif}
+            end;
           end;
-        finally
-          {$ifdef SE_THREADS}
-          LeaveCriticalSection(CS);
-          {$endif}
         end;
-      end;
     end;
   end;
 
@@ -11982,9 +11969,9 @@ var
   function EmitAssignArray(const Ident: TSEIdent; const ArgCount: NativeInt): NativeInt; inline;
   begin
     if Ident.Local > 0 then
-      Result := Emit([Pointer(opAssignLocalArray), Ident.Addr, ArgCount, Pointer(Self.FuncTraversal - Ident.Local), Pointer(0)])
+      Result := Emit([Pointer(opAssignLocalArray), Ident.Addr, ArgCount, Pointer(Self.FuncTraversal - Ident.Local), Pointer(1)])
     else
-      Result := Emit([Pointer(opAssignGlobalArray), Ident.Addr, ArgCount, Pointer(0)]);
+      Result := Emit([Pointer(opAssignGlobalArray), Ident.Addr, ArgCount, Pointer(1)]);
   end;
 
   procedure Patch(const Addr: NativeInt; const Data: TSEValue); inline;
@@ -12095,7 +12082,7 @@ var
       A := Self.Binary[OpInfoPrev2^.Pos + 1];
       Self.Binary.DeleteRange(Self.Binary.Count - Size, Size);
       Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 2);
-      Emit([Pointer(opPushArrayPop), A, Pointer(0)]);
+      Emit([Pointer(opPushArrayPop), A, Pointer(1)]);
       Result := True;
     end;
   end;
@@ -12665,7 +12652,7 @@ var
             NextTokenExpected([tkSquareBracketClose]);
             AllocFuncRef;
             AssignReturnFuncRef;
-            EmitExpr([Pointer(opPushArrayPop), SENull, Pointer(0)]);
+            EmitExpr([Pointer(opPushArrayPop), SENull, Pointer(1)]);
             PeepholeArrayAssignOptimization;
             Tail;
           end;
@@ -12678,7 +12665,7 @@ var
             Token := NextTokenExpected([tkIdent]);
             AllocFuncRef;
             AssignReturnFuncRef;
-            EmitExpr([Pointer(opPushArrayPop), CreateConstStringValue(Token.Value), Pointer(0)]);
+            EmitExpr([Pointer(opPushArrayPop), CreateConstStringValue(Token.Value), Pointer(1)]);
             Tail;
           end;
       end;
@@ -12804,7 +12791,7 @@ var
                             EmitPushVar(Ident^);
                             MarkJITBlock;
                             Result := Result + VerifyJITBlock(ParseExpr(False));
-                            Emit([Pointer(opPushArrayPop), SENull, Pointer(0)]);
+                            Emit([Pointer(opPushArrayPop), SENull, Pointer(1)]);
                             PeepholeArrayAssignOptimization;
                             NextTokenExpected([tkSquareBracketClose]);
                             Tail;
@@ -12818,7 +12805,7 @@ var
                             NextToken;
                             Token2 := NextTokenExpected([tkIdent]);
                             EmitPushVar(Ident^);
-                            Emit([Pointer(opPushArrayPop), CreateConstStringValue(Token2.Value), Pointer(0)]);
+                            Emit([Pointer(opPushArrayPop), CreateConstStringValue(Token2.Value), Pointer(1)]);
                             Tail;
                             FuncTail;
                           end;
@@ -13884,7 +13871,7 @@ var
 
         EmitPushVar(VarHiddenArrayIdent);
         EmitPushVar(VarHiddenCountIdent);
-        Emit([Pointer(opPushArrayPop), SENull, Pointer(0)]);
+        Emit([Pointer(opPushArrayPop), SENull, Pointer(1)]);
         PeepholeArrayAssignOptimization;
         EmitAssignVar(VarIdent);
 
@@ -14087,7 +14074,7 @@ var
               VerifyJITBlock(ParseExpr(False));
               NextTokenExpected([tkSquareBracketClose]);
               AssignReturnFuncRef;
-              Emit([Pointer(opPushArrayPop), SENull, Pointer(0)]);
+              Emit([Pointer(opPushArrayPop), SENull, Pointer(1)]);
               PeepholeArrayAssignOptimization;
             end;
           tkDot:
@@ -14095,7 +14082,7 @@ var
               NextToken;
               Token := NextTokenExpected([tkIdent]);
               AssignReturnFuncRef;
-              Emit([Pointer(opPushArrayPop), CreateConstStringValue(Token.Value), Pointer(0)]);
+              Emit([Pointer(opPushArrayPop), CreateConstStringValue(Token.Value), Pointer(1)]);
             end;
         end;
       end;
