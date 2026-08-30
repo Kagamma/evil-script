@@ -51,6 +51,7 @@ unit ScriptEngine;
 {$endif}
 {$packenum 4}
 {$optimization REGVAR}
+{$R-}
 
 interface
 
