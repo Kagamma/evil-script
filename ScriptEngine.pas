@@ -14114,6 +14114,7 @@ var
     OpInfoPrev1: PSEOpcodeInfo;
     KindName: String;
     FirstExprOpIndex: Integer;
+    AssignPossibleKinds: TSEValueKindSet;
   begin
     Ident := FindVar(Name);
     if Ident^.IsAssigned and Ident^.IsConst then
@@ -14167,11 +14168,11 @@ var
                 Self.TokenList.Insert(J, Self.TokenList[I]);
                 Inc(J);
               end;
-              UpdateIdentPossibleKinds(Ident, ParseExpr(False));
+              AssignPossibleKinds := ParseExpr(False);
             end else
               EmitPushVar(Ident^);
           end;
-          UpdateIdentPossibleKinds(Ident, ParseExpr(False));
+          UpdateIdentPossibleKinds(Ident, AssignPossibleKinds + ParseExpr(False));
           if Token.Kind = tkOpAssign then
           begin
             case Token.Value of
