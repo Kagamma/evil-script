@@ -36,15 +36,9 @@ unit ScriptEngine;
 {$define SE_HAS_JSON}
 // enable this if you want to include this in castle game engine's profiler report
 {.$define SE_PROFILER}
-// enable this if you dont need to store map's keys as (utf8)strings. It will be stored as shortstrings instead, which speed up map operations.
-{.$define SE_MAP_SHORTSTRING}
 // enable this to replace FP's TDirectory with avk959's TGChainHashMap. It is a lot faster than TDirectory.
 // requires https://github.com/avk959/LGenerics
-// note: enable this will undef SE_MAP_SHORTSTRING, because this optimization is not necessary for TGChainHashMap
-{.$define SE_MAP_AVK959}
-{$ifdef SE_MAP_AVK959}
-  {$undef SE_MAP_SHORTSTRING}
-{$endif}
+{$define SE_MAP_AVK959}
 // Enable this if you want multi-threading support
 {$ifndef GO32v2}
   {$define SE_THREADS}
@@ -320,12 +314,82 @@ type
     TSEValueDict = specialize TGLiteChainHashMap<String, TSEValue, TSEStringEq>.TMap;
   {$else}
     {$define TSEDictionary := TDictionary}
-    TSEValueDict = specialize TSEDictionary<{$ifdef SE_MAP_SHORTSTRING}ShortString{$else}String{$endif}, TSEValue>;
+    TSEValueDict = specialize TSEDictionary<String, TSEValue>;
   {$endif}
+
+  TSEShape = class;
+  TSEShapeManager = class;
+
+  TSEStringShapeDictionary = specialize TSEDictionary<String, TSEShape>;
+  TSEHashShapeDictionary = specialize TDictionary<Cardinal, TSEShape>;
+  TSEShapeList = specialize TList<TSEShape>;
+
+  TSEShape = class
+  private
+    FID: NativeUInt;
+    FParent: TSEShape;
+    FPropertyName: String;
+    FPropertyHash: Cardinal;
+    FPropertyOffset: SizeInt;
+    FSlotCount: Integer;
+    FLiveCount: Integer;
+    FTombstoneCount: Integer;
+    FIsDeleted: Boolean;
+    FMarked: Boolean;
+    FTransitions: TSEStringShapeDictionary;
+    FLookup: TSEHashShapeDictionary;
+    FKeys: TStringDynArray;
+    FKeysBuilt: Boolean;
+    procedure BuildKeys;
+  public
+    constructor CreateRoot(AID: NativeUInt);
+    constructor CreateChild(AID: NativeUInt; AParent: TSEShape; const APropertyName: String; AOffset: SizeInt);
+    constructor CreateDelete(AID: NativeUInt; AParent: TSEShape; const APropertyName: String);
+    destructor Destroy; override;
+    function FindTransition(const Name: String): TSEShape;
+    procedure AddTransition(const Name: String; AShape: TSEShape);
+    procedure RemoveTransition(const Name: String);
+    function TryGetOffset(const Name: String; out Offset: SizeInt): Boolean;
+    function TryGetOffsetHash(Hash: Cardinal; const Name: String; out Offset: SizeInt): Boolean;
+    function GetOffset(const Name: String): SizeInt;
+    function GetOffsetHash(Hash: Cardinal; const Name: String): SizeInt;
+    function HasProperty(const Name: String): Boolean;
+    function GetKeys: TStringDynArray;
+    property ID: NativeUInt read FID;
+    property Parent: TSEShape read FParent;
+    property PropertyName: String read FPropertyName;
+    property PropertyHash: Cardinal read FPropertyHash;
+    property PropertyOffset: SizeInt read FPropertyOffset;
+    property SlotCount: Integer read FSlotCount;
+    property LiveCount: Integer read FLiveCount;
+    property TombstoneCount: Integer read FTombstoneCount;
+    property IsDeleted: Boolean read FIsDeleted;
+  end;
+
+  TSEShapeManager = class
+  private
+    FShapeRoot: TSEShape;
+    FShapes: TSEShapeList;
+    FNextID: NativeUInt;
+    procedure RegisterShape(AShape: TSEShape);
+    procedure MarkShape(AShape: TSEShape);
+  public
+    constructor Create;
+    destructor Destroy; override;
+    function AddProperty(AParent: TSEShape; const Name: String): TSEShape;
+    function RemoveProperty(AParent: TSEShape; const Name: String): TSEShape;
+    procedure BeginMark;
+    procedure Mark(AShape: TSEShape);
+    procedure Sweep;
+    function ShapeCount: Integer;
+    property Root: TSEShape read FShapeRoot;
+    property NextID: NativeUInt read FNextID;
+  end;
+
   TSEValueMap = class(specialize TList<TSEValue>)
   private
     FIsValidArray: Boolean;
-    FMap: TSEValueDict;
+    FShape: TSEShape;
     {$ifdef SE_THREADS}
     FLock: TRTLCriticalSection;
     {$endif}
@@ -343,7 +407,8 @@ type
     procedure Del2(const Key: PString); overload; inline;
     procedure Del2(const Index: SizeInt); overload; inline;
     function Ptr(const I: NativeInt): PSEValue;
-    property Map: TSEValueDict read FMap;
+    procedure Reset;
+    property Shape: TSEShape read FShape;
     property IsValidArray: Boolean read FIsValidArray;
   end;
   TSEValueArray = array of TSEValue;
@@ -1625,6 +1690,7 @@ var
   ConstStrings: TSEValueList;
   ConstStringsLookup: TSEStringLookupMap;
   Negative2QWords: array[0..1] of QWord = ($8000000000000000, $8000000000000000);
+  ShapeManager: TSEShapeManager;
 
 {$ifdef SE_HAS_JIT}
 { =====================================================================
@@ -3417,6 +3483,434 @@ end;
 
 { ===================================================================== }
 
+function SEHashString(const S: String): Cardinal; inline;
+{$ifdef SE_MAP_AVK959}
+begin
+  {$ifdef CPU64}
+  Result := TxxHash64LE.HashStr(S);
+  {$else}
+  Result := TxxHash32LE.HashStr(S);
+  {$endif}
+end;
+{$else}
+var
+  P: PByte;
+  I: Integer;
+begin
+  Result := 2166136261;
+
+  if Length(S) = 0 then
+    Exit;
+
+  P := PByte(PChar(S));
+
+  for I := 1 to Length(S) do
+  begin
+    Result := Result xor P^;
+    Result := Result * 16777619;
+    Inc(P);
+  end;
+end;
+{$endif}
+
+constructor TSEShape.CreateRoot(AID: NativeUInt);
+begin
+  inherited Create;
+
+  FID := AID;
+  FParent := nil;
+  FPropertyName := '';
+  FPropertyHash := 0;
+  FPropertyOffset := -1;
+  FSlotCount := 0;
+  FLiveCount := 0;
+  FTombstoneCount := 0;
+  FIsDeleted := False;
+  FMarked := False;
+
+  FTransitions := TSEStringShapeDictionary.Create;
+  FLookup := nil;
+
+  SetLength(FKeys, 0);
+  FKeysBuilt := True;
+end;
+
+constructor TSEShape.CreateChild(AID: NativeUInt; AParent: TSEShape; const APropertyName: String; AOffset: SizeInt);
+begin
+  inherited Create;
+
+  FID := AID;
+  FParent := AParent;
+  FPropertyName := APropertyName;
+  FPropertyHash := SEHashString(APropertyName);
+  FPropertyOffset := AOffset;
+  FSlotCount := AParent.FSlotCount + 1;
+  FLiveCount := AParent.FLiveCount + 1;
+  FTombstoneCount := AParent.FTombstoneCount;
+  FIsDeleted := False;
+  FMarked := False;
+
+  FTransitions := TSEStringShapeDictionary.Create;
+  FLookup := nil;
+
+  SetLength(FKeys, 0);
+  FKeysBuilt := False;
+end;
+
+constructor TSEShape.CreateDelete(AID: NativeUInt; AParent: TSEShape; const APropertyName: String);
+begin
+  inherited Create;
+
+  FID := AID;
+  FParent := AParent;
+  FPropertyName := APropertyName;
+  FPropertyHash := SEHashString(APropertyName);
+  FPropertyOffset := -1;
+  FSlotCount := AParent.FSlotCount;
+  FLiveCount := AParent.FLiveCount - 1;
+  FTombstoneCount := AParent.FTombstoneCount + 1;
+  FIsDeleted := True;
+  FMarked := False;
+
+  FTransitions := TSEStringShapeDictionary.Create;
+  FLookup := nil;
+
+  SetLength(FKeys, 0);
+  FKeysBuilt := False;
+end;
+
+destructor TSEShape.Destroy;
+begin
+  FLookup.Free;
+  FTransitions.Free;
+
+  inherited Destroy;
+end;
+
+function TSEShape.FindTransition(const Name: String): TSEShape;
+begin
+  if FTransitions.TryGetValue(Name, Result) then
+    Exit;
+
+  Result := nil;
+end;
+
+procedure TSEShape.AddTransition(const Name: String; AShape: TSEShape);
+begin
+  FTransitions.Add(Name, AShape);
+end;
+
+procedure TSEShape.RemoveTransition(const Name: String);
+begin
+  FTransitions.Remove(Name);
+end;
+
+function TSEShape.TryGetOffset(const Name: String; out Offset: SizeInt): Boolean;
+begin
+  Result := TryGetOffsetHash(SEHashString(Name), Name, Offset);
+end;
+
+function TSEShape.TryGetOffsetHash(Hash: Cardinal; const Name: String; out Offset: SizeInt): Boolean;
+var
+  CachedShape: TSEShape;
+  Current: TSEShape;
+begin
+  { Fast path: cached hash. }
+
+  if FLookup <> nil then
+  begin
+    if FLookup.TryGetValue(Hash, CachedShape) then
+    begin
+      { Verify the name in case of a hash collision. }
+
+      if CachedShape.FPropertyName = Name then
+      begin
+        Offset := CachedShape.FPropertyOffset;
+        Result := Offset >= 0;
+        Exit;
+      end;
+
+      { Hash collision. Do not trust the cached entry.
+        Fall through to the parent-chain lookup. }
+    end;
+  end;
+
+  { Slow path: walk the shape chain. }
+
+  Current := Self;
+
+  while Current <> nil do
+  begin
+    if Current.FPropertyHash = Hash then
+    begin
+      if Current.FPropertyName = Name then
+      begin
+        if Current.FIsDeleted then
+          Offset := -1
+        else
+          Offset := Current.FPropertyOffset;
+
+        { Cache only if there is no conflicting hash entry. }
+
+        if FLookup = nil then
+          FLookup := TSEHashShapeDictionary.Create;
+
+        if FLookup.TryGetValue(Hash, CachedShape) then
+        begin
+          if CachedShape.FPropertyName = Name then
+            FLookup.AddOrSetValue(Hash, Current);
+        end
+        else
+          FLookup.Add(Hash, Current);
+
+        Result := Offset >= 0;
+        Exit;
+      end;
+    end;
+
+    Current := Current.FParent;
+  end;
+
+  Offset := -1;
+  Result := False;
+end;
+
+function TSEShape.GetOffset(const Name: String): SizeInt;
+begin
+  Result := GetOffsetHash(SEHashString(Name), Name);
+end;
+
+function TSEShape.GetOffsetHash(Hash: Cardinal; const Name: String): SizeInt;
+begin
+  if not TryGetOffsetHash(Hash, Name, Result) then
+    raise Exception.CreateFmt('Property "%s" does not exist in shape %d', [Name, FID]);
+end;
+
+function TSEShape.HasProperty(const Name: String): Boolean;
+var
+  Offset: SizeInt;
+begin
+  Result := TryGetOffset(Name, Offset);
+end;
+
+procedure TSEShape.BuildKeys;
+var
+  ParentKeys: TStringDynArray;
+  I: Integer;
+  Count: Integer;
+begin
+  if FKeysBuilt then
+    Exit;
+
+  if FParent = nil then
+  begin
+    SetLength(FKeys, 0);
+    FKeysBuilt := True;
+    Exit;
+  end;
+
+  ParentKeys := FParent.GetKeys;
+
+  if not FIsDeleted then
+  begin
+    SetLength(FKeys, Length(ParentKeys) + 1);
+
+    for I := 0 to High(ParentKeys) do
+      FKeys[I] := ParentKeys[I];
+
+    FKeys[High(FKeys)] := FPropertyName;
+  end
+  else
+  begin
+    SetLength(FKeys, Length(ParentKeys));
+    Count := 0;
+
+    for I := 0 to High(ParentKeys) do
+    begin
+      if ParentKeys[I] <> FPropertyName then
+      begin
+        FKeys[Count] := ParentKeys[I];
+        Inc(Count);
+      end;
+    end;
+
+    SetLength(FKeys, Count);
+  end;
+
+  FKeysBuilt := True;
+end;
+
+function TSEShape.GetKeys: TStringDynArray;
+var
+  I: Integer;
+begin
+  BuildKeys;
+
+  SetLength(Result, Length(FKeys));
+
+  for I := 0 to High(FKeys) do
+    Result[I] := FKeys[I];
+end;
+
+constructor TSEShapeManager.Create;
+begin
+  inherited Create;
+
+  FNextID := 1;
+  FShapes := TSEShapeList.Create;
+
+  FShapeRoot := TSEShape.CreateRoot(FNextID);
+  Inc(FNextID);
+
+  RegisterShape(FShapeRoot);
+end;
+
+procedure TSEShapeManager.RegisterShape(AShape: TSEShape);
+begin
+  FShapes.Add(AShape);
+end;
+
+function TSEShapeManager.AddProperty(AParent: TSEShape; const Name: String): TSEShape;
+var
+  Existing: TSEShape;
+begin
+  if AParent = nil then
+    raise Exception.Create('Parent shape cannot be nil');
+
+  { If this exact transition already exists, reuse the existing shape. }
+
+  Existing := AParent.FindTransition(Name);
+
+  if Existing <> nil then
+    Exit(Existing);
+
+  { The caller is expected to have already determined
+    that the property does not exist in the layout. }
+
+  Result := TSEShape.CreateChild(FNextID, AParent, Name, AParent.FSlotCount);
+  Inc(FNextID);
+
+  AParent.AddTransition(Name, Result);
+  RegisterShape(Result);
+end;
+
+function TSEShapeManager.RemoveProperty(AParent: TSEShape; const Name: String): TSEShape;
+var
+  Existing: TSEShape;
+begin
+  if AParent = nil then
+    raise Exception.Create('Parent shape cannot be nil');
+
+  { Reuse an existing delete transition. }
+
+  Existing := AParent.FindTransition(Name);
+
+  if Existing <> nil then
+    Exit(Existing);
+
+  { Verify that the property actually exists. }
+
+  if not AParent.HasProperty(Name) then
+    raise Exception.CreateFmt('Property "%s" does not exist in shape %d', [Name, AParent.ID]);
+
+  { Create a tombstone. }
+
+  Result := TSEShape.CreateDelete(FNextID, AParent, Name);
+  Inc(FNextID);
+
+  AParent.AddTransition(Name, Result);
+  RegisterShape(Result);
+end;
+
+procedure TSEShapeManager.BeginMark;
+var
+  I: Integer;
+begin
+  for I := 0 to FShapes.Count - 1 do
+    FShapes[I].FMarked := False;
+
+  { The root is always alive. }
+
+  FShapeRoot.FMarked := True;
+end;
+
+procedure TSEShapeManager.MarkShape(AShape: TSEShape);
+var
+  Current: TSEShape;
+begin
+  Current := AShape;
+
+  while Current <> nil do
+  begin
+    if Current.FMarked then
+      Exit;
+
+    Current.FMarked := True;
+    Current := Current.FParent;
+  end;
+end;
+
+procedure TSEShapeManager.Mark(AShape: TSEShape);
+begin
+  if AShape <> nil then
+    MarkShape(AShape);
+end;
+
+procedure TSEShapeManager.Sweep;
+var
+  I: Integer;
+  Shape: TSEShape;
+  Parent: TSEShape;
+  Child: TSEShape;
+begin
+  I := FShapes.Count - 1;
+
+  while I >= 0 do
+  begin
+    Shape := FShapes[I];
+
+    if (Shape <> FShapeRoot) and (not Shape.FMarked) then
+    begin
+      Parent := Shape.FParent;
+
+      { Remove the parent's transition only if it
+        still points to this exact shape. }
+
+      if Parent <> nil then
+      begin
+        Child := Parent.FindTransition(Shape.FPropertyName);
+
+        if Child = Shape then
+          Parent.RemoveTransition(Shape.FPropertyName);
+      end;
+
+      FShapes.Delete(I);
+      Shape.Free;
+    end;
+
+    Dec(I);
+  end;
+end;
+
+function TSEShapeManager.ShapeCount: Integer;
+begin
+  Result := FShapes.Count;
+end;
+
+destructor TSEShapeManager.Destroy;
+var
+  I: Integer;
+begin
+  for I := FShapes.Count - 1 downto 0 do
+    FShapes[I].Free;
+
+  FShapes.Free;
+
+  inherited Destroy;
+end;
+
+{ ===================================================================== }
+
 {$ifdef SE_THREADS}
 threadvar
 {$endif}
@@ -3545,7 +4039,7 @@ begin
         begin
           TSEValueMap(Value.VarMap).Lock;
           try
-            for Key in TSEValueMap(Value.VarMap).Map.Keys do
+            for Key in TSEValueMap(Value.VarMap).Shape.GetKeys do
             begin
               if I > 0 then
                 Result := Result + ', ';
@@ -3596,7 +4090,7 @@ begin
         if SEMapIsValidArray(Value) then
           Result := TSEValueMap(Value.VarMap).Count
         else
-          Result := TSEValueMap(Value.VarMap).Map.Count;
+          Result := TSEValueMap(Value.VarMap).Shape.LiveCount;
       end;
     sevkBuffer:
       begin
@@ -3832,7 +4326,7 @@ begin
         begin
           TSEValueMap(V.VarMap).Lock;
           try
-            for Key in TSEValueMap(V.VarMap).Map.Keys do
+            for Key in TSEValueMap(V.VarMap).Shape.GetKeys do
             begin
               SEMapSet(Result, Key, TSEValueMap(V.VarMap).Get2(@Key));
             end;
@@ -4041,12 +4535,14 @@ begin
 end;
 
 function TSEValueHelper.ContainsKey(constref S: String): Boolean; inline; overload;
+var
+  Index: SizeInt;
 begin
   if Self.Kind <> sevkMap then
     Exit(False);
   if SEMapIsValidArray(Self) then
     Exit(False);
-  Exit(TSEValueMap(Self.VarMap).Map.{$ifdef SE_MAP_AVK959}Contains{$else}ContainsKey{$endif}(S));
+  Exit(TSEValueMap(Self.VarMap).Shape.TryGetOffset(S, Index));
 end;
 
 procedure TSEValueHelper.UnManaged; inline;
@@ -4528,7 +5024,7 @@ begin
   {$endif}
   try
     try
-      Exit(SEMapGet(ScriptVarMap, Args[0].VarString^.Data))
+      Result := SEMapGet(ScriptVarMap, Args[0].VarString^.Data);
     except
       on E: Exception do
         Result := SENull;
@@ -4620,7 +5116,7 @@ begin
   begin
     TSEValueMap(Args[0].VarMap).Lock;
     try
-      for Key in TSEValueMap(Args[0].VarMap).Map.Keys do
+      for Key in TSEValueMap(Args[0].VarMap).Shape.GetKeys do
       begin
         SEMapSet(Result, I, Key);
         Inc(I);
@@ -4639,13 +5135,7 @@ end;
 
 class function TBuiltInFunction.SEMapClear(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  if SEMapIsValidArray(Args[0]) then
-  begin
-    TSEValueMap(Args[0].VarMap).Clear;
-  end else
-  begin
-    TSEValueMap(Args[0].VarMap).Map.Clear;
-  end;
+  TSEValueMap(Args[0].VarMap).Reset;
 end;
 
 class function TBuiltInFunction.SEArrayResize(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -5564,7 +6054,7 @@ class function TBuiltInFunction.SEJSONStringify(const VM: TSEVM; const Args: PSE
     TSEValueMap(Map.VarMap).Lock;
     try
       SB.Append('{');
-      for Key in TSEValueMap(Map.VarMap).Map.Keys do
+      for Key in TSEValueMap(Map.VarMap).Shape.GetKeys do
       begin
         V := SEMapGet(Map, Key);
         if V.Kind = sevkPascalObject then
@@ -5653,9 +6143,9 @@ begin
         GC.AllocMap(@Temp);
         if (not SEMapIsValidArray(V1)) and (not SEMapIsValidArray(V2)) then
         begin
-          for S in TSEValueMap(V1.VarMap).Map.Keys do
+          for S in TSEValueMap(V1.VarMap).Shape.GetKeys do
             SEMapSet(Temp, S, SEMapGet(V1, S));
-          for S in TSEValueMap(V2.VarMap).Map.Keys do
+          for S in TSEValueMap(V2.VarMap).Shape.GetKeys do
             SEMapSet(Temp, S, SEMapGet(V2, S));
         end else
         begin
@@ -6127,9 +6617,9 @@ begin
         GC.AllocMap(@R);
         if (not SEMapIsValidArray(V1)) and (not SEMapIsValidArray(V2)) then
         begin
-          for S in TSEValueMap(V1.VarMap).Map.Keys do
+          for S in TSEValueMap(V1.VarMap).Shape.GetKeys do
             SEMapSet(R, S, SEMapGet(V1, S));
-          for S in TSEValueMap(V2.VarMap).Map.Keys do
+          for S in TSEValueMap(V2.VarMap).Shape.GetKeys do
             SEMapSet(R, S, SEMapGet(V2, S));
         end else
         begin
@@ -6344,12 +6834,6 @@ begin
   {$ifdef SE_THREADS}
   DoneCriticalSection(Self.FLock);
   {$endif}
-  {$ifdef SE_MAP_AVK959}
-    Self.FMap.Clear;
-  {$else}
-    if Self.FMap <> nil then
-      Self.FMap.Free;
-  {$endif}
   inherited;
 end;
 
@@ -6379,18 +6863,19 @@ end;
 procedure TSEValueMap.ToMap;
 var
   I: NativeInt;
+  S: String;
 begin
   Self.Lock;
   try
     if Self.FIsValidArray then
     begin
-      {$ifndef SE_MAP_AVK959}
-      Self.FMap := TSEValueDict.Create;
-      {$endif}
+      Self.FShape := ShapeManager.Root;
       for I := 0 to Self.Count - 1 do
-        Self.FMap.AddOrSetValue(IntToStr(I), Self[I]);
+      begin
+        S := IntToStr(I);
+        Self.Set2(@S, Self.FItems[I]);
+      end;
       Self.FIsValidArray := False;
-      Self.Clear;
     end;
   finally
     Self.Unlock;
@@ -6398,12 +6883,26 @@ begin
 end;
 
 procedure TSEValueMap.Set2(const Key: PString; constref AValue: TSEValue);
+var
+  Index: SizeInt;
 begin
   if Self.FIsValidArray then
     Self.ToMap;
   Self.Lock;
   try
-    Self.FMap.AddOrSetValue(Key^, AValue);
+    if Self.FShape.TryGetOffset(Key^, Index) then
+    begin
+      Self.FItems[Index] := AValue;
+    end else
+    begin
+      Self.FShape := ShapeManager.AddProperty(Self.FShape, Key^);
+      Index := Self.FShape.PropertyOffset;
+      if Index > Self.Count - 1 then
+      begin
+        Self.Count := Index + 1;
+      end;
+      Self.FItems[Index] := AValue;
+    end;
   finally
     Self.Unlock;
   end;
@@ -6429,7 +6928,7 @@ procedure TSEValueMap.Del2(const Key: PString);
 begin
   Self.Lock;
   try
-    Self.FMap.Remove(Key^);
+    Self.FShape := ShapeManager.RemoveProperty(Self.FShape, Key^);
   finally
     Self.Unlock;
   end;
@@ -6449,12 +6948,15 @@ begin
 end;
 
 function TSEValueMap.Get2(const Key: PString): TSEValue;
+var
+  Index: SizeInt;
 begin
   Result := SENull;
-  {$ifndef SE_MAP_AVK959}
-  if Self.FMap <> nil then
-  {$endif}
-    Self.FMap.TryGetValue(Key^, Result);
+  if Self.FShape.TryGetOffset(Key^, Index) then
+  begin
+    Result := Self.FItems[Index];
+  end else
+    Result := SENull;
 end;
 
 function TSEValueMap.Get2(const Index: SizeInt): TSEValue;
@@ -6468,6 +6970,14 @@ end;
 function TSEValueMap.Ptr(const I: NativeInt): PSEValue;
 begin
   Result := @Self.FItems[I];
+end;
+
+procedure TSEValueMap.Reset;
+begin
+  if Self.FIsValidArray then
+    Self.Clear
+  else
+    Self.FShape := ShapeManager.Root;
 end;
 
 function DumpCallStack: String;
@@ -6811,7 +7321,7 @@ begin
             begin
               TSEValueMap(PValue^.VarMap).Lock;
               try
-                for Key in TSEValueMap(PValue^.VarMap).Map.Keys do
+                for Key in TSEValueMap(PValue^.VarMap).Shape.GetKeys do
                 begin
                   RValue := SEMapGet(PValue^, Key);
                   if (RValue.Kind <> sevkMap) and (RValue.Kind <> sevkString) and (RValue.Kind <> sevkBuffer) and (RValue.Kind <> sevkPascalObject) then
@@ -7100,6 +7610,7 @@ begin
     PValue^.Kind := sevkString;
     New(PValue^.VarString);
     PValue^.VarString^.Data := S;
+    PValue^.VarString^.Hash := 0;
     Self.AddToList(PValue);
   finally
     {$ifdef SE_THREADS}
@@ -7502,7 +8013,7 @@ var
             begin
               TSEValueMap(AValue^.VarMap).Lock;
               try
-                for Key in TSEValueMap(AValue^.VarMap).Map.Keys do
+                for Key in TSEValueMap(AValue^.VarMap).Shape.GetKeys do
                 begin
                   V := SEMapGet(AValue^, Key);
                   AddChildNode(Node, Key, @V);
@@ -11137,11 +11648,15 @@ var
   end;
 
   function CreateConstString(const S: String): Cardinal; inline;
+  var
+    V: PSEValue;
   begin
     if not ConstStringsLookup.TryGetValue(S, Result) then
     begin
       ConstStrings.Add(S);
-      GC.UnManaged(ConstStrings.Ptr(ConstStrings.Count - 1));
+      V := ConstStrings.Ptr(ConstStrings.Count - 1);
+      V^.VarString^.Hash := SEHashString(S);
+      GC.UnManaged(V);
       Result := ConstStrings.Count - 1;
       ConstStringsLookup.Add(S, Result);
     end;
@@ -14083,7 +14598,7 @@ begin
       if Self.VM.IsDone then
       begin
         Stack := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
-        Exit(Stack[-1]);
+        Result := Stack[-1];
       end;
     end else
     begin
@@ -14109,7 +14624,7 @@ begin
         Self.VM.Exec;
         if Self.VM.IsDone then
         begin
-          Exit(Stack[-1]);
+          Result := Stack[-1];
         end;
       end;
     end;
@@ -14339,6 +14854,7 @@ initialization
   SENull.VarNumber := Floor(0);
   DynlibMap := TDynlibMap.Create;
   GC := TSEGarbageCollector.Create;
+  ShapeManager := TSEShapeManager.Create;
   ConstStrings := TSEValueList.Create;
   ConstStringsLookup := TSEStringLookupMap.Create;
   {$ifdef SE_THREADS}
@@ -14394,6 +14910,7 @@ finalization
     Dispose(V.VarString);
   ConstStringsLookup.Free;
   ConstStrings.Free;
+  ShapeManager.Free;
 
 end.
 
