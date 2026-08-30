@@ -338,7 +338,7 @@ type
     FIsDeleted: Boolean;
     FGarbage: Boolean;
     FActiveTransitions: TSEStringShapeDictionary;
-    FDeletedTransitions: TSEStringShapeDictionary;
+    FDeleteTransitions: TSEStringShapeDictionary;
     FLookup: TSEHashShapeDictionary;
     FKeys: TStringDynArray;
     FKeysBuilt: Boolean;
@@ -349,11 +349,11 @@ type
     constructor CreateDelete(AID: NativeInt; AParent: TSEShape; const APropertyName: String);
     destructor Destroy; override;
     function FindActiveTransition(const Name: String): TSEShape;
-    function FindDeletedTransition(const Name: String): TSEShape;
+    function FindDeleteTransition(const Name: String): TSEShape;
     procedure AddActiveTransition(const Name: String; AShape: TSEShape);
-    procedure AddDeletedTransition(const Name: String; AShape: TSEShape);
+    procedure AddDeleteTransition(const Name: String; AShape: TSEShape);
     procedure RemoveActiveTransition(const Name: String);
-    procedure RemoveDeletedTransition(const Name: String);
+    procedure RemoveDeleteTransition(const Name: String);
     function TryGetOffset(const Name: String; out Offset: Integer): Boolean;
     function TryGetOffsetHash(Hash: Cardinal; const Name: String; out Offset: Integer): Boolean;
     function GetOffset(const Name: String): Integer;
@@ -3535,7 +3535,7 @@ begin
   FGarbage := False;
 
   FActiveTransitions := TSEStringShapeDictionary.Create;
-  FDeletedTransitions := TSEStringShapeDictionary.Create;
+  FDeleteTransitions := TSEStringShapeDictionary.Create;
   FLookup := nil;
 
   SetLength(FKeys, 0);
@@ -3558,7 +3558,7 @@ begin
   FGarbage := False;
 
   FActiveTransitions := TSEStringShapeDictionary.Create;
-  FDeletedTransitions := TSEStringShapeDictionary.Create;
+  FDeleteTransitions := TSEStringShapeDictionary.Create;
   FLookup := nil;
 
   SetLength(FKeys, 0);
@@ -3581,7 +3581,7 @@ begin
   FGarbage := False;
 
   FActiveTransitions := TSEStringShapeDictionary.Create;
-  FDeletedTransitions := TSEStringShapeDictionary.Create;
+  FDeleteTransitions := TSEStringShapeDictionary.Create;
   FLookup := nil;
 
   SetLength(FKeys, 0);
@@ -3593,7 +3593,7 @@ begin
   FID := -FID;
   FLookup.Free;
   FActiveTransitions.Free;
-  FDeletedTransitions.Free;
+  FDeleteTransitions.Free;
   inherited Destroy;
 end;
 
@@ -3604,9 +3604,9 @@ begin
   Result := nil;
 end;
 
-function TSEShape.FindDeletedTransition(const Name: String): TSEShape;
+function TSEShape.FindDeleteTransition(const Name: String): TSEShape;
 begin
-  if FDeletedTransitions.TryGetValue(Name, Result) then
+  if FDeleteTransitions.TryGetValue(Name, Result) then
     Exit;
   Result := nil;
 end;
@@ -3621,14 +3621,14 @@ begin
   FActiveTransitions.Remove(Name);
 end;
 
-procedure TSEShape.AddDeletedTransition(const Name: String; AShape: TSEShape);
+procedure TSEShape.AddDeleteTransition(const Name: String; AShape: TSEShape);
 begin
-  FDeletedTransitions.Add(Name, AShape);
+  FDeleteTransitions.Add(Name, AShape);
 end;
 
-procedure TSEShape.RemoveDeletedTransition(const Name: String);
+procedure TSEShape.RemoveDeleteTransition(const Name: String);
 begin
-  FDeletedTransitions.Remove(Name);
+  FDeleteTransitions.Remove(Name);
 end;
 
 function TSEShape.TryGetOffset(const Name: String; out Offset: Integer): Boolean;
@@ -3830,7 +3830,7 @@ begin
 
     { Reuse an existing delete transition. }
 
-    Existing := AParent.FindDeletedTransition(Name);
+    Existing := AParent.FindDeleteTransition(Name);
 
     if Existing <> nil then
       Exit(Existing);
@@ -3848,7 +3848,7 @@ begin
     Result := TSEShape.CreateDelete(FNextID, AParent, Name);
     Inc(FNextID);
 
-    AParent.AddDeletedTransition(Name, Result);
+    AParent.AddDeleteTransition(Name, Result);
     RegisterShape(Result);
   finally
     {$ifdef SE_THREADS}
@@ -3884,7 +3884,7 @@ begin
 
     while Current <> nil do
     begin
-      if not Current.FGarbage then
+      if Current.FGarbage = False then
         Exit;
       Current.FGarbage := False;
       Current := Current.FParent;
@@ -3893,39 +3893,64 @@ begin
 end;
 
 procedure TSEShapeManager.Sweep;
+procedure ValidateParentChains;
+var
+  I: Integer;
+  Shape: TSEShape;
+  Parent: TSEShape;
+begin
+  for I := 0 to FShapes.Count - 1 do
+  begin
+    Shape := FShapes[I];
+    Parent := Shape.FParent;
+
+    if Parent <> nil then
+    begin
+      if FShapes.IndexOf(Parent) < 0 then
+      begin
+        WriteLn('BROKEN PARENT CHAIN!');
+        WriteLn('Shape ID      = ', Shape.ID);
+        WriteLn('Shape Name    = ', Shape.PropertyName);
+        WriteLn('Parent Ptr    = ', PtrUInt(Parent));
+        WriteLn('Shape Marked  = ', not Shape.FGarbage);
+        WriteLn('Parent Marked = ', not Parent.FGarbage);
+        raise Exception.Create('Shape has a parent that is not in FShapes');
+      end;
+    end;
+  end;
+end;
 var
   I: Integer;
   Shape: TSEShape;
   Parent: TSEShape;
   Child: TSEShape;
 begin
-  for I := FShapes.Count - 1 downto 0 do
+  { Remove transitions first }
+  for I := 0 to FShapes.Count - 1 do
   begin
     Shape := FShapes[I];
-
-    {WriteLn(
-      'Shape=', Shape.ID,
-      ' Name=', Shape.PropertyName,
-      ' Deleted=', Shape.IsDeleted,
-      ' Marked=', Shape.FGarbage
-    );}
-
     if Shape.FGarbage then
     begin
-      //WriteLn('  -> FREE');
       Parent := Shape.FParent;
-      { Remove the parent's transition only if it
-        still points to this exact shape. }
       if Parent <> nil then
       begin
         if Shape.IsDeleted then
         begin
-          Parent.RemoveDeletedTransition(Shape.PropertyName);
-        end else
+          Parent.RemoveDeleteTransition(Shape.PropertyName);
+        end
+        else
         begin
           Parent.RemoveActiveTransition(Shape.PropertyName);
         end;
       end;
+    end;
+  end;
+  { Free unused shapes }
+  for I := FShapes.Count - 1 downto 0 do
+  begin
+    Shape := FShapes[I];
+    if Shape.FGarbage then
+    begin
       FShapes.Delete(I);
       Shape.Free;
     end;
@@ -7443,7 +7468,7 @@ begin
             begin
               TSEValueMap(PValue^.VarMap).Lock;
               try
-                ShapeManager.Mark(TSEValueMap(PValue^.VarMap).Shape);
+                //ShapeManager.Mark(TSEValueMap(PValue^.VarMap).Shape);
                 for Key in TSEValueMap(PValue^.VarMap).Shape.GetKeys do
                 begin
                   RValue := SEMapGet(PValue^, Key);
@@ -7521,7 +7546,6 @@ var
   var
     I, J: NativeInt;
   begin
-    ShapeManager.BeginMark;
   {$ifdef SE_THREADS}
     if Self.EnableParallel then
     begin
@@ -7555,6 +7579,7 @@ var
     end else
   {$endif}
     begin
+      //ShapeManager.BeginMark;
       for I := 0 to VMList.Count - 1 do
       begin
         VM := VMList[I];
@@ -7582,6 +7607,7 @@ var
       end;
       Self.Mark(@ScriptVarMap);
       Self.FPhase := segcpSweep;
+      //ShapeManager.Sweep;
     end;
   end;
 
@@ -7650,7 +7676,6 @@ begin
         begin
           Sweep(1);
         end;
-        ShapeManager.Sweep;
         {$ifdef SE_LOG}
         Writeln('[GC] Number of objects after cleaning: ', Self.FObjects);
         Writeln('[GC] Number of old objects after cleaning: ', Self.FObjectsOld);
