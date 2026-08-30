@@ -327,7 +327,7 @@ type
 
   TSEShape = class
   private
-    FID: NativeUInt;
+    FID: NativeInt;
     FParent: TSEShape;
     FPropertyName: String;
     FPropertyHash: Cardinal;
@@ -336,23 +336,23 @@ type
     FLiveCount: Integer;
     FTombstoneCount: Integer;
     FIsDeleted: Boolean;
-    FMarked: Boolean;
-    FAddTransitions: TSEStringShapeDictionary;
+    FGarbage: Boolean;
+    FActiveTransitions: TSEStringShapeDictionary;
     FDeletedTransitions: TSEStringShapeDictionary;
     FLookup: TSEHashShapeDictionary;
     FKeys: TStringDynArray;
     FKeysBuilt: Boolean;
     procedure BuildKeys;
   public
-    constructor CreateRoot(AID: NativeUInt);
-    constructor CreateChild(AID: NativeUInt; AParent: TSEShape; const APropertyName: String; AOffset: Integer);
-    constructor CreateDelete(AID: NativeUInt; AParent: TSEShape; const APropertyName: String);
+    constructor CreateRoot(AID: NativeInt);
+    constructor CreateChild(AID: NativeInt; AParent: TSEShape; const APropertyName: String; AOffset: Integer);
+    constructor CreateDelete(AID: NativeInt; AParent: TSEShape; const APropertyName: String);
     destructor Destroy; override;
-    function FindAddTransition(const Name: String): TSEShape;
+    function FindActiveTransition(const Name: String): TSEShape;
     function FindDeletedTransition(const Name: String): TSEShape;
-    procedure AddAddTransition(const Name: String; AShape: TSEShape);
+    procedure AddActiveTransition(const Name: String; AShape: TSEShape);
     procedure AddDeletedTransition(const Name: String; AShape: TSEShape);
-    procedure RemoveAddTransition(const Name: String);
+    procedure RemoveActiveTransition(const Name: String);
     procedure RemoveDeletedTransition(const Name: String);
     function TryGetOffset(const Name: String; out Offset: Integer): Boolean;
     function TryGetOffsetHash(Hash: Cardinal; const Name: String; out Offset: Integer): Boolean;
@@ -360,7 +360,7 @@ type
     function GetOffsetHash(Hash: Cardinal; const Name: String): Integer;
     function HasProperty(const Name: String): Boolean;
     function GetKeys: TStringDynArray;
-    property ID: NativeUInt read FID;
+    property ID: NativeInt read FID;
     property Parent: TSEShape read FParent;
     property PropertyName: String read FPropertyName;
     property PropertyHash: Cardinal read FPropertyHash;
@@ -380,7 +380,6 @@ type
     FShapes: TSEShapeList;
     FNextID: NativeUInt;
     procedure RegisterShape(AShape: TSEShape);
-    procedure MarkShape(AShape: TSEShape);
   public
     constructor Create;
     destructor Destroy; override;
@@ -1561,6 +1560,7 @@ type
     class function SEKindOf(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEWrite(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEWriteln(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+    class function SEWriteShapeInfo(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SERandom(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SERnd(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SERound(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -3519,7 +3519,7 @@ begin
 end;
 {$endif}
 
-constructor TSEShape.CreateRoot(AID: NativeUInt);
+constructor TSEShape.CreateRoot(AID: NativeInt);
 begin
   inherited Create;
 
@@ -3532,9 +3532,9 @@ begin
   FLiveCount := 0;
   FTombstoneCount := 0;
   FIsDeleted := False;
-  FMarked := False;
+  FGarbage := False;
 
-  FAddTransitions := TSEStringShapeDictionary.Create;
+  FActiveTransitions := TSEStringShapeDictionary.Create;
   FDeletedTransitions := TSEStringShapeDictionary.Create;
   FLookup := nil;
 
@@ -3542,7 +3542,7 @@ begin
   FKeysBuilt := True;
 end;
 
-constructor TSEShape.CreateChild(AID: NativeUInt; AParent: TSEShape; const APropertyName: String; AOffset: Integer);
+constructor TSEShape.CreateChild(AID: NativeInt; AParent: TSEShape; const APropertyName: String; AOffset: Integer);
 begin
   inherited Create;
 
@@ -3555,9 +3555,9 @@ begin
   FLiveCount := AParent.FLiveCount + 1;
   FTombstoneCount := AParent.FTombstoneCount;
   FIsDeleted := False;
-  FMarked := False;
+  FGarbage := True;
 
-  FAddTransitions := TSEStringShapeDictionary.Create;
+  FActiveTransitions := TSEStringShapeDictionary.Create;
   FDeletedTransitions := TSEStringShapeDictionary.Create;
   FLookup := nil;
 
@@ -3565,7 +3565,7 @@ begin
   FKeysBuilt := False;
 end;
 
-constructor TSEShape.CreateDelete(AID: NativeUInt; AParent: TSEShape; const APropertyName: String);
+constructor TSEShape.CreateDelete(AID: NativeInt; AParent: TSEShape; const APropertyName: String);
 begin
   inherited Create;
 
@@ -3578,9 +3578,9 @@ begin
   FLiveCount := AParent.FLiveCount - 1;
   FTombstoneCount := AParent.FTombstoneCount + 1;
   FIsDeleted := True;
-  FMarked := False;
+  FGarbage := False;
 
-  FAddTransitions := TSEStringShapeDictionary.Create;
+  FActiveTransitions := TSEStringShapeDictionary.Create;
   FDeletedTransitions := TSEStringShapeDictionary.Create;
   FLookup := nil;
 
@@ -3590,15 +3590,16 @@ end;
 
 destructor TSEShape.Destroy;
 begin
+  FID := -FID;
   FLookup.Free;
-  FAddTransitions.Free;
+  FActiveTransitions.Free;
   FDeletedTransitions.Free;
   inherited Destroy;
 end;
 
-function TSEShape.FindAddTransition(const Name: String): TSEShape;
+function TSEShape.FindActiveTransition(const Name: String): TSEShape;
 begin
-  if FAddTransitions.TryGetValue(Name, Result) then
+  if FActiveTransitions.TryGetValue(Name, Result) then
     Exit;
   Result := nil;
 end;
@@ -3610,14 +3611,14 @@ begin
   Result := nil;
 end;
 
-procedure TSEShape.AddAddTransition(const Name: String; AShape: TSEShape);
+procedure TSEShape.AddActiveTransition(const Name: String; AShape: TSEShape);
 begin
-  FAddTransitions.Add(Name, AShape);
+  FActiveTransitions.Add(Name, AShape);
 end;
 
-procedure TSEShape.RemoveAddTransition(const Name: String);
+procedure TSEShape.RemoveActiveTransition(const Name: String);
 begin
-  FAddTransitions.Remove(Name);
+  FActiveTransitions.Remove(Name);
 end;
 
 procedure TSEShape.AddDeletedTransition(const Name: String; AShape: TSEShape);
@@ -3730,16 +3731,13 @@ begin
   if not FIsDeleted then
   begin
     SetLength(FKeys, Length(ParentKeys) + 1);
-
     for I := 0 to High(ParentKeys) do
       FKeys[I] := ParentKeys[I];
-
     FKeys[High(FKeys)] := FPropertyName;
   end else
   begin
     SetLength(FKeys, Length(ParentKeys));
     Count := 0;
-
     for I := 0 to High(ParentKeys) do
     begin
       if ParentKeys[I] <> FPropertyName then
@@ -3748,10 +3746,8 @@ begin
         Inc(Count);
       end;
     end;
-
     SetLength(FKeys, Count);
   end;
-
   FKeysBuilt := True;
 end;
 
@@ -3801,7 +3797,7 @@ begin
 
     { If this exact transition already exists, reuse the existing shape. }
 
-    Existing := AParent.FindAddTransition(Name);
+    Existing := AParent.FindActiveTransition(Name);
 
     if Existing <> nil then
       Exit(Existing);
@@ -3812,7 +3808,7 @@ begin
     Result := TSEShape.CreateChild(FNextID, AParent, Name, AParent.FSlotCount);
     Inc(FNextID);
 
-    AParent.AddAddTransition(Name, Result);
+    AParent.AddActiveTransition(Name, Result);
     RegisterShape(Result);
   finally
     {$ifdef SE_THREADS}
@@ -3842,7 +3838,10 @@ begin
     { Verify that the property actually exists. }
 
     if not AParent.HasProperty(Name) then
-      raise Exception.CreateFmt('Property "%s" does not exist in shape %d', [Name, AParent.ID]);
+    begin
+      Exit(AParent); // Property does not exist, so we don't have to change shape...
+      // raise Exception.CreateFmt('Property "%s" does not exist in shape %d', [Name, AParent.ID]);
+    end;
 
     { Create a tombstone. }
 
@@ -3863,33 +3862,34 @@ var
   I: Integer;
 begin
   for I := 0 to FShapes.Count - 1 do
-    FShapes[I].FMarked := False;
-
-  { The root is always alive. }
-
-  FShapeRoot.FMarked := True;
-end;
-
-procedure TSEShapeManager.MarkShape(AShape: TSEShape);
-var
-  Current: TSEShape;
-begin
-  Current := AShape;
-
-  while Current <> nil do
-  begin
-    if Current.FMarked then
-      Exit;
-
-    Current.FMarked := True;
-    Current := Current.FParent;
-  end;
+    FShapes[I].FGarbage := True;
+  FShapeRoot.FGarbage := False;
 end;
 
 procedure TSEShapeManager.Mark(AShape: TSEShape);
+var
+  Current: TSEShape;
+  S: String;
 begin
   if AShape <> nil then
-    MarkShape(AShape);
+  begin
+    Current := AShape;
+    {if Current.FGarbage = false then
+    begin
+      Write(Current.ID, '''s KEYS: ');
+      for S in Current.GetKeys do
+        Write(S, ' ');
+      Writeln;
+    end;}
+
+    while Current <> nil do
+    begin
+      if not Current.FGarbage then
+        Exit;
+      Current.FGarbage := False;
+      Current := Current.FParent;
+    end;
+  end;
 end;
 
 procedure TSEShapeManager.Sweep;
@@ -3899,13 +3899,20 @@ var
   Parent: TSEShape;
   Child: TSEShape;
 begin
-  I := FShapes.Count - 1;
-  while I >= 0 do
+  for I := FShapes.Count - 1 downto 0 do
   begin
     Shape := FShapes[I];
 
-    if (Shape <> FShapeRoot) and (not Shape.FMarked) then
+    {WriteLn(
+      'Shape=', Shape.ID,
+      ' Name=', Shape.PropertyName,
+      ' Deleted=', Shape.IsDeleted,
+      ' Marked=', Shape.FGarbage
+    );}
+
+    if Shape.FGarbage then
     begin
+      //WriteLn('  -> FREE');
       Parent := Shape.FParent;
       { Remove the parent's transition only if it
         still points to this exact shape. }
@@ -3913,20 +3920,15 @@ begin
       begin
         if Shape.IsDeleted then
         begin
-          Child := Parent.FindDeletedTransition(Shape.PropertyName);
-          if Child = Shape then
-            Parent.RemoveDeletedTransition(Shape.PropertyName);
+          Parent.RemoveDeletedTransition(Shape.PropertyName);
         end else
         begin
-          Child := Parent.FindAddTransition(Shape.PropertyName);
-          if Child = Shape then
-            Parent.RemoveAddTransition(Shape.PropertyName);
+          Parent.RemoveActiveTransition(Shape.PropertyName);
         end;
       end;
       FShapes.Delete(I);
       Shape.Free;
     end;
-    Dec(I);
   end;
 end;
 
@@ -5019,6 +5021,37 @@ begin
   TBuiltInFunction.SEWrite(VM, Args, ArgCount, nil);
   Writeln;
   Result := SENull;
+end;
+
+class function TBuiltInFunction.SEWriteShapeInfo(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+var
+  Keys: TStringDynArray;
+  I, Offset: Integer;
+  S: TSEShape;
+begin
+  SEValidateType(@Args[0], sevkMap, 1, {$I %CURRENTROUTINE%});
+  if SEMapIsValidArray(Args[0]) then
+    Exit;
+  S := TSEValueMap(Args[0].VarMap).Shape;
+  Writeln('ID             : ', S.ID);
+  if S.Parent <> nil then
+    Writeln('Parent         : ', S.Parent.ID)
+  else
+    Writeln('Parent         : nil');
+  Writeln('SlotCount      : ', S.SlotCount);
+  Writeln('LiveCount      : ', S.LiveCount);
+  Writeln('TombstoneCount : ', S.TombstoneCount);
+  Writeln('IsDeleted      : ', S.IsDeleted);
+
+  Keys := S.GetKeys;
+  Writeln('Keys           : ', Length(Keys));
+
+  for I := 0 to High(Keys) do
+  begin
+    S.TryGetOffset(Keys[I], Offset);
+    Writeln('  ', Keys[I], ' -> ', Offset);
+  end;
+  Writeln;
 end;
 
 class function TBuiltInFunction.SERandom(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -7020,26 +7053,32 @@ function TSEValueMap.Get2(const Key: PString): TSEValue;
 var
   Index: Integer;
 begin
-  if Self.FShape.TryGetOffset(Key^, Index) then
+  Result := SENull;
+  if Self.FShape <> nil then
   begin
-    Result := Self.FItems[Index];
-  end else
-    Result := SENull;
+    if Self.FShape.TryGetOffset(Key^, Index) then
+    begin
+      Result := Self.FItems[Index];
+    end;
+  end;
 end;
 
 function TSEValueMap.Get2(const Key: PSEString; var Index: Integer): TSEValue;
 var
   HasResult: Boolean;
 begin
-  if Key^.Hash <> 0 then
-    HasResult := Self.FShape.TryGetOffsetHash(Key^.Hash, Key^.Data, Index)
-  else
-    HasResult := Self.FShape.TryGetOffset(Key^.Data, Index);
-  if HasResult then
+  Result := SENull;
+  if Self.FShape <> nil then
   begin
-    Result := Self.FItems[Index];
-  end else
-    Result := SENull;
+    if Key^.Hash <> 0 then
+      HasResult := Self.FShape.TryGetOffsetHash(Key^.Hash, Key^.Data, Index)
+    else
+      HasResult := Self.FShape.TryGetOffset(Key^.Data, Index);
+    if HasResult then
+    begin
+      Result := Self.FItems[Index];
+    end;
+  end;
 end;
 
 function TSEValueMap.Get2(const Index: Integer): TSEValue;
@@ -7386,8 +7425,6 @@ begin
         begin
           if PValue^.VarMap <> nil then
           begin
-            if not TSEValueMap(PValue^.VarMap).IsValidArray then
-              ShapeManager.Mark(TSEValueMap(PValue^.VarMap).Shape);
             if SEMapIsValidArray(PValue^) then
             begin
               TSEValueMap(PValue^.VarMap).Lock;
@@ -7406,6 +7443,7 @@ begin
             begin
               TSEValueMap(PValue^.VarMap).Lock;
               try
+                ShapeManager.Mark(TSEValueMap(PValue^.VarMap).Shape);
                 for Key in TSEValueMap(PValue^.VarMap).Shape.GetKeys do
                 begin
                   RValue := SEMapGet(PValue^, Key);
@@ -10773,6 +10811,7 @@ begin
     Self.RegisterFunc('slerp', @TBuiltInFunction(nil).SESLerp, 3, [sevkNumber]);
     Self.RegisterFunc('write', @TBuiltInFunction(nil).SEWrite, -1);
     Self.RegisterFunc('writeln', @TBuiltInFunction(nil).SEWriteln, -1);
+    Self.RegisterFunc('write_shape_info', @TBuiltInFunction(nil).SEWriteShapeInfo, 1);
     Self.RegisterFunc('ticks', @TBuiltInFunction(nil).SEGetTickCount, 0, [sevkNumber]);
     Self.RegisterFunc('dt_now', @TBuiltInFunction(nil).SEDTNow, 0, [sevkNumber]);
     Self.RegisterFunc('dt_year_get', @TBuiltInFunction(nil).SEDTGetYear, 1, [sevkNumber]);
@@ -15064,4 +15103,3 @@ finalization
   ShapeManager.Free;
 
 end.
-
