@@ -11939,7 +11939,7 @@ var
   procedure UpdateIdentPossibleKinds(const Ident: PSEIdent; const PossibleKinds: TSEValueKindSet);
   begin
     if not Ident^.IsForcedKind then
-      Ident^.PossibleKinds := PossibleKinds;
+      Ident^.PossibleKinds := Ident^.PossibleKinds + PossibleKinds;
   end;
 
   procedure MarkJITBlock;
