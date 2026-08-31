@@ -580,4 +580,3 @@ If assertions are not enabled at compile time, this routine does nothing, and no
 - Named functions are always faster than anonymous functions or function references.
 - Dot notations are always faster than square bracket notations due to inline caching.
 - The JIT compiler at the moment can only optimize code paths that result in number/boolean type. Use `type annotations`, especially `number`, `boolean` and `map[number]` type, to help the JIT compiler optimize your code.
-- Without annotations, the JIT compiler will rely on static type checking during interpretation to determine the type of a variable, which works fine for named variables and functions, but not work well for maps.
