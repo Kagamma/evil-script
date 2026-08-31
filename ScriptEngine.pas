@@ -373,6 +373,9 @@ type
     FShapeRoot: TSEShape;
     FShapes: TSEShapeList;
     FNextID: NativeUInt;
+    FLastShapeCount: Integer;
+    FShapeCeiling: Integer;
+    FBeginMark: Boolean;
     procedure RegisterShape(AShape: TSEShape);
   public
     constructor Create;
@@ -385,6 +388,8 @@ type
     function ShapeCount: Integer;
     property Root: TSEShape read FShapeRoot;
     property NextID: NativeUInt read FNextID;
+    property LastShapeCount: Integer read FLastShapeCount write FLastShapeCount;
+    property ShapeCeiling: Integer read FShapeCeiling write FShapeCeiling;
   end;
 
   TSEValueMap = class(specialize TList<TSEValue>)
@@ -3765,6 +3770,8 @@ begin
   FShapes := TSEShapeList.Create;
 
   FShapeRoot := TSEShape.CreateRoot(FNextID);
+  FShapeCeiling := 10000;
+  FBeginMark := False;
   Inc(FNextID);
 
   RegisterShape(FShapeRoot);
@@ -3855,6 +3862,7 @@ procedure TSEShapeManager.BeginMark;
 var
   I: Integer;
 begin
+  FBeginMark := True;
   for I := 0 to FShapes.Count - 1 do
     FShapes[I].FGarbage := True;
   FShapeRoot.FGarbage := False;
@@ -3865,6 +3873,8 @@ var
   Current: TSEShape;
   S: String;
 begin
+  if not FBeginMark then
+    Exit;
   if AShape <> nil then
   begin
     Current := AShape;
@@ -3949,6 +3959,8 @@ begin
       Shape.Free;
     end;
   end;
+  FBeginMark := False;
+  FLastShapeCount := ShapeCount;
 end;
 
 function TSEShapeManager.ShapeCount: Integer;
@@ -7445,7 +7457,7 @@ begin
             begin
               TSEValueMap(PValue^.VarMap).Lock;
               try
-                //ShapeManager.Mark(TSEValueMap(PValue^.VarMap).Shape);
+                ShapeManager.Mark(TSEValueMap(PValue^.VarMap).Shape);
                 for Key in TSEValueMap(PValue^.VarMap).Shape.GetKeys do
                 begin
                   RValue := SEMapGet(PValue^, Key);
@@ -7522,8 +7534,14 @@ var
   procedure Marking;
   var
     I, J: NativeInt;
+    EnableParallelBackup: Boolean;
   begin
   {$ifdef SE_THREADS}
+    if ShapeManager.ShapeCount - ShapeManager.LastShapeCount > ShapeManager.ShapeCeiling then
+    begin
+      EnableParallelBackup := Self.EnableParallel;
+      Self.EnableParallel := False;
+    end;
     if Self.EnableParallel then
     begin
       Self.FReachableValueList.Count := 0;
@@ -7556,7 +7574,7 @@ var
     end else
   {$endif}
     begin
-      //ShapeManager.BeginMark;
+      ShapeManager.BeginMark;
       for I := 0 to VMList.Count - 1 do
       begin
         VM := VMList[I];
@@ -7584,7 +7602,10 @@ var
       end;
       Self.Mark(@ScriptVarMap);
       Self.FPhase := segcpSweep;
-      //ShapeManager.Sweep;
+      ShapeManager.Sweep;
+      {$ifdef SE_THREADS}
+      Self.EnableParallel := EnableParallelBackup;
+      {$endif}
     end;
   end;
 
