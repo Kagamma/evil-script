@@ -307,12 +307,6 @@ type
 
   {$ifdef SE_MAP_AVK959}
     {$define TSEDictionary := TGChainHashMap}
-    TSEStringEq = class
-    public
-      class function HashCode(const AKey: String): SizeInt; static; inline;
-      class function Equal(const L, R: String): Boolean; static; inline;
-    end;
-    TSEValueDict = specialize TGLiteChainHashMap<String, TSEValue, TSEStringEq>.TMap;
   {$else}
     {$define TSEDictionary := TDictionary}
     TSEValueDict = specialize TSEDictionary<String, TSEValue>;
@@ -6899,23 +6893,6 @@ begin
   else
     R := True;
 end;
-
-{$ifdef SE_MAP_AVK959}
-class function TSEStringEq.HashCode(const AKey: String): SizeInt;
-begin
-  {$ifdef CPU64}
-  Result := TxxHash64LE.HashStr(AKey);
-  {$else}
-  Result := TxxHash32LE.HashStr(AKey);
-  {$endif}
-  //Result := String.HashCode(AKey);
-end;
-
-class function TSEStringEq.Equal(const L, R: String): Boolean;
-begin
-  Result := L = R;
-end;
-{$endif}
 
 constructor TSEValueMap.Create;
 begin
