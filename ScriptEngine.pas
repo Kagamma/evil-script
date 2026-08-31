@@ -11949,6 +11949,16 @@ var
       Result := Pointer(SE_REG_GLOBAL);
   end;
 
+  procedure DebugShowPossibleKinds(const PossibleKinds: TSEValueKindSet);
+  var
+    Kind: TSEValueKind;
+  begin
+    Write('Kind: ');
+    for Kind in PossibleKinds do
+      Write(Kind, ', ');
+    Writeln;
+  end;
+
   procedure UpdateIdentPossibleKinds(const Ident: PSEIdent; const PossibleKinds: TSEValueKindSet);
   begin
     if not Ident^.IsForcedKind then
@@ -12090,7 +12100,7 @@ var
   procedure ParseFuncRefCall(const ThisRefIdent: PSEIdent = nil); forward;
   procedure ParseFuncRefCallByName(const Name: String); forward;
   procedure ParseBlock(const IsCase: Boolean = False); forward;
-  procedure ParseArrayAssign; forward;
+  function ParseArrayAssign: TSEValueKindSet; forward;
   procedure ParseFuncAnonDecl(const ATraversal: Cardinal = 1); forward;
 
   function OpToOp0(const Op: TSEOpcode): TSEOpcode; inline;
@@ -12824,8 +12834,7 @@ var
         tkSquareBracketOpen:
           begin
             NextToken;
-            Result := Result + [sevkMap];
-            ParseArrayAssign;
+            Result := Result + ParseArrayAssign;
           end;
         tkNumber:
           begin
@@ -14070,16 +14079,18 @@ var
     end;
   end;
 
-  procedure ParseArrayAssign;
+  function ParseArrayAssign: TSEValueKindSet;
   var
     FuncNativeInfo: PSEFuncNativeInfo;
     I: NativeInt;
     Ind: Cardinal;
     ArgCount: NativeInt = 0;
     Token: TSEToken;
+    ExprKinds: TSEValueKindSet;
   begin
     I := 0;
     FuncNativeInfo := FindFuncNative('___map_create', Ind);
+    Result := [];
     repeat
       if PeekAtNextToken.Kind <> tkSquareBracketClose then
       begin
@@ -14087,15 +14098,21 @@ var
         begin
           Token := NextToken;
           Emit([Pointer(opPushConst), Token.Value]);
-          NextToken;
+          Token := NextToken;
+          if Token.Kind = tkColon then
+            Result := Result + [sevkMap];
           MarkJITBlock;
-          VerifyJITBlock(ParseExpr(False));
+          ExprKinds := ParseExpr(False);
+          VerifyJITBlock(ExprKinds);
+          Result := Result + ExprKinds;
           Inc(ArgCount, 2);
         end else
         begin
           Emit([Pointer(opPushConst), I]);
           MarkJITBlock;
-          VerifyJITBlock(ParseExpr(False));
+          ExprKinds := ParseExpr(False);
+          VerifyJITBlock(ExprKinds);
+          Result := Result + ExprKinds;
           Inc(ArgCount, 2);
           Inc(I);
         end;
