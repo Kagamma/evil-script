@@ -8096,6 +8096,8 @@ var
   FuncNativeInfo: PSEFuncNativeInfo;
   FuncScriptInfo: PSEFuncScriptInfo;
   FuncImportInfo: PSEFuncImportInfo;
+  FuncNativeInfoPtrLocal: PSEFuncNativeInfo;
+  FuncScriptInfoPtrLocal: PSEFuncScriptInfo;
   I, J, ArgCountStack, ArgCount, ArgSize, DeepCount: NativeInt;
   This: PSEValue;
   GlobalLocal: PSEValue;
@@ -9786,6 +9788,8 @@ begin
     Exit;
   GlobalLocal := @Self.Global.Value^.Data[0];
   CodeSegmentIndexLocal := Self.CodeSegmentIndex;
+  FuncNativeInfoPtrLocal := Self.Parent.FuncNativeList.Ptr(0);
+  FuncScriptInfoPtrLocal := Self.Parent.FuncScriptList.Ptr(0);
   if Self.CodePtr <> nil then
     CodePtrLocal := Self.CodePtr
   else
@@ -10320,10 +10324,9 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opCallNative:{$endif}
         begin
         labelCallNative:
-          FuncNativeInfo := Self.Parent.FuncNativeList.Ptr(NativeInt(CodePtrLocal[1].VarPointer));
           ArgCount := NativeInt(CodePtrLocal[2].VarPointer);
           Self.StackPtr := Self.StackPtr - ArgCount;
-          TV := TSEFunc(FuncNativeInfo^.Func)(Self, Self.StackPtr, ArgCount, This);
+          TV := TSEFunc(FuncNativeInfoPtrLocal[NativeInt(CodePtrLocal[1].VarPointer)].Func)(Self, Self.StackPtr, ArgCount, This);
           if IsDone then
           begin
             Exit;
@@ -10336,7 +10339,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opCallScript:{$endif}
         begin
         labelCallScript:
-          FuncScriptInfo := Self.Parent.FuncScriptList.Ptr(NativeInt(CodePtrLocal[1].VarPointer));
+          FuncScriptInfo := @FuncScriptInfoPtrLocal[NativeUInt(CodePtrLocal[1].VarPointer)];
           Inc(Self.FramePtr);
           if Self.FramePtr > @Self.Frame[Self.FrameSize - 1] then
             raise Exception.Create('Too much recursion');
@@ -14226,6 +14229,7 @@ var
     end;
 
     Token := PeekAtNextTokenExpected([tkEqual, tkOpAssign, tkBracketOpen]);
+    AssignPossibleKinds := [];
     case Token.Kind of
       tkEqual,
       tkOpAssign:
