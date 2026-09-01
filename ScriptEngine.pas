@@ -226,7 +226,7 @@ type
   TSEFuncKind = (sefkNative, sefkScript, sefkImport);
 
   PSEValue = ^TSEValue;
-  TSEValue = packed record
+  TSEValue = record
     Ref: Cardinal;
     case Kind: TSEValueKind of
       sevkRawData:
@@ -9837,7 +9837,6 @@ labelStart:
         begin
         labelJITBlock:
           {$ifdef SE_HAS_JIT}
-          P := CodePtrLocal[1].VarPointer;
           asm
             mov r15, CodePtrLocal
             mov r14, StackPtrLocal
@@ -9845,7 +9844,11 @@ labelStart:
             mov r12, GlobalLocal
             mov r11, FramePtrLocal
             lea r10, CodePtrLocal
+            {$ifdef Windows}
             jmp qword ptr [r15 + 24]
+            {$else}
+            jmp qword ptr [r15 + 40]
+            {$endif}
           end;
         labelJITBlockEnd:
           DispatchGoto;
