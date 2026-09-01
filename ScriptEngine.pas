@@ -3680,17 +3680,20 @@ begin
         else
           Offset := Current.FPropertyOffset;
         { Cache only if there is no conflicting hash entry. }
-        if FLookup = nil then
-          FLookup := TSEHashShapeDictionary.Create;
-
-        if FLookup.TryGetValue(Hash, CachedShape) then
-        begin
-          if CachedShape.FPropertyName = Name then
+        EnterCriticalSection(CS);
+        try
+          if FLookup = nil then
+            FLookup := TSEHashShapeDictionary.Create;
+          if FLookup.TryGetValue(Hash, CachedShape) then
+          begin
+            if CachedShape.FPropertyName = Name then
+              FLookup.AddOrSetValue(Hash, Current);
+          end
+          else
             FLookup.AddOrSetValue(Hash, Current);
-        end
-        else
-          FLookup.Add(Hash, Current);
-
+        finally
+          LeaveCriticalSection(CS);
+        end;
         Result := Offset >= 0;
         Exit;
       end;
