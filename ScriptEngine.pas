@@ -7008,6 +7008,7 @@ var
 begin
   if Self.FIsValidArray then
     Self.ToMap;
+  Self.Lock;
   try
     if Self.FShape.TryGetOffset(Key^, Index) then
     begin
