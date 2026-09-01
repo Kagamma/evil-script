@@ -46,9 +46,7 @@ unit ScriptEngine;
   {$define SE_THREADS}
 {$endif}
 {$ifdef CPU64}
-  {$ifdef Unix}
-    {$align 16}
-  {$endif}
+  {$align 8}
 {$endif}
 {$ifdef CPU32}
   {$align 4}
@@ -8956,14 +8954,14 @@ var
             { A, either from code, or from stack }
             if JitCodePtrLocal[BIndex + 1].Kind <> sevkNull then
             begin
-              E.MovRegImm64({$ifdef UNIX}regRDX{$else}regRSI{$endif}, Trunc(JitCodePtrLocal[BIndex + 2].VarNumber))
+              E.MovRegImm64(regRSI, Trunc(JitCodePtrLocal[BIndex + 2].VarNumber))
             end else
             begin
-              E.CvttSD2SI({$ifdef UNIX}regRDX{$else}regRSI{$endif}, TXMMReg(XMMStackPtr - 1));
+              E.CvttSD2SI(regRSI, TXMMReg(XMMStackPtr - 1));
               Dec(XMMStackPtr);
             end;
             { B }
-            E.MovRegFromSDXMM({$ifdef UNIX}regRSI{$else}regRDI{$endif}, TXMMReg(XMMStackPtr - 1));
+            E.MovRegFromSDXMM(regRDI, TXMMReg(XMMStackPtr - 1));
             Dec(XMMStackPtr);
             //
             {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
@@ -9846,11 +9844,7 @@ labelStart:
             mov r12, GlobalLocal
             mov r11, FramePtrLocal
             lea r10, CodePtrLocal
-            {$ifdef Windows}
             jmp qword ptr [r15 + 24]
-            {$else}
-            jmp qword ptr [r15 + 40]
-            {$endif}
           end;
         labelJITBlockEnd:
           DispatchGoto;
