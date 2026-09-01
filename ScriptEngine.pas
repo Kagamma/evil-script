@@ -6978,8 +6978,6 @@ begin
 end;
 
 procedure TSEValueMap.Set2(const Key: PSEString; constref AValue: TSEValue; var CacheValue: TSECacheValue);
-var
-  HasResult: Boolean;
 begin
   if Self.FIsValidArray then
     Self.ToMap;
@@ -6987,8 +6985,7 @@ begin
   try
     if Key^.Hash = 0 then
       Key^.Hash := SEHashString(Key^.Data);
-    HasResult := Self.FShape.TryGetOffsetHash(Key^.Hash, Key^.Data, CacheValue.Index);
-    if HasResult then
+    if Self.FShape.TryGetOffsetHash(Key^.Hash, Key^.Data, CacheValue.Index) then
     begin
       Self.FItems[CacheValue.Index] := AValue;
     end else
@@ -7087,20 +7084,17 @@ begin
 end;
 
 function TSEValueMap.Get2(const Key: PSEString; var CacheValue: TSECacheValue): TSEValue;
-var
-  HasResult: Boolean;
 begin
   Result := SENull;
   if Self.FShape <> nil then
   begin
     if Key^.Hash = 0 then
       Key^.Hash := SEHashString(Key^.Data);
-    HasResult := Self.FShape.TryGetOffsetHash(Key^.Hash, Key^.Data, CacheValue.Index);
-    CacheValue.ID := Cardinal(Pointer(Self.FShape));
-    if HasResult then
+    if Self.FShape.TryGetOffsetHash(Key^.Hash, Key^.Data, CacheValue.Index) then
     begin
       Result := Self.FItems[CacheValue.Index];
     end;
+    CacheValue.ID := Cardinal(Pointer(Self.FShape));
   end;
 end;
 
