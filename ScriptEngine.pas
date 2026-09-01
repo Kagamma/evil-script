@@ -3780,7 +3780,7 @@ begin
   FShapes := TSEShapeList.Create;
 
   FShapeRoot := TSEShape.CreateRoot(FNextID);
-  FShapeCeiling := 10000;
+  FShapeCeiling := 100000;
   FBeginMark := False;
   Inc(FNextID);
 
@@ -3872,6 +3872,8 @@ procedure TSEShapeManager.BeginMark;
 var
   I: Integer;
 begin
+  if ShapeManager.ShapeCount - ShapeManager.LastShapeCount < ShapeManager.ShapeCeiling then
+    Exit;
   FBeginMark := True;
   for I := 0 to FShapes.Count - 1 do
     FShapes[I].FGarbage := True;
@@ -3939,6 +3941,8 @@ var
   Parent: TSEShape;
   Child: TSEShape;
 begin
+  if not FBeginMark then
+    Exit;
   { Remove transitions first }
   for I := 0 to FShapes.Count - 1 do
   begin
@@ -7606,7 +7610,8 @@ var
       end;
       Self.Mark(@ScriptVarMap);
       Self.FPhase := segcpSweep;
-      ShapeManager.Sweep;
+      if ShapeManager.ShapeCount - ShapeManager.LastShapeCount > ShapeManager.ShapeCeiling then
+        ShapeManager.Sweep;
       {$ifdef SE_THREADS}
       Self.EnableParallel := EnableParallelBackup;
       {$endif}
