@@ -416,11 +416,11 @@ type
     procedure Unlock; inline;
     function TryLock: Boolean; inline;
     procedure ToMap;
-    procedure Set2(const Key: PSEString; constref AValue: TSEValue; var Index: Integer); overload; inline;
+    procedure Set2(const Key: PSEString; constref AValue: TSEValue; var CacheValue: TSECacheValue); overload; inline;
     procedure Set2(const Key: PString; constref AValue: TSEValue); overload; inline;
     procedure Set2(const Index: Integer; constref AValue: TSEValue); overload; inline;
     function Get2(const Key: PString): TSEValue; overload; inline;
-    function Get2(const Key: PSEString; var Index: Integer): TSEValue;
+    function Get2(const Key: PSEString; var CacheValue: TSECacheValue): TSEValue;
     function Get2(const Index: Integer): TSEValue; overload; inline;
     procedure Del2(const Key: PString); overload; inline;
     procedure Del2(const Index: Integer); overload; inline;
@@ -6924,6 +6924,7 @@ constructor TSEValueMap.Create;
 begin
   inherited;
   Self.FIsValidArray := True;
+  Self.FShape := nil;
 end;
 
 destructor TSEValueMap.Destroy;
@@ -6976,7 +6977,7 @@ begin
   end;
 end;
 
-procedure TSEValueMap.Set2(const Key: PSEString; constref AValue: TSEValue; var Index: Integer);
+procedure TSEValueMap.Set2(const Key: PSEString; constref AValue: TSEValue; var CacheValue: TSECacheValue);
 var
   HasResult: Boolean;
 begin
@@ -6984,23 +6985,23 @@ begin
     Self.ToMap;
   Self.Lock;
   try
-    if Key^.Hash <> 0 then
-      HasResult := Self.FShape.TryGetOffsetHash(Key^.Hash, Key^.Data, Index)
-    else
-      HasResult := Self.FShape.TryGetOffset(Key^.Data, Index);
+    if Key^.Hash = 0 then
+      Key^.Hash := SEHashString(Key^.Data);
+    HasResult := Self.FShape.TryGetOffsetHash(Key^.Hash, Key^.Data, CacheValue.Index);
     if HasResult then
     begin
-      Self.FItems[Index] := AValue;
+      Self.FItems[CacheValue.Index] := AValue;
     end else
     begin
       Self.FShape := ShapeManager.AddProperty(Self.FShape, Key^.Data);
-      Index := Self.FShape.PropertyOffset;
-      if Index > Self.Count - 1 then
+      CacheValue.Index := Self.FShape.PropertyOffset;
+      if CacheValue.Index > Self.Count - 1 then
       begin
-        Self.Count := Index + 1;
+        Self.Count := CacheValue.Index + 1;
       end;
-      Self.FItems[Index] := AValue;
+      Self.FItems[CacheValue.Index] := AValue;
     end;
+    CacheValue.ID := Cardinal(Pointer(Self.FShape));
   finally
     Self.Unlock;
   end;
@@ -7085,20 +7086,20 @@ begin
   end;
 end;
 
-function TSEValueMap.Get2(const Key: PSEString; var Index: Integer): TSEValue;
+function TSEValueMap.Get2(const Key: PSEString; var CacheValue: TSECacheValue): TSEValue;
 var
   HasResult: Boolean;
 begin
   Result := SENull;
   if Self.FShape <> nil then
   begin
-    if Key^.Hash <> 0 then
-      HasResult := Self.FShape.TryGetOffsetHash(Key^.Hash, Key^.Data, Index)
-    else
-      HasResult := Self.FShape.TryGetOffset(Key^.Data, Index);
+    if Key^.Hash = 0 then
+      Key^.Hash := SEHashString(Key^.Data);
+    HasResult := Self.FShape.TryGetOffsetHash(Key^.Hash, Key^.Data, CacheValue.Index);
+    CacheValue.ID := Cardinal(Pointer(Self.FShape));
     if HasResult then
     begin
-      Result := Self.FItems[Index];
+      Result := Self.FItems[CacheValue.Index];
     end;
   end;
 end;
@@ -8590,13 +8591,12 @@ var
           {$else}
           QWord(CacheValue) := CacheSite^.VarData;
           {$endif}
-          if (CacheValue.ID = TSEValueMap(B.VarMap).Shape.ID) and (CacheValue.Index >= 0) then
+          if (CacheValue.ID = Cardinal(Pointer(TSEValueMap(B.VarMap).Shape))) and (CacheValue.Index >= 0) then
           begin
             Result := TSEValueMap(B.VarMap)[CacheValue.Index];
           end else
           begin
-            Result := TSEValueMap(B.VarMap).Get2(ConstStrings.Ptr(A.VarConstStringIndex)^.VarString, CacheValue.Index);
-            CacheValue.ID := TSEValueMap(B.VarMap).Shape.ID;
+            Result := TSEValueMap(B.VarMap).Get2(ConstStrings.Ptr(A.VarConstStringIndex)^.VarString, CacheValue);
             {$ifdef SE_THREADS}
             InterlockedExchange64(CacheSite^.VarData, QWord(CacheValue));
             {$else}
@@ -8623,13 +8623,12 @@ var
           {$else}
           QWord(CacheValue) := CacheSite^.VarData;
           {$endif}
-          if (CacheValue.ID = TSEValueMap(TV.VarMap).Shape.ID) and (CacheValue.Index >= 0) then
+          if (CacheValue.ID = Cardinal(Pointer(TSEValueMap(TV.VarMap).Shape))) and (CacheValue.Index >= 0) then
           begin
             TSEValueMap(TV.VarMap)[CacheValue.Index] := B;
           end else
           begin
-            TSEValueMap(TV.VarMap).Set2(ConstStrings.Ptr(C.VarConstStringIndex)^.VarString, B, CacheValue.Index);
-            CacheValue.ID := TSEValueMap(TV.VarMap).Shape.ID;
+            TSEValueMap(TV.VarMap).Set2(ConstStrings.Ptr(C.VarConstStringIndex)^.VarString, B, CacheValue);
             {$ifdef SE_THREADS}
             InterlockedExchange64(CacheSite^.VarData, QWord(CacheValue));
             {$else}
