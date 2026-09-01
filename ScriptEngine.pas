@@ -9692,10 +9692,10 @@ var
     begin
       Result := STATUS_INVALID;
     end;
-    if (Result = STATUS_INVALID) or (Result = STATUS_OVERFLOW) then
+    {if (Result = STATUS_INVALID) or (Result = STATUS_OVERFLOW) then
     begin
       JitCodePtrLocal[1] := nil;
-    end else
+    end else}
     begin
       if XMMStackPtr = 4 then
       begin
