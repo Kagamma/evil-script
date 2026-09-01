@@ -193,7 +193,8 @@ type
     sevkBoolean,
     sevkFunction,
     sevkPascalObject,
-    sevkConstString
+    sevkConstString,
+    sevkRawData
   );
   TSEValueKindSet = set of TSEValueKind;
   PSECommonString = ^RawByteString;
@@ -226,6 +227,10 @@ type
   TSEValue = record
     Ref: Cardinal;
     case Kind: TSEValueKind of
+      sevkRawData:
+        (
+          VarData: QWord;
+        );
       sevkNumber:
         (
           VarNumber: TSENumber;
@@ -321,7 +326,7 @@ type
 
   TSEShape = class
   private
-    FID: NativeInt;
+    FID: Integer;
     FParent: TSEShape;
     FPropertyName: String;
     FPropertyHash: Cardinal;
@@ -338,9 +343,9 @@ type
     FKeysBuilt: Boolean;
     procedure BuildKeys;
   public
-    constructor CreateRoot(AID: NativeInt);
-    constructor CreateChild(AID: NativeInt; AParent: TSEShape; const APropertyName: String; AOffset: Integer);
-    constructor CreateDelete(AID: NativeInt; AParent: TSEShape; const APropertyName: String);
+    constructor CreateRoot(AID: Integer);
+    constructor CreateChild(AID: Integer; AParent: TSEShape; const APropertyName: String; AOffset: Integer);
+    constructor CreateDelete(AID: Integer; AParent: TSEShape; const APropertyName: String);
     destructor Destroy; override;
     function FindActiveTransition(const Name: String): TSEShape;
     function FindDeleteTransition(const Name: String): TSEShape;
@@ -354,7 +359,7 @@ type
     function GetOffsetHash(Hash: Cardinal; const Name: String): Integer;
     function HasProperty(const Name: String): Boolean;
     function GetKeys: TStringDynArray;
-    property ID: NativeInt read FID;
+    property ID: Integer read FID;
     property Parent: TSEShape read FParent;
     property PropertyName: String read FPropertyName;
     property PropertyHash: Cardinal read FPropertyHash;
@@ -385,6 +390,11 @@ type
     function ShapeCount: Integer;
     property Root: TSEShape read FShapeRoot;
     property NextID: NativeUInt read FNextID;
+  end;
+
+  TSECacheValue = record
+    ID: Integer;
+    Index: Integer;
   end;
 
   TSEValueMap = class(specialize TList<TSEValue>)
@@ -795,7 +805,7 @@ const
     'atom', 'import', 'do', 'var', 'try', 'catch', 'throw', 'override'
   );
   ValueKindNames: array[TSEValueKind] of RawByteString = (
-    'null', 'number', 'string', 'map', 'buffer', 'pointer', 'boolean', 'function', 'pasobject', 'packedstring'
+    'null', 'number', 'string', 'map', 'buffer', 'pointer', 'boolean', 'function', 'pasobject', 'packedstring', 'rawdata'
   );
   OpcodeSizes: array[TSEOpcode] of Byte = (
     2, // opPushConst,
@@ -3513,7 +3523,7 @@ begin
 end;
 {$endif}
 
-constructor TSEShape.CreateRoot(AID: NativeInt);
+constructor TSEShape.CreateRoot(AID: Integer);
 begin
   inherited Create;
 
@@ -3536,7 +3546,7 @@ begin
   FKeysBuilt := True;
 end;
 
-constructor TSEShape.CreateChild(AID: NativeInt; AParent: TSEShape; const APropertyName: String; AOffset: Integer);
+constructor TSEShape.CreateChild(AID: Integer; AParent: TSEShape; const APropertyName: String; AOffset: Integer);
 begin
   inherited Create;
 
@@ -3559,7 +3569,7 @@ begin
   FKeysBuilt := False;
 end;
 
-constructor TSEShape.CreateDelete(AID: NativeInt; AParent: TSEShape; const APropertyName: String);
+constructor TSEShape.CreateDelete(AID: Integer; AParent: TSEShape; const APropertyName: String);
 begin
   inherited Create;
 
@@ -6898,16 +6908,10 @@ constructor TSEValueMap.Create;
 begin
   inherited;
   Self.FIsValidArray := True;
-  {$ifdef SE_THREADS}
-  InitCriticalSection(Self.FLock);
-  {$endif}
 end;
 
 destructor TSEValueMap.Destroy;
 begin
-  {$ifdef SE_THREADS}
-  DoneCriticalSection(Self.FLock);
-  {$endif}
   inherited;
 end;
 
@@ -6992,7 +6996,6 @@ var
 begin
   if Self.FIsValidArray then
     Self.ToMap;
-  Self.Lock;
   try
     if Self.FShape.TryGetOffset(Key^, Index) then
     begin
@@ -8545,6 +8548,8 @@ var
   end;
 
   function ResolveMapGet(const B, A: TSEValue; const CacheSite: PSEValue): TSEValue; inline;
+  var
+    CacheValue: TSECacheValue;
   begin
     case A.Kind of
       sevkNumber:
@@ -8553,28 +8558,31 @@ var
         Result := TSEValueMap(B.VarMap).Get2(@A.VarString^.Data);
       sevkConstString:
         begin
-          if (CacheSite^.VarPointer = Pointer(TSEValueMap(B.VarMap).Shape)) and (Integer(CacheSite^.Ref) >= 0) then
+          {$ifdef SE_THREADS}
+          InterlockedExchange64(QWord(CacheValue), CacheSite^.VarData);
+          {$else}
+          QWord(CacheValue) := CacheSite^.VarData;
+          {$endif}
+          if (CacheValue.ID = TSEValueMap(B.VarMap).Shape.ID) and (CacheValue.Index >= 0) then
           begin
-            Result := TSEValueMap(B.VarMap)[CacheSite^.Ref];
+            Result := TSEValueMap(B.VarMap)[CacheValue.Index];
           end else
           begin
+            Result := TSEValueMap(B.VarMap).Get2(ConstStrings.Ptr(A.VarConstStringIndex)^.VarString, CacheValue.Index);
+            CacheValue.ID := TSEValueMap(B.VarMap).Shape.ID;
             {$ifdef SE_THREADS}
-            EnterCriticalSection(CS);
+            InterlockedExchange64(CacheSite^.VarData, QWord(CacheValue));
+            {$else}
+            CacheSite^.VarData := QWord(CacheValue);
             {$endif}
-            try
-              Result := TSEValueMap(B.VarMap).Get2(ConstStrings.Ptr(A.VarConstStringIndex)^.VarString, Integer(CacheSite^.Ref));
-              CacheSite^.VarPointer := Pointer(TSEValueMap(B.VarMap).Shape);
-            finally
-              {$ifdef SE_THREADS}
-              LeaveCriticalSection(CS);
-              {$endif}
-            end;
           end;
         end;
     end;
   end;
 
   procedure ResolveMapSet(const TV, C, B: TSEValue; const CacheSite: PSEValue); inline;
+  var
+    CacheValue: TSECacheValue;
   begin
     case C.Kind of
       sevkNumber:
@@ -8583,22 +8591,23 @@ var
         TSEValueMap(TV.VarMap).Set2(@C.VarString^.Data, B);
       sevkConstString:
         begin
-          if (CacheSite^.VarPointer = Pointer(TSEValueMap(TV.VarMap).Shape)) and (Integer(CacheSite^.Ref) >= 0) then
+          {$ifdef SE_THREADS}
+          InterlockedExchange64(QWord(CacheValue), CacheSite^.VarData);
+          {$else}
+          QWord(CacheValue) := CacheSite^.VarData;
+          {$endif}
+          if (CacheValue.ID = TSEValueMap(TV.VarMap).Shape.ID) and (CacheValue.Index >= 0) then
           begin
-            TSEValueMap(TV.VarMap)[CacheSite^.Ref] := B;
+            TSEValueMap(TV.VarMap)[CacheValue.Index] := B;
           end else
           begin
+            TSEValueMap(TV.VarMap).Set2(ConstStrings.Ptr(C.VarConstStringIndex)^.VarString, B, CacheValue.Index);
+            CacheValue.ID := TSEValueMap(TV.VarMap).Shape.ID;
             {$ifdef SE_THREADS}
-            EnterCriticalSection(CS);
+            InterlockedExchange64(CacheSite^.VarData, QWord(CacheValue));
+            {$else}
+            CacheSite^.VarData := QWord(CacheValue);
             {$endif}
-            try
-              TSEValueMap(TV.VarMap).Set2(ConstStrings.Ptr(C.VarConstStringIndex)^.VarString, B, Integer(CacheSite^.Ref));
-              CacheSite^.VarPointer := Pointer(TSEValueMap(TV.VarMap).Shape);
-            finally
-              {$ifdef SE_THREADS}
-              LeaveCriticalSection(CS);
-              {$endif}
-            end;
           end;
         end;
     end;
