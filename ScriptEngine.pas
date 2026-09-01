@@ -34,9 +34,9 @@ unit ScriptEngine;
 {.$define SE_LOG}
 // enable this if you need json support
 {$define SE_HAS_JSON}
-// Enable this if you want to hook profiler into the interpreter to watch function calls
-{$define SE_PROFILER}
-// enable this if you want to include this in castle game engine's profiler report
+// Enable this if you want to hook profiler into the interpreter to timing function calls
+{.$define SE_PROFILER}
+// enable this if you want to show interpreter in castle game engine's profiler report
 {.$define SE_CGE_PROFILER}
 // enable this to replace FP's TDirectory with avk959's TGChainHashMap. It is a lot faster than TDirectory.
 // requires https://github.com/avk959/LGenerics
@@ -63,6 +63,9 @@ uses
   {$endif}
   {$ifdef UNIX}
   BaseUnix, Unix,
+  {$endif}
+  {$ifdef LINUX}
+  Linux,
   {$endif}
   SysUtils, Classes, Generics.Collections, StrUtils, Types, DateUtils, RegExpr, {$ifdef SE_THREADS}syncobjs,{$endif}
   contnrs, Rtti, TypInfo,
@@ -676,6 +679,38 @@ type
   TSEVMCoroutineList = specialize TList<TSEVMCoroutine>;
 
   TSEJITBlockSignatureStack = specialize TStack<NativeInt>;
+
+  {$ifdef SE_PROFILER}
+  TSEProfilerItem = record
+    FuncName: String;
+    TimeStartInNSec: QWord;
+  end;
+
+  TSEProfilerReportItem = record
+    LowestTimeInNSec,
+    HighestTimeInNSec: QWord;
+    EmaTimeInNSec: Double;
+    CallCount: Qword;
+  end;
+
+  TSEProfilerReport = specialize TSEDictionary<String, TSEProfilerReportItem>;
+  TSEProfilerStack = specialize TStack<TSEProfilerItem>;
+  TSEProfiler = class
+    FStack: TSEProfilerStack;
+    FReport: TSEProfilerReport;
+    FLastMeasureTimeInNSec: QWord;
+    FLock: TRTLCriticalSection;
+  public
+    class function GetTimeInNSec: QWord;
+    constructor Create;
+    destructor Destroy; override;
+    procedure Push(const AFuncName: String);
+    procedure Pop;
+    procedure Lock;
+    procedure Unlock;
+    property Report: TSEProfilerReport read FReport;
+  end;
+  {$endif}
 
   TEvilC = class;
   TSEVM = class
@@ -1515,6 +1550,9 @@ var
   SEThreadStackSize,
   SEFrameSize,
   SETrapSize: Cardinal;
+  {$ifdef SE_PROFILER}
+  SEProfiler: TSEProfiler;
+  {$endif}
 
 implementation
 
@@ -7929,6 +7967,114 @@ begin
   end;
 end;
 
+{$ifdef SE_PROFILER}
+constructor TSEProfiler.Create;
+begin
+  inherited;
+  Self.FReport := TSEProfilerReport.Create;
+  Self.FStack := TSEProfilerStack.Create;
+  {$ifdef SE_THREADS}
+  InitCriticalSection(FLock);
+  {$endif}
+end;
+
+destructor TSEProfiler.Destroy;
+begin
+  {$ifdef SE_THREADS}
+  DoneCriticalSection(FLock);
+  {$endif}
+  Self.FStack.Free;
+  Self.FReport.Free;
+  inherited;
+end;
+
+{$ifdef WINDOWS}
+class function TSEProfiler.GetTimeInNSec: QWord;
+var
+  Freq, Counter: Int64;
+begin
+  QueryPerformanceFrequency(Freq);
+  QueryPerformanceCounter(Counter);
+  Result := Round((Counter * 1000000000.0) / Freq);
+end;
+{$else}
+class function TSEProfiler.GetTimeInNSec: QWord;
+var
+  TS: TTimespec;
+begin
+  clock_gettime(CLOCK_MONOTONIC, @ts);
+  Result := QWord(TS.tv_sec) * 1000000000 + TS.tv_nsec;
+end;
+{$endif}
+
+procedure TSEProfiler.Lock;
+begin
+  {$ifdef SE_THREADS}
+  EnterCriticalSection(FLock);
+  {$endif}
+end;
+
+procedure TSEProfiler.Unlock;
+begin
+  {$ifdef SE_THREADS}
+  LeaveCriticalSection(FLock);
+  {$endif}
+end;
+
+procedure TSEProfiler.Push(const AFuncName: String);
+var
+  Item: TSEProfilerItem;
+begin
+  {$ifdef SE_THREADS}
+  Self.Lock;
+  {$endif}
+  try
+    Item.FuncName := AFuncName;
+    Item.TimeStartInNSec := TSEProfiler.GetTimeInNSec;
+    Self.FStack.Push(Item);
+  finally
+    {$ifdef SE_THREADS}
+    Self.Unlock;
+    {$endif}
+  end;
+end;
+
+procedure TSEProfiler.Pop;
+var
+  Item: TSEProfilerItem;
+  ReportItem: TSEProfilerReportItem;
+  TimeInNSec: QWord;
+begin
+  {$ifdef SE_THREADS}
+  Self.Lock;
+  {$endif}
+  try
+    Item := Self.FStack.Pop;
+    TimeInNSec := TSEProfiler.GetTimeInNSec - Item.TimeStartInNSec;
+
+    ReportItem.HighestTimeInNSec := 0;
+    ReportItem.EmaTimeInNSec := TimeInNSec;
+    ReportItem.LowestTimeInNSec := $1FFFFFFFFFFFFFFF;
+    ReportItem.CallCount := 0;
+
+    if Self.FReport.{$ifdef SE_MAP_AVK959}Contains{$else}ContainsKey{$endif}(Item.FuncName) then
+    begin
+      ReportItem := Self.FReport[Item.FuncName];
+    end;
+
+    Inc(ReportItem.CallCount);
+    ReportItem.EmaTimeInNSec := (ReportItem.EmaTimeInNSec + TimeInNSec) / 2;
+    ReportItem.HighestTimeInNSec := Max(ReportItem.HighestTimeInNSec, TimeInNSec);
+    ReportItem.LowestTimeInNSec := Min(ReportItem.LowestTimeInNSec, TimeInNSec);
+    Self.FReport.AddOrSetValue(Item.FuncName, ReportItem);
+  finally
+    {$ifdef SE_THREADS}
+    Self.Unlock;
+    {$endif}
+  end;
+end;
+{$endif}
+
 constructor TSEVM.Create;
 begin
   inherited;
@@ -10328,12 +10474,18 @@ labelStart:
         labelCallNative:
           ArgCount := NativeInt(CodePtrLocal[2].VarPointer);
           StackPtrLocal := StackPtrLocal - ArgCount;
+          {$ifdef SE_PROFILER}
+          SEProfiler.Push(FuncNativeInfoPtrLocal[NativeInt(CodePtrLocal[1].VarPointer)].Name);
+          {$endif}
           TV := TSEFunc(FuncNativeInfoPtrLocal[NativeInt(CodePtrLocal[1].VarPointer)].Func)(Self, StackPtrLocal, ArgCount, This);
           if IsDone then
           begin
             Exit;
           end;
           Push(TV);
+          {$ifdef SE_PROFILER}
+          SEProfiler.Pop;
+          {$endif}
           GC.CheckForGCFast;
           Inc(CodePtrLocal, 4);
           DispatchGoto;
@@ -10342,6 +10494,9 @@ labelStart:
         begin
         labelCallScript:
           FuncScriptInfo := @FuncScriptInfoPtrLocal[NativeUInt(CodePtrLocal[1].VarPointer)];
+          {$ifdef SE_PROFILER}
+          SEProfiler.Push(FuncScriptInfo^.Name);
+          {$endif}
           Inc(FramePtrLocal);
           if FramePtrLocal > @Self.Frame[Self.FrameSize - 1] then
             raise Exception.Create('Too much recursion');
@@ -10357,6 +10512,9 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opPopFrame:{$endif}
         begin
         labelPopFrame:
+          {$ifdef SE_PROFILER}
+          SEProfiler.Pop;
+          {$endif}
           CodePtrLocal := FramePtrLocal^.CodePtr;
           StackPtrLocal := FramePtrLocal^.StackPtr;
           CodeSegmentIndexLocal := FramePtrLocal^.CodeSegmentIndex;
@@ -15091,6 +15249,9 @@ initialization
   {$ifdef SE_THREADS}
   InitCriticalSection(CS);
   {$endif}
+  {$ifdef SE_PROFILER}
+  SEProfiler := TSEProfiler.Create;
+  {$endif}
   FS := FormatSettings;
   FS.DecimalSeparator := '.';
   SENull.Kind := sevkNull;
@@ -15146,6 +15307,9 @@ finalization
   GC.Free;
   ScriptCacheMap.Free;
   DynlibMap.Free;
+  {$ifdef SE_PROFILER}
+  SEProfiler.Free;
+  {$endif}
   {$ifdef SE_THREADS}
   DoneCriticalSection(CS);
   {$endif}

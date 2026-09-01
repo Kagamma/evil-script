@@ -39,6 +39,7 @@ procedure TSEStackTraceHandler.PrintVariables(Message: String; StackTraceArray: 
 var
   I: Integer;
 begin
+  Exit;
   for I := 0 to Length(StackTraceArray) - 1 do
   begin
     PrintNode(True, @StackTraceArray[I], '  ');
@@ -54,7 +55,10 @@ var
   IsP: Boolean = True;
   IsJ: Boolean = True;
   I: Integer;
-  AsmStr: String;
+  AsmStr, S: String;
+  {$ifdef SE_PROFILER}
+  Item: TSEProfilerReportItem;
+  {$endif}
 
 begin
   if ParamCount < 1 then
@@ -104,7 +108,21 @@ begin
         SEDisAsm(SE.VM, AsmStr);
         Writeln(AsmStr);
       end else
+      begin
         SE.Exec;
+        {$ifdef SE_PROFILER}
+        Writeln('+--------------------+-------------+-------------+-------------+-------------+');
+        Writeln('|              Name  |      Count  |    Min (ms) |    Max (ms) |    Ema (ms) |');
+        Writeln('+--------------------+-------------+-------------+-------------+-------------+');
+        for S in SEProfiler.Report.Keys do
+        begin
+          Item := SEProfiler.Report[S];
+          Writeln(Format('%-20s | %11d | %11.5f | %11.5f | %11.5f |',
+               [S, Item.CallCount, Item.LowestTimeInNSec / 1000000, Item.HighestTimeInNSec / 1000000, Item.EmaTimeInNSec / 1000000]));
+        end;
+        Writeln('+--------------------+-------------+-------------+-------------+-------------+');
+        {$endif}
+      end;
     except
      on E: Exception do
        Writeln(E.Message);
