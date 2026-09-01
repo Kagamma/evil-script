@@ -46,7 +46,9 @@ unit ScriptEngine;
   {$define SE_THREADS}
 {$endif}
 {$ifdef CPU64}
-  {$align 16}
+  {$ifdef Unix}
+    {$align 16}
+  {$endif}
 {$endif}
 {$ifdef CPU32}
   {$align 4}
