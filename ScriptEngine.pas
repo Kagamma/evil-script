@@ -9738,11 +9738,11 @@ var
         E.MovMemReg64(E.Mem(regR10, 0), regR15);
       end;
       // Check the next opcode to see if the next one is also a JITBlockPotential
-      Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
+      {Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
       if Op = opJITBlockPotential then
       begin
         Result := JITHandler(JitCodePtrBase, @JitCodePtrLocal[BIndex], E);
-      end else
+      end else}
       begin
         //
         if (Result = STATUS_INVALID) or (Result = STATUS_OVERFLOW) then
