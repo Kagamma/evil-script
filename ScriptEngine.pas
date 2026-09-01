@@ -226,7 +226,7 @@ type
   TSEFuncKind = (sefkNative, sefkScript, sefkImport);
 
   PSEValue = ^TSEValue;
-  TSEValue = record
+  TSEValue = packed record
     Ref: Cardinal;
     case Kind: TSEValueKind of
       sevkRawData:
@@ -8093,7 +8093,7 @@ end;
 
 procedure TSEVM.Exec;
 type
-  TSEJITCodeProc = procedure(A, B, C, D: Pointer); sysv_abi_default;
+  TSEJITCodeProc = procedure; sysv_abi_default;
 var
   A, B, C, V,
   OA, OB, OC, OTV: PSEValue;
@@ -8914,17 +8914,17 @@ var
       if IsRoot then
       begin
         // R15 = CodePtrLocal
-        E.MovRegMem64(regR15, E.Mem(regRDI, 0));
+        //E.MovRegMem64(regR15, E.Mem(regRDI, 0));
         { R13 = @StackPtr }
-        E.MovRegReg64(regR13, regRSI);
+        //E.MovRegReg64(regR13, regRSI);
         { R14 = StackPtr }
-        E.MovRegMem64(regR14, E.Mem(regR13, 0));
+        //E.MovRegMem64(regR14, E.Mem(regR13, 0));
         { R12 = GlobalVar }
-        E.MovRegMem64(regR12, E.Mem(regRDX, 0));
+        //E.MovRegMem64(regR12, E.Mem(regRDX, 0));
         { R11 = FramePtr}
-        E.MovRegMem64(regR11, E.Mem(regRCX, 0));
+        //E.MovRegMem64(regR11, E.Mem(regRCX, 0));
         // R10 = @CodePtrLocal
-        E.MovRegReg64(regR10, regRDI);
+        //E.MovRegReg64(regR10, regRDI);
       end;
      // Writeln('JIT from ', BIndex, ' to ', BFinish);
       while BIndex <= BFinish do
@@ -9740,7 +9740,7 @@ var
           E.MovMemReg64(E.Mem(regR10, 0), regR15);
         end;
         // Check the next opcode to see if the next one is also a JITBlockPotential
-        {Inc(BIndex, OpcodeSizes[Op]);
+        {
         Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
         if Op = opJITBlockPotential then
         begin
@@ -9754,7 +9754,8 @@ var
             JitCodePtrLocal[1] := nil;
           end else
           begin
-            E.Ret;
+            E.JmpAbsolute(regRAX, DispatchTable[TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer))]);
+            //E.Ret;
             // Patch the code to pass the memory block
             JitCodePtrLocal[0] := Pointer(opJITBlock);
             JitCodePtrLocal[1] := E.MakeExecutable(Self.Binaries.Value^.Data[Self.CodeSegmentIndex].JITBlockList);
@@ -9842,20 +9843,20 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opJITBlock:{$endif}
         begin
         labelJITBlock:
-          TSEJITCodeProc(CodePtrLocal[1].VarPointer)(@CodePtrLocal, @StackPtrLocal, @GlobalLocal, @FramePtrLocal);
-          {P := CodePtrLocal[1].VarPointer;
+          {$ifdef SE_HAS_JIT}
+          P := CodePtrLocal[1].VarPointer;
           asm
             mov r15, CodePtrLocal
             mov r14, StackPtrLocal
             lea r13, StackPtrLocal
-            lea r12, GlobalLocal
-            lea r11, FramePtrLocal
+            mov r12, GlobalLocal
+            mov r11, FramePtrLocal
             lea r10, CodePtrLocal
-            mov rax, P
-            jmp rax
-          end;}
+            jmp qword ptr [r15 + 24]
+          end;
         labelJITBlockEnd:
           DispatchGoto;
+          {$endif}
         end;
       {$ifndef SE_COMPUTED_GOTO}opOperatorInc:{$endif}
         begin
