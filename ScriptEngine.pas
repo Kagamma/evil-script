@@ -8076,20 +8076,10 @@ begin
   end;
 end;
 
-{$ifdef UNIX}
-var
-  TempValue: TSEValue;
-
-function SEMapGetJIT(P: Pointer; I: NativeInt): TSEValue; sysv_abi_default;
-begin
-  TempValue := TSEValueMap(P).Get2(I);
-end;
-{$else}
 function SEMapGetJIT(P: Pointer; I: NativeInt): TSEValue; sysv_abi_default;
 begin
   Result := TSEValueMap(P).Get2(I);
 end;
-{$endif}
 
 procedure TSEVM.Exec;
 type
@@ -8982,20 +8972,11 @@ var
               E.PopReg(regR15);
             {$endif}
 
-            {$ifdef UNIX}
-              { Kind }
-              E.MovRegImm64(regRAX, NativeUInt(@TempValue));
-              E.MovRegMem32(regRBX, E.Mem(regRAX, NativeUInt(@TSEValue(nil^).Kind)));
-              { Value }
-              E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.Mem(regRAX, NativeUInt(@TSEValue(nil^).VarPointer)));
-            {$else}
-              { On Windows, RAX hold the lower part of TSEValue, while RDX hold the upper part }
-              { Kind }
-              E.ShrRegImm(regRAX, 32);
-              E.MovRegReg32(regRBX, regRAX);
-              { Result store in rdx, we push it onto the stack }
-              E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRDX);
-            {$endif}
+            { Kind }
+            E.ShrRegImm(regRAX, 32);
+            E.MovRegReg32(regRBX, regRAX);
+            { Result store in rdx, we push it onto the stack }
+            E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRDX);
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Inc(XMMStackPtr);
