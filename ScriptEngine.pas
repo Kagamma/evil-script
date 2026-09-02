@@ -728,7 +728,6 @@ type
     ThreadOwner: TSEVMThread;
     {$endif}
     CoroutineOwner: TSEVMCoroutine;
-    EnableJIT: Boolean;
     IsPaused: Boolean;
     IsDone: Boolean;
     IsYielded: Boolean;
