@@ -1643,6 +1643,7 @@ type
     class function SEArrayResize(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEArrayToMap(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEArrayFill(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+    class function SEArrayInsert(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SELerp(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SESLerp(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SESign(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -5334,6 +5335,15 @@ begin
   begin
     for I := 0 to TSEValueMap(Args[0].VarMap).Count - 1 do
       TSEValueMap(Args[0].VarMap)[I] := Args[1];
+  end;
+  Result := Args[0];
+end;
+
+class function TBuiltInFunction.SEArrayInsert(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+begin
+  if SEMapIsValidArray(Args[0]) then
+  begin
+    TSEValueMap(Args[0].VarMap).Insert(Round(Args[1].VarNumber), Args[2]);
   end;
   Result := Args[0];
 end;
@@ -10129,7 +10139,7 @@ labelStart:
         labelOperatorConcat:
           B := Pop;
           A := Pop;
-          if StringRefCount(A^.VarString^.Data) <= 2 then
+          if (A^.VarString^.Data <> '') and (StringRefCount(A^.VarString^.Data) <= 2) then
             A^.VarString^.Data := A^.VarString^.Data + B^.VarString^.Data
           else
             GC.AllocString(StackPtrLocal, A^.VarString^.Data + B^.VarString^.Data);
@@ -10271,7 +10281,7 @@ labelStart:
         labelOperatorConcat1:
           A := Pop;
           B := GetVariable(CodePtrLocal[1], {P}CodePtrLocal[2].VarPointer);
-          if StringRefCount(A^.VarString^.Data) <= 1 then
+          if (A^.VarString^.Data <> '') and (StringRefCount(A^.VarString^.Data) <= 2) then
             A^.VarString^.Data := A^.VarString^.Data + B^.VarString^.Data
           else
             GC.AllocString(StackPtrLocal, A^.VarString^.Data + B^.VarString^.Data);
@@ -11012,6 +11022,7 @@ begin
     Self.RegisterFunc('array_fill', @TBuiltInFunction(nil).SEArrayFill, 2);
     Self.RegisterFunc('array_delete', @TBuiltInFunction(nil).SEMapKeyDelete, 2);
     Self.RegisterFunc('array_clear', @TBuiltInFunction(nil).SEMapClear, 1);
+    Self.RegisterFunc('array_insert', @TBuiltInFunction(nil).SEArrayInsert, 3);
     Self.RegisterFunc('sign', @TBuiltInFunction(nil).SESign, 1, [sevkNumber]);
     Self.RegisterFunc('min', @TBuiltInFunction(nil).SEMin, -1, [sevkNumber]);
     Self.RegisterFunc('max', @TBuiltInFunction(nil).SEMax, -1, [sevkNumber]);
