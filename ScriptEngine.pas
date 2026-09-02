@@ -14612,7 +14612,7 @@ var
         IsLocal := True;
         Token := PeekAtNextTokenExpected([tkIdent]);
       end;
-      if PeekAtNextNextToken.Kind = tkEqual then
+      if (PeekAtNextNextToken.Kind = tkEqual) or (PeekAtNextNextToken.Kind = tkColon) then
       begin
         ParseIdent(Token, False, IsLocal);
       end else
