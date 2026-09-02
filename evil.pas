@@ -112,13 +112,13 @@ begin
         SE.Exec;
         {$ifdef SE_PROFILER}
         Writeln('+------------------------------+-------------+-------------+-------------+-------------+');
-        Writeln('|                        Name  |      Count  |    Min (ms) |    Max (ms) |    Ema (ms) |');
+        Writeln('|                        Name  |      Count  |    Min (ms) |    Max (ms) |    Avg (ms) |');
         Writeln('+------------------------------+-------------+-------------+-------------+-------------+');
         for S in SEProfiler.Report.Keys do
         begin
           Item := SEProfiler.Report[S];
           Writeln(Format('| %-28s | %11d | %11.5f | %11.5f | %11.5f |',
-               [S, Item.CallCount, Item.LowestTimeInNSec / 1000000, Item.HighestTimeInNSec / 1000000, Item.EmaTimeInNSec / 1000000]));
+               [S, Item.CallCount, Item.LowestTimeInNSec / 1000000, Item.HighestTimeInNSec / 1000000, Item.TotalTimeInNSec / 1000000 / Item.CallCount]));
         end;
         Writeln('+------------------------------+-------------+-------------+-------------+-------------+');
         {$endif}

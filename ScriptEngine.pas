@@ -687,14 +687,16 @@ type
   end;
 
   TSEProfilerReportItem = record
+    Name: String;
     LowestTimeInNSec,
-    HighestTimeInNSec: QWord;
-    EmaTimeInNSec: Double;
-    CallCount: Qword;
+    HighestTimeInNSec,
+    TotalTimeInNSec: QWord;
+    CallCount: Cardinal;
   end;
 
   TSEProfilerReport = specialize TSEDictionary<String, TSEProfilerReportItem>;
   TSEProfilerStack = specialize TStack<TSEProfilerItem>;
+  TSEProfilerReportList = specialize TList<TSEProfilerReportItem>;
   TSEProfiler = class
     FReport: TSEProfilerReport;
     FLastMeasureTimeInNSec: QWord;
@@ -704,6 +706,7 @@ type
     constructor Create;
     destructor Destroy; override;
     procedure AddReport(const Item: TSEProfilerItem);
+    procedure Clear;
     procedure Lock;
     procedure Unlock;
     property Report: TSEProfilerReport read FReport;
@@ -8033,7 +8036,7 @@ begin
     TimeInNSec := TSEProfiler.GetTimeInNSec - Item.TimeStartInNSec;
 
     ReportItem.HighestTimeInNSec := 0;
-    ReportItem.EmaTimeInNSec := TimeInNSec;
+    ReportItem.TotalTimeInNSec := 0;
     ReportItem.LowestTimeInNSec := $1FFFFFFFFFFFFFFF;
     ReportItem.CallCount := 0;
 
@@ -8043,10 +8046,24 @@ begin
     end;
 
     Inc(ReportItem.CallCount);
-    ReportItem.EmaTimeInNSec := (ReportItem.EmaTimeInNSec + TimeInNSec) / 2;
+    ReportItem.TotalTimeInNSec := ReportItem.TotalTimeInNSec + TimeInNSec;
     ReportItem.HighestTimeInNSec := Max(ReportItem.HighestTimeInNSec, TimeInNSec);
     ReportItem.LowestTimeInNSec := Min(ReportItem.LowestTimeInNSec, TimeInNSec);
     Self.FReport.AddOrSetValue(Item.FuncName, ReportItem);
+  finally
+    {$ifdef SE_THREADS}
+    Self.Unlock;
+    {$endif}
+  end;
+end;
+
+procedure TSEProfiler.Clear;
+begin
+  {$ifdef SE_THREADS}
+  Self.Lock;
+  {$endif}
+  try
+    Self.FReport.Clear;
   finally
     {$ifdef SE_THREADS}
     Self.Unlock;
