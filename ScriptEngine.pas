@@ -10478,7 +10478,7 @@ labelStart:
           ArgCount := NativeInt(CodePtrLocal[2].VarPointer);
           StackPtrLocal := StackPtrLocal - ArgCount;
           {$ifdef SE_PROFILER}
-          SEProfileItem.FuncName := FuncNativeInfoPtrLocal[NativeInt(CodePtrLocal[1].VarPointer)].Name + ':' + Self.Name;
+          SEProfileItem.FuncName := Self.Name + ':' + FuncNativeInfoPtrLocal[NativeInt(CodePtrLocal[1].VarPointer)].Name;
           SEProfileItem.TimeStartInNSec := TSEProfiler.GetTimeInNSec;
           SEProfilerStack.Push(SEProfileItem);
           {$endif}
@@ -10500,7 +10500,7 @@ labelStart:
         labelCallScript:
           FuncScriptInfo := @FuncScriptInfoPtrLocal[NativeUInt(CodePtrLocal[1].VarPointer)];
           {$ifdef SE_PROFILER}
-          SEProfileItem.FuncName := FuncScriptInfo^.Name + ':' + Self.Name;
+          SEProfileItem.FuncName := Self.Name + ':' + FuncScriptInfo^.Name;
           SEProfileItem.TimeStartInNSec := TSEProfiler.GetTimeInNSec;
           SEProfilerStack.Push(SEProfileItem);
           {$endif}
@@ -14959,7 +14959,7 @@ begin
         Stack[I] := Args[I];
       end;
       {$ifdef SE_PROFILER}
-      Self.VM.SEProfileItem.FuncName := Self.FuncScriptList.Ptr(AIndex)^.Name + ':' + Self.VM.Name;
+      Self.VM.SEProfileItem.FuncName := Self.VM.Name + ':' + Self.FuncScriptList.Ptr(AIndex)^.Name;
       Self.VM.SEProfileItem.TimeStartInNSec := TSEProfiler.GetTimeInNSec;
       Self.VM.SEProfilerStack.Push(Self.VM.SEProfileItem);
       {$endif}
@@ -15036,7 +15036,7 @@ begin
           Stack[I] := Args[I];
         end;
         {$ifdef SE_PROFILER}
-        Self.VM.SEProfileItem.FuncName := Self.FuncScriptList.Ptr(AIndex)^.Name + ':' + Self.VM.Name;
+        Self.VM.SEProfileItem.FuncName := Self.VM.Name + ':' + Self.FuncScriptList.Ptr(AIndex)^.Name;
         Self.VM.SEProfileItem.TimeStartInNSec := TSEProfiler.GetTimeInNSec;
         Self.VM.SEProfilerStack.Push(Self.VM.SEProfileItem);
         {$endif}
