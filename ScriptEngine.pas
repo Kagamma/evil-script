@@ -183,6 +183,13 @@ type
     function Ptr(const Index: SizeInt): PTT; inline;
   end;
 
+  generic TSEStackPtr<TT> = class(specialize TStack<TT>)
+  public
+    type
+      PTT = ^TT;
+    function Ptr(const Index: SizeInt): PTT; inline;
+  end;
+
   TSEOpcodeList = class(specialize TSEListPtr<TSEOpcode>);
   TSEOpcodeInfoList = class(specialize TSEListPtr<TSEOpcodeInfo>);
 
@@ -695,7 +702,7 @@ type
   end;
 
   TSEProfilerReport = specialize TSEDictionary<String, TSEProfilerReportItem>;
-  TSEProfilerStack = specialize TSEListPtr<TSEProfilerItem>;
+  TSEProfilerStack = specialize TSEStackPtr<TSEProfilerItem>;
   TSEProfilerReportList = specialize TSEListPtr<TSEProfilerReportItem>;
   TSEProfiler = class
     FReport: TSEProfilerReport;
@@ -6284,6 +6291,11 @@ begin
   Result := @FItems[Index];
 end;
 
+function TSEStackPtr.Ptr(const Index: SizeInt): PTT;
+begin
+  Result := @FItems[Index];
+end;
+
 // ----- Fast inline TSEValue operations -----
 
 procedure SEValueAdd(out R: TSEValue; constref V1, V2: TSEValue); overload;
@@ -9938,9 +9950,10 @@ begin
   {$ifdef SE_PROFILER}
   if (Self.SEProfilerStack.Count > 0) and (Self.YieldCompensated > 0) then
   begin
+    J := TSEProfiler.GetTimeInNSec - Self.YieldCompensated;
     for I := 0 to Self.SEProfilerStack.Count - 1 do
     begin
-      Self.SEProfilerStack.Ptr(I)^.TimeStartInNSec := Self.SEProfilerStack.Ptr(I)^.TimeStartInNSec + (TSEProfiler.GetTimeInNSec - Self.YieldCompensated);
+      Self.SEProfilerStack.Ptr(I)^.TimeStartInNSec := Self.SEProfilerStack.Ptr(I)^.TimeStartInNSec + J;
     end;
     Self.YieldCompensated := 0;
   end;
@@ -10492,7 +10505,7 @@ labelStart:
           {$ifdef SE_PROFILER}
           SEProfileItem.FuncName := Self.Name + ':' + FuncNativeInfoPtrLocal[NativeInt(CodePtrLocal[1].VarPointer)].Name;
           SEProfileItem.TimeStartInNSec := TSEProfiler.GetTimeInNSec;
-          SEProfilerStack.Add(SEProfileItem);
+          SEProfilerStack.Push(SEProfileItem);
           {$endif}
           TV := TSEFunc(FuncNativeInfoPtrLocal[NativeInt(CodePtrLocal[1].VarPointer)].Func)(Self, StackPtrLocal, ArgCount, This);
           if IsDone then
@@ -10501,8 +10514,7 @@ labelStart:
           end;
           Push(TV);
           {$ifdef SE_PROFILER}
-          SEProfiler.AddReport(SEProfilerStack[SEProfilerStack.Count - 1]);
-          SEProfilerStack.Delete(SEProfilerStack.Count - 1);
+          SEProfiler.AddReport(SEProfilerStack.Pop);
           {$endif}
           GC.CheckForGCFast;
           Inc(CodePtrLocal, 4);
@@ -10515,7 +10527,7 @@ labelStart:
           {$ifdef SE_PROFILER}
           SEProfileItem.FuncName := Self.Name + ':' + FuncScriptInfo^.Name;
           SEProfileItem.TimeStartInNSec := TSEProfiler.GetTimeInNSec;
-          SEProfilerStack.Add(SEProfileItem);
+          SEProfilerStack.Push(SEProfileItem);
           {$endif}
           Inc(FramePtrLocal);
           if FramePtrLocal > @Self.Frame[Self.FrameSize - 1] then
@@ -10533,8 +10545,7 @@ labelStart:
         begin
         labelPopFrame:
           {$ifdef SE_PROFILER}
-          SEProfiler.AddReport(SEProfilerStack[SEProfilerStack.Count - 1]);
-          SEProfilerStack.Delete(SEProfilerStack.Count - 1);
+          SEProfiler.AddReport(SEProfilerStack.Pop);
           {$endif}
           CodePtrLocal := FramePtrLocal^.CodePtr;
           StackPtrLocal := FramePtrLocal^.StackPtr;
@@ -14980,7 +14991,7 @@ begin
       Self.VM.YieldCompensated := 0;
       Self.VM.SEProfileItem.FuncName := Self.VM.Name + ':' + Self.FuncScriptList.Ptr(AIndex)^.Name;
       Self.VM.SEProfileItem.TimeStartInNSec := TSEProfiler.GetTimeInNSec;
-      Self.VM.SEProfilerStack.Add(Self.VM.SEProfileItem);
+      Self.VM.SEProfilerStack.Push(Self.VM.SEProfileItem);
       {$endif}
       Self.VM.Exec;
       Exit(Stack[-1]);
@@ -15058,7 +15069,7 @@ begin
         Self.VM.YieldCompensated := 0;
         Self.VM.SEProfileItem.FuncName := Self.VM.Name + ':' + Self.FuncScriptList.Ptr(AIndex)^.Name;
         Self.VM.SEProfileItem.TimeStartInNSec := TSEProfiler.GetTimeInNSec;
-        Self.VM.SEProfilerStack.Add(Self.VM.SEProfileItem);
+        Self.VM.SEProfilerStack.Push(Self.VM.SEProfileItem);
         {$endif}
         Self.VM.Exec;
         if Self.VM.IsDone then
