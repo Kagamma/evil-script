@@ -722,6 +722,7 @@ type
     {$ifdef SE_PROFILER}
     SEProfilerStack: TSEProfilerStack;
     SEProfileItem: TSEProfilerItem;
+    YieldCompensated: Int64;
     {$endif}
     {$ifdef SE_THREADS}
     ThreadOwner: TSEVMThread;
@@ -1555,6 +1556,7 @@ var
   SEThreadStackSize,
   SEFrameSize,
   SETrapSize: Cardinal;
+  ShapeManager: TSEShapeManager;
   {$ifdef SE_PROFILER}
   SEProfiler: TSEProfiler;
   {$endif}
@@ -1754,7 +1756,6 @@ var
   ConstStrings: TSEValueList;
   ConstStringsLookup: TSEStringLookupMap;
   Negative2QWords: array[0..1] of QWord = ($8000000000000000, $8000000000000000);
-  ShapeManager: TSEShapeManager;
 
 {$ifdef SE_HAS_JIT}
 { =====================================================================
@@ -9934,6 +9935,17 @@ begin
     CodePtrLocal := Self.Binaries.Value^.Data[Self.CodeSegmentIndex].Ptr(0);
   StackPtrLocal := Self.StackPtr;
   FramePtrLocal := Self.FramePtr;
+
+  {$ifdef SE_PROFILER}
+  if (Self.SEProfilerStack.Count > 0) and (Self.YieldCompensated > 0) then
+  begin
+    Self.SEProfileItem := Self.SEProfilerStack.Pop;
+    Self.SEProfileItem.TimeStartInNSec := Self.SEProfileItem.TimeStartInNSec + (TSEProfiler.GetTimeInNSec - Self.YieldCompensated);
+    Self.SEProfilerStack.Push(Self.SEProfileItem);
+    Self.YieldCompensated := 0;
+  end;
+  {$endif}
+
   GC.CheckForGC;
 
 labelStart:
@@ -10634,6 +10646,10 @@ labelStart:
           Self.StackPtr := StackPtrLocal;
           Self.FramePtr := FramePtrLocal;
           Self.CodeSegmentIndex := CodeSegmentIndexLocal;
+          {$ifdef SE_PROFILER}
+          if Self.SEProfilerStack.Count > 0 then
+            Self.YieldCompensated := TSEProfiler.GetTimeInNSec;
+          {$endif}
           Exit;
         end;
       {$ifndef SE_COMPUTED_GOTO}opHlt:{$endif}
@@ -14959,6 +14975,7 @@ begin
         Stack[I] := Args[I];
       end;
       {$ifdef SE_PROFILER}
+      Self.VM.YieldCompensated := 0;
       Self.VM.SEProfileItem.FuncName := Self.VM.Name + ':' + Self.FuncScriptList.Ptr(AIndex)^.Name;
       Self.VM.SEProfileItem.TimeStartInNSec := TSEProfiler.GetTimeInNSec;
       Self.VM.SEProfilerStack.Push(Self.VM.SEProfileItem);
@@ -15036,6 +15053,7 @@ begin
           Stack[I] := Args[I];
         end;
         {$ifdef SE_PROFILER}
+        Self.VM.YieldCompensated := 0;
         Self.VM.SEProfileItem.FuncName := Self.VM.Name + ':' + Self.FuncScriptList.Ptr(AIndex)^.Name;
         Self.VM.SEProfileItem.TimeStartInNSec := TSEProfiler.GetTimeInNSec;
         Self.VM.SEProfilerStack.Push(Self.VM.SEProfileItem);
