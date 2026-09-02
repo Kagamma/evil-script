@@ -695,8 +695,8 @@ type
   end;
 
   TSEProfilerReport = specialize TSEDictionary<String, TSEProfilerReportItem>;
-  TSEProfilerStack = specialize TStack<TSEProfilerItem>;
-  TSEProfilerReportList = specialize TList<TSEProfilerReportItem>;
+  TSEProfilerStack = specialize TSEListPtr<TSEProfilerItem>;
+  TSEProfilerReportList = specialize TSEListPtr<TSEProfilerReportItem>;
   TSEProfiler = class
     FReport: TSEProfilerReport;
     FLastMeasureTimeInNSec: QWord;
@@ -9938,9 +9938,10 @@ begin
   {$ifdef SE_PROFILER}
   if (Self.SEProfilerStack.Count > 0) and (Self.YieldCompensated > 0) then
   begin
-    Self.SEProfileItem := Self.SEProfilerStack.Pop;
-    Self.SEProfileItem.TimeStartInNSec := Self.SEProfileItem.TimeStartInNSec + (TSEProfiler.GetTimeInNSec - Self.YieldCompensated);
-    Self.SEProfilerStack.Push(Self.SEProfileItem);
+    for I := 0 to Self.SEProfilerStack.Count - 1 do
+    begin
+      Self.SEProfilerStack.Ptr(I)^.TimeStartInNSec := Self.SEProfilerStack.Ptr(I)^.TimeStartInNSec + (TSEProfiler.GetTimeInNSec - Self.YieldCompensated);
+    end;
     Self.YieldCompensated := 0;
   end;
   {$endif}
@@ -10491,7 +10492,7 @@ labelStart:
           {$ifdef SE_PROFILER}
           SEProfileItem.FuncName := Self.Name + ':' + FuncNativeInfoPtrLocal[NativeInt(CodePtrLocal[1].VarPointer)].Name;
           SEProfileItem.TimeStartInNSec := TSEProfiler.GetTimeInNSec;
-          SEProfilerStack.Push(SEProfileItem);
+          SEProfilerStack.Add(SEProfileItem);
           {$endif}
           TV := TSEFunc(FuncNativeInfoPtrLocal[NativeInt(CodePtrLocal[1].VarPointer)].Func)(Self, StackPtrLocal, ArgCount, This);
           if IsDone then
@@ -10500,7 +10501,8 @@ labelStart:
           end;
           Push(TV);
           {$ifdef SE_PROFILER}
-          SEProfiler.AddReport(SEProfilerStack.Pop);
+          SEProfiler.AddReport(SEProfilerStack[SEProfilerStack.Count - 1]);
+          SEProfilerStack.Delete(SEProfilerStack.Count - 1);
           {$endif}
           GC.CheckForGCFast;
           Inc(CodePtrLocal, 4);
@@ -10513,7 +10515,7 @@ labelStart:
           {$ifdef SE_PROFILER}
           SEProfileItem.FuncName := Self.Name + ':' + FuncScriptInfo^.Name;
           SEProfileItem.TimeStartInNSec := TSEProfiler.GetTimeInNSec;
-          SEProfilerStack.Push(SEProfileItem);
+          SEProfilerStack.Add(SEProfileItem);
           {$endif}
           Inc(FramePtrLocal);
           if FramePtrLocal > @Self.Frame[Self.FrameSize - 1] then
@@ -10531,7 +10533,8 @@ labelStart:
         begin
         labelPopFrame:
           {$ifdef SE_PROFILER}
-          SEProfiler.AddReport(SEProfilerStack.Pop);
+          SEProfiler.AddReport(SEProfilerStack[SEProfilerStack.Count - 1]);
+          SEProfilerStack.Delete(SEProfilerStack.Count - 1);
           {$endif}
           CodePtrLocal := FramePtrLocal^.CodePtr;
           StackPtrLocal := FramePtrLocal^.StackPtr;
@@ -14977,7 +14980,7 @@ begin
       Self.VM.YieldCompensated := 0;
       Self.VM.SEProfileItem.FuncName := Self.VM.Name + ':' + Self.FuncScriptList.Ptr(AIndex)^.Name;
       Self.VM.SEProfileItem.TimeStartInNSec := TSEProfiler.GetTimeInNSec;
-      Self.VM.SEProfilerStack.Push(Self.VM.SEProfileItem);
+      Self.VM.SEProfilerStack.Add(Self.VM.SEProfileItem);
       {$endif}
       Self.VM.Exec;
       Exit(Stack[-1]);
@@ -15055,7 +15058,7 @@ begin
         Self.VM.YieldCompensated := 0;
         Self.VM.SEProfileItem.FuncName := Self.VM.Name + ':' + Self.FuncScriptList.Ptr(AIndex)^.Name;
         Self.VM.SEProfileItem.TimeStartInNSec := TSEProfiler.GetTimeInNSec;
-        Self.VM.SEProfilerStack.Push(Self.VM.SEProfileItem);
+        Self.VM.SEProfilerStack.Add(Self.VM.SEProfileItem);
         {$endif}
         Self.VM.Exec;
         if Self.VM.IsDone then
