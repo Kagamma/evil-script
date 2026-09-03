@@ -8252,6 +8252,14 @@ begin
   Result := TSEValueMap(P).Get2(I);
 end;
 
+procedure SEMapSetJIT(P: Pointer; I: NativeInt; V: Double); sysv_abi_default;
+begin
+  Writeln(NativeUInt(P));
+  Writeln(I);
+  Writeln(V:0:2);
+  TSEValueMap(P).Set2(I, V);
+end;
+
 procedure TSEVM.Exec;
 type
   TSEJITCodeProc = procedure; sysv_abi_default;
@@ -9014,7 +9022,7 @@ var
 
     procedure GenGetGlobalVariable(IsValueOnly: Boolean = True);
     begin
-      { Load global variable index to R8 }
+      { Load global variable index to edx }
       // mov rdx, qword ptr [r15 + code[1].VarPointer]
       E.MovRegImm64(regRDX, SizeOf(TSEValue) * NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
       { Load global variable to stack }
@@ -9109,9 +9117,43 @@ var
             IsCodePtrAssigned := True;
             break;
           end;
+        opAssignGlobalMap: // TODO: Only handle 1-dimensional maps for now
+          begin
+            { Load global variable index to rcx }
+            // mov rcx, qword ptr [r15 + code[1].VarPointer]
+            E.MovRegImm64(regRCX, SizeOf(TSEValue) * NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
+            { TV, Load global variable to EDI }
+            // mov rdi, qword ptr [r12 + rcx + .VarNumber]
+            E.MovRegMem64(regRDI, E.MemIndex(regR12, regRCX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
+            { B, Load from stack }
+            // movq rdx,xmm?
+            E.MovRegFromSDXMM(regRDX, TXMMReg(XMMStackPtr - 1));
+            Dec(XMMStackPtr);
+            { C, Load from stack }
+            // cvttsd2si rsi,xmm?
+            E.CvttSD2SI(regRSI, TXMMReg(XMMStackPtr - 1));
+            Dec(XMMStackPtr);
+
+            {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
+              E.PushReg(regR15);
+              E.PushReg(regR14);
+              E.PushReg(regR13);
+              E.PushReg(regR12);
+              E.PushReg(regR10);
+            {$endif}
+            E.CallAbsolute(regRCX, @SEMapSetJIT);
+            {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
+              E.PopReg(regR10);
+              E.PopReg(regR12);
+              E.PopReg(regR13);
+              E.PopReg(regR14);
+              E.PopReg(regR15);
+            {$endif}
+            //
+            CodeSize := CodeSize + OpcodeSizes[Op];
+          end;
         opLoadMapItem:
           begin
-            { There's a difference in how FPC pass variables despite the function has SystemV ABI?}
             { A, either from code, or from stack }
             if JitCodePtrLocal[BIndex + 1].Kind <> sevkNull then
             begin
@@ -12175,7 +12217,11 @@ var
   procedure UpdateIdentPossibleKinds(const Ident: PSEIdent; const PossibleKinds: TSEValueKindSet);
   begin
     if not Ident^.IsForcedKind then
+    begin
       Ident^.PossibleKinds := Ident^.PossibleKinds + PossibleKinds;
+      if Ident^.PossibleKinds - [sevkNull] <> [] then
+        Ident^.PossibleKinds := Ident^.PossibleKinds - [sevkNull];
+    end;
   end;
 
   procedure MarkJITBlock;
@@ -12217,7 +12263,8 @@ var
         begin
           Op2 := TSEOpcode(NativeInt(Self.Binary.Ptr(BIndex2)^.VarPointer));
           if not (Op2 in [
-            opPushConst, opPushGlobalVar, opPushLocalVar, opLoadMapItem, opAssignGlobalVar, opAssignLocalVar,
+            opPushConst, opPushGlobalVar, opPushLocalVar, opLoadMapItem,
+            opAssignGlobalVar, opAssignLocalVar,// opAssignGlobalMap,
             opJITBlockPotential,
             opInc,
             opNegative,
@@ -14482,7 +14529,8 @@ var
             end else
               EmitPushVar(Ident^);
           end;
-          UpdateIdentPossibleKinds(Ident, AssignPossibleKinds + ParseExpr(False));
+          AssignPossibleKinds := AssignPossibleKinds + ParseExpr(False);
+          UpdateIdentPossibleKinds(Ident, AssignPossibleKinds);
           if Token.Kind = tkOpAssign then
           begin
             case Token.Value of
