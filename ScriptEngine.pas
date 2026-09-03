@@ -12346,8 +12346,8 @@ var
     if not Ident^.IsForcedKind then
     begin
       Ident^.PossibleKinds := Ident^.PossibleKinds + PossibleKinds;
-      if Ident^.PossibleKinds - [sevkNull] <> [] then
-        Ident^.PossibleKinds := Ident^.PossibleKinds - [sevkNull];
+      if Ident^.PossibleKinds - [sevkNull, sevkMap] <> [] then
+        Ident^.PossibleKinds := Ident^.PossibleKinds - [sevkNull, sevkMap];
     end;
   end;
 
@@ -13137,6 +13137,7 @@ var
           end;
         tkDot:
           begin
+            Result := Result + [sevkMap];
             PushConstCount := 0;
             IsTailed := True;
             NextToken;
@@ -13276,6 +13277,7 @@ var
                           end;
                         tkDot:
                           begin
+                            Result := Result + [sevkMap];
                             PushConstCount := 0;
                             IsTailed := True;
                             NextToken;
@@ -14601,6 +14603,7 @@ var
     ArrayIndexPossibleKinds,
     AssignPossibleKinds: TSEValueKindSet;
     IsJitPossibleForArray: Boolean = True;
+    IsDotNotation: Boolean = False;
   begin
     Ident := FindVar(Name);
     if Ident^.IsAssigned and Ident^.IsConst then
@@ -14633,6 +14636,7 @@ var
               Token2 := NextTokenExpected([tkIdent]);
               Emit([Pointer(opPushConst), CreateConstStringValue(Token2.Value)]);
               IsJitPossibleForArray := False;
+              IsDotNotation := True;
             end;
         end;
         Inc(ArgCount);
