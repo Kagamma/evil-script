@@ -8253,9 +8253,9 @@ begin
   Result := TSEValueMap(P).Get2(I);
 end;
 
-procedure SEMapSetJIT(P: Pointer; I: NativeInt; V: Double); sysv_abi_default;
+procedure SEMapSetJIT(P: Pointer; I, V: Double); sysv_abi_default;
 begin
-  TSEValueMap(P).Set2(I, V);
+  TSEValueMap(P).Set2(Round(I), V);
 end;
 
 procedure TSEVM.Exec;
@@ -9126,15 +9126,15 @@ var
             // mov rdi, qword ptr [r12 + rdi + .VarNumber]
             E.MovRegMem64(regRDI, E.MemIndex(regR12, regRDI, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
             { B, Load from stack }
-            // movq rdx,xmm?
-            E.MovSDXMM(regXMM0, TXMMReg(XMMStackPtr - 1));
+            // movq xmm1,xmm?
+            E.MovSDXMM(regXMM1, TXMMReg(XMMStackPtr - 1));
             Dec(XMMStackPtr);
-            { C, Load from actual stack }
-            // mov rsi, qword ptr [r14 + .VarNumber]
-            E.MovRegMem64(regRSI, E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)));
             { Decrease stack by 1 }
             E.SubRegImm32(regR14, SizeOf(TSEValue));
             E.MovMemReg64(E.Mem(regR13, 0), regR14);
+            { C, Load from actual stack }
+            // movq xmm0, qword ptr [r14 + .VarNumber]
+            E.MovSDXMMFromMem(regXMM0, E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)));
 
             {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
               E.PushReg(regR15);
@@ -9178,15 +9178,15 @@ var
             E.MovRegMem64(regRDI, E.MemIndex(regRDI, regRAX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
 
             { B, Load from stack }
-            // movq rdx,xmm?
-            E.MovSDXMM(regXMM0, TXMMReg(XMMStackPtr - 1));
+            // movq xmm1,xmm?
+            E.MovSDXMM(regXMM1, TXMMReg(XMMStackPtr - 1));
             Dec(XMMStackPtr);
-            { C, Load from actual stack }
-            // mov rsi, qword ptr [r14 + .VarNumber]
-            E.MovRegMem64(regRSI, E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)));
             { Decrease stack by 1 }
             E.SubRegImm32(regR14, SizeOf(TSEValue));
             E.MovMemReg64(E.Mem(regR13, 0), regR14);
+            { C, Load from actual stack }
+            // movq xmm0, qword ptr [r14 + .VarNumber]
+            E.MovSDXMMFromMem(regXMM0, E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)));
 
             {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
               E.PushReg(regR15);
@@ -14526,6 +14526,7 @@ var
     OpInfoPrev1: PSEOpcodeInfo;
     KindName: String;
     FirstExprOpIndex: Integer;
+    ArrayIndexPossibleKinds,
     AssignPossibleKinds: TSEValueKindSet;
     IsJitPossibleForArray: Boolean = True;
   begin
@@ -14548,8 +14549,9 @@ var
             begin
               NextToken;
               MarkJITBlock;
-              VerifyJITBlock(ParseExpr(False));
-              if not Self.FLastVerifyJITBlockResult then
+              ArrayIndexPossibleKinds := ParseExpr(False);
+              VerifyJITBlock(ArrayIndexPossibleKinds);
+              if ArrayIndexPossibleKinds - [sevkNumber] <> [] then
                 IsJitPossibleForArray := False;
               NextTokenExpected([tkSquareBracketClose]);
             end;
