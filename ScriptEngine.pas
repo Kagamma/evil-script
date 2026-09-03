@@ -10724,7 +10724,8 @@ labelStart:
         begin
         labelPopFrame:
           {$ifdef SE_PROFILER}
-          SEProfiler.AddReport(SEProfilerStack.Pop);
+          if SEProfilerStack.Count > 0 then
+            SEProfiler.AddReport(SEProfilerStack.Pop);
           {$endif}
           CodePtrLocal := FramePtrLocal^.CodePtr;
           StackPtrLocal := FramePtrLocal^.StackPtr;
