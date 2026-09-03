@@ -411,7 +411,7 @@ type
   end;
 
   TSECacheValue = record
-    ID: Integer;
+    ID: Cardinal;
     Index: Integer;
   end;
 
