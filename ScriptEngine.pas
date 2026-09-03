@@ -98,8 +98,10 @@ type
     opPopFrame,
     opAssignGlobalVar,
     opAssignGlobalMap,
+    opAssignGlobalMapAttr,
     opAssignLocalVar,
     opAssignLocalMap,
+    opAssignLocalMapAttr,
     opJumpEqualRel,
     opJumpEqual1Rel,
     opJumpUnconditionalRel,
@@ -873,8 +875,10 @@ const
     1, // opPopFrame,
     2, // opAssignGlobalVar,
     4, // opAssignGlobalMap, the last slot is used for inline cache
+    4, // opAssignGlobalMapAttr, the last slot is used for inline cache
     3, // opAssignLocalVar,
     5, // opAssignLocalMap, the last slot is used for inline cache
+    5, // opAssignLocalMapAttr, the last slot is used for inline cache
     2, // opJumpEqualRel,
     3, // opJumpEqual1Rel,
     2, // opJumpUnconditionalRel,
@@ -8283,6 +8287,29 @@ begin
   TSEValueMap(P).Set2(Round(I), V);
 end;
 
+procedure SEMapSetJITResolve(P: Pointer; I, V: Double; CacheSite: PSEValue); sysv_abi_default;
+var
+  CacheValue: TSECacheValue;
+begin
+  {$ifdef SE_THREADS}
+  InterlockedExchange64(QWord(CacheValue), CacheSite^.VarData);
+  {$else}
+  QWord(CacheValue) := CacheSite^.VarData;
+  {$endif}
+  if (CacheValue.ID = Cardinal(Pointer(TSEValueMap(P).Shape))) and (CacheValue.Index >= 0) then
+  begin
+    TSEValueMap(P)[CacheValue.Index] := V;
+  end else
+  begin
+    TSEValueMap(P).Set2(ConstStrings.Ptr(Round(I))^.VarString, V, CacheValue);
+    {$ifdef SE_THREADS}
+    InterlockedExchange64(CacheSite^.VarData, QWord(CacheValue));
+    {$else}
+    CacheSite^.VarData := QWord(CacheValue);
+    {$endif}
+  end;
+end;
+
 procedure TSEVM.Exec;
 type
   TSEJITCodeProc = procedure; sysv_abi_default;
@@ -8878,8 +8905,10 @@ label
   labelPopFrame,
   labelAssignGlobalVar,
   labelAssignGlobalMap,
+  labelAssignGlobalMapAttr,
   labelAssignLocalVar,
   labelAssignLocalMap,
+  labelAssignLocalMapAttr,
   labelJumpEqualRel,
   labelJumpEqual1Rel,
   labelJumpUnconditionalRel,
@@ -8958,8 +8987,10 @@ var
     @labelPopFrame,
     @labelAssignGlobalVar,
     @labelAssignGlobalMap,
+    @labelAssignGlobalMapAttr,
     @labelAssignLocalVar,
     @labelAssignLocalMap,
+    @labelAssignLocalMapAttr,
     @labelJumpEqualRel,
     @labelJumpEqual1Rel,
     @labelJumpUnconditionalRel,
@@ -9183,6 +9214,47 @@ var
           end;
         // TODO: Only handle 1-dimensional maps for now
         // TODO: Array index is from stack, this is wasteful and we should merge jit blocks in the future
+        opAssignGlobalMapAttr:
+          begin
+            { Load global variable index to RDI }
+            // mov rdi, qword ptr [r15 + code[1].VarPointer]
+            E.MovRegImm64(regRDI, SizeOf(TSEValue) * NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
+            { TV, Load global variable to RDI }
+            // mov rdi, qword ptr [r12 + rdi + .VarNumber]
+            E.MovRegMem64(regRDI, E.MemIndex(regR12, regRDI, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
+            { B, Load from stack }
+            // movq xmm1,xmm?
+            E.MovSDXMM(regXMM1, TXMMReg(XMMStackPtr - 1));
+            Dec(XMMStackPtr);
+            { Decrease stack by 1 }
+            E.SubRegImm32(regR14, SizeOf(TSEValue));
+            E.MovMemReg64(E.Mem(regR13, 0), regR14);
+            { C, Load from actual stack }
+            // movq xmm0, qword ptr [r14 + .VarNumber]
+            E.MovSDXMMFromMem(regXMM0, E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)));
+            { CacheSite }
+            E.MovRegImm64(regRSI, NativeUInt(@JitCodePtrLocal[BIndex + 3]));
+
+            {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
+              E.PushReg(regR15);
+              E.PushReg(regR14);
+              E.PushReg(regR13);
+              E.PushReg(regR12);
+              E.PushReg(regR10);
+            {$endif}
+            E.CallAbsolute(regRCX, @SEMapSetJITResolve);
+            {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
+              E.PopReg(regR10);
+              E.PopReg(regR12);
+              E.PopReg(regR13);
+              E.PopReg(regR14);
+              E.PopReg(regR15);
+            {$endif}
+            //
+            CodeSize := CodeSize + OpcodeSizes[Op];
+          end;
+        // TODO: Only handle 1-dimensional maps for now
+        // TODO: Array index is from stack, this is wasteful and we should merge jit blocks in the future
         opAssignLocalMap:
           begin
             { RDI = current frame }
@@ -9223,6 +9295,60 @@ var
               E.PushReg(regR10);
             {$endif}
             E.CallAbsolute(regRCX, @SEMapSetJIT);
+            {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
+              E.PopReg(regR10);
+              E.PopReg(regR12);
+              E.PopReg(regR13);
+              E.PopReg(regR14);
+              E.PopReg(regR15);
+            {$endif}
+            //
+            CodeSize := CodeSize + OpcodeSizes[Op];
+          end;
+        // TODO: Only handle 1-dimensional maps for now
+        // TODO: Array index is from stack, this is wasteful and we should merge jit blocks in the future
+        opAssignLocalMapAttr:
+          begin
+            { RDI = current frame }
+            // mov rdi, r11
+            E.MovRegReg64(regRDI, regR11);
+            if NativeUInt(JitCodePtrLocal[BIndex + 3].VarPointer) <> 0 then
+            begin
+              { RDI = current frame - relative index }
+              // sub rdi, frame
+              E.SubRegImm32(regRDI, NativeUInt(JitCodePtrLocal[BIndex + 3].VarPointer) * SizeOf(TSEFrame));
+            end;
+            { Load local vraiable index to RAX }
+            // mov rax, code[1].VarPointer
+            E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer) * SizeOf(TSEValue));
+            { RDI = current frame's stack pointer }
+            // mov rdi, qword ptr [rdi + .StackPtr]
+            E.MovRegMem64(regRDI, E.Mem(regRDI, NativeUInt(@TSEFrame(nil^).StackPtr)));
+            { TV, Load local variable to RDI }
+            // mov rdi, qword ptr [rdi + rax + .VarNumber]
+            E.MovRegMem64(regRDI, E.MemIndex(regRDI, regRAX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
+
+            { B, Load from stack }
+            // movq xmm1,xmm?
+            E.MovSDXMM(regXMM1, TXMMReg(XMMStackPtr - 1));
+            Dec(XMMStackPtr);
+            { Decrease stack by 1 }
+            E.SubRegImm32(regR14, SizeOf(TSEValue));
+            E.MovMemReg64(E.Mem(regR13, 0), regR14);
+            { C, Load from actual stack }
+            // movq xmm0, qword ptr [r14 + .VarNumber]
+            E.MovSDXMMFromMem(regXMM0, E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)));
+            { CacheSite }
+            E.MovRegImm64(regRSI, NativeUInt(@JitCodePtrLocal[BIndex + 4]));
+
+            {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
+              E.PushReg(regR15);
+              E.PushReg(regR14);
+              E.PushReg(regR13);
+              E.PushReg(regR12);
+              E.PushReg(regR10);
+            {$endif}
+            E.CallAbsolute(regRCX, @SEMapSetJITResolve);
             {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
               E.PopReg(regR10);
               E.PopReg(regR12);
@@ -10752,9 +10878,10 @@ labelStart:
           Inc(CodePtrLocal, 3);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opAssignGlobalMap:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opAssignGlobalMap, opAssignGlobalMapAttr:{$endif}
         begin
         labelAssignGlobalMap:
+        labelAssignGlobalMapAttr:
           A := @CodePtrLocal[1];
           TV := GetGlobalInt(NativeInt(A^.VarPointer))^;
           B := Pop;
@@ -10783,9 +10910,10 @@ labelStart:
           Inc(CodePtrLocal, 4);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opAssignLocalMap:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opAssignLocalMap, opAssignLocalMapAttr:{$endif}
         begin
         labelAssignLocalMap:
+        labelAssignLocalMapAttr:
           A := @CodePtrLocal[1];
           TV := GetLocalInt(NativeInt(A^.VarPointer), NativeInt(CodePtrLocal[3].VarPointer))^;
           B := Pop;
@@ -12392,7 +12520,9 @@ var
           Op2 := TSEOpcode(NativeInt(Self.Binary.Ptr(BIndex2)^.VarPointer));
           if not (Op2 in [
             opPushConst, opPushGlobalVar, opPushLocalVar, opLoadMapItem, opLoadMapAttr,
-            opAssignGlobalVar, opAssignLocalVar, opAssignGlobalMap, opAssignLocalMap,
+            opAssignGlobalVar, opAssignLocalVar,
+            opAssignGlobalMap, opAssignLocalMap,
+            opAssignGlobalMapAttr, opAssignLocalMapAttr,
             opJITBlockPotential,
             opInc,
             opNegative,
@@ -12443,12 +12573,21 @@ var
       Result := Emit([Pointer(opAssignGlobalVar), Pointer(Ident.Addr)]);
   end;
 
-  function EmitAssignArray(const Ident: TSEIdent; const ArgCount: NativeInt): NativeInt; inline;
+  function EmitAssignArray(const Ident: TSEIdent; const ArgCount: NativeInt; const IsAttr: Boolean = False): NativeInt; inline;
   begin
-    if Ident.Local > 0 then
-      Result := Emit([Pointer(opAssignLocalMap), Pointer(Ident.Addr), Pointer(ArgCount), Pointer(Self.FuncTraversal - Ident.Local), Pointer(1)])
-    else
-      Result := Emit([Pointer(opAssignGlobalMap), Pointer(Ident.Addr), Pointer(ArgCount), Pointer(1)]);
+    if not IsAttr then
+    begin
+      if Ident.Local > 0 then
+        Result := Emit([Pointer(opAssignLocalMap), Pointer(Ident.Addr), Pointer(ArgCount), Pointer(Self.FuncTraversal - Ident.Local), Pointer(1)])
+      else
+        Result := Emit([Pointer(opAssignGlobalMap), Pointer(Ident.Addr), Pointer(ArgCount), Pointer(1)]);
+    end else
+    begin
+      if Ident.Local > 0 then
+        Result := Emit([Pointer(opAssignLocalMapAttr), Pointer(Ident.Addr), Pointer(ArgCount), Pointer(Self.FuncTraversal - Ident.Local), Pointer(1)])
+      else
+        Result := Emit([Pointer(opAssignGlobalMapAttr), Pointer(Ident.Addr), Pointer(ArgCount), Pointer(1)]);
+    end;
   end;
 
   procedure Patch(const Addr: NativeInt; const Data: TSEValue); inline;
@@ -14636,7 +14775,6 @@ var
               NextToken;
               Token2 := NextTokenExpected([tkIdent]);
               Emit([Pointer(opPushConst), CreateConstStringValue(Token2.Value)]);
-              IsJitPossibleForArray := False;
               IsDotNotation := True;
             end;
         end;
@@ -14691,12 +14829,12 @@ var
           begin
             if (ArgCount = 1) and IsJitPossibleForArray then
             begin
-              EmitAssignArray(Ident^, ArgCount);
+              EmitAssignArray(Ident^, ArgCount, IsDotNotation);
               VerifyJITBlock(Ident^.PossibleKinds);
             end else
             begin
               VerifyJITBlock(Ident^.PossibleKinds);
-              EmitAssignArray(Ident^, ArgCount);
+              EmitAssignArray(Ident^, ArgCount, IsDotNotation);
             end;
           end else
           begin
