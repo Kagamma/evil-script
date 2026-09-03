@@ -105,47 +105,47 @@ type
     opJumpEqualOrGreater2Rel,
     opJumpEqualOrLesser2Rel,
 
-    opOperatorInc,
+    opInc,
 
-    opOperatorAdd0,
-    opOperatorMul0,
-    opOperatorDiv0,
+    opAdd0,
+    opMul0,
+    opDiv0,
 
-    opOperatorConcat1,
-    opOperatorAdd1,
-    opOperatorSub1,
-    opOperatorMul1,
-    opOperatorDiv1,
+    opConcat1,
+    opAdd1,
+    opSub1,
+    opMul1,
+    opDiv1,
 
-    opOperatorConcat,
-    opOperatorAdd,
-    opOperatorSub,
-    opOperatorMul,
-    opOperatorDiv,
-    opOperatorMod,
-    opOperatorNegative,
+    opConcat,
+    opAdd,
+    opSub,
+    opMul,
+    opDiv,
+    opMod,
+    opNegative,
 
-    opOperatorLesser0,
-    opOperatorLesserOrEqual0,
-    opOperatorGreater0,
-    opOperatorGreaterOrEqual0,
-    opOperatorEqual0,
-    opOperatorNotEqual0,
-    opOperatorAnd0,
-    opOperatorOr0,
+    opLesser0,
+    opLesserOrEqual0,
+    opGreater0,
+    opGreaterOrEqual0,
+    opEqual0,
+    opNotEqual0,
+    opAnd0,
+    opOr0,
 
-    opOperatorLesser,
-    opOperatorLesserOrEqual,
-    opOperatorGreater,
-    opOperatorGreaterOrEqual,
-    opOperatorEqual,
-    opOperatorNotEqual,
-    opOperatorAnd,
-    opOperatorOr,
-    opOperatorXor,
-    opOperatorNot,
-    opOperatorShiftLeft,
-    opOperatorShiftRight,
+    opLesser,
+    opLesserOrEqual,
+    opGreater,
+    opGreaterOrEqual,
+    opEqual,
+    opNotEqual,
+    opAnd,
+    opOr,
+    opXor,
+    opNot,
+    opShiftLeft,
+    opShiftRight,
 
     opPushConstFromConstList,
 
@@ -879,47 +879,47 @@ const
     6, // opJumpEqualOrGreater2Rel,
     6, // opJumpEqualOrLesser2Rel,
 
-    4, // opOperatorInc,
+    4, // opInc,
 
-    2, // opOperatorAdd0,
-    2, // opOperatorMul0,
-    2, // opOperatorDiv0,
+    2, // opAdd0,
+    2, // opMul0,
+    2, // opDiv0,
 
-    3, // opOperatorConcat1,
-    3, // opOperatorAdd1,
-    3, // opOperatorSub1,
-    3, // opOperatorMul1,
-    3, // opOperatorDiv1,
+    3, // opConcat1,
+    3, // opAdd1,
+    3, // opSub1,
+    3, // opMul1,
+    3, // opDiv1,
 
-    1, // opOperatorConcat,
-    1, // opOperatorAdd,
-    1, // opOperatorSub,
-    1, // opOperatorMul,
-    1, // opOperatorDiv,
-    1, // opOperatorMod,
-    1, // opOperatorNegative,
+    1, // opConcat,
+    1, // opAdd,
+    1, // opSub,
+    1, // opMul,
+    1, // opDiv,
+    1, // opMod,
+    1, // opNegative,
 
-    2, // opOperatorLesser0,
-    2, // opOperatorLesserOrEqual0,
-    2, // opOperatorGreater0,
-    2, // opOperatorGreaterOrEqual0,
-    2, // opOperatorEqual0,
-    2, // opOperatorNotEqual0,
-    2, // opOperatorAnd0,
-    2, // opOperatorOr0,
+    2, // opLesser0,
+    2, // opLesserOrEqual0,
+    2, // opGreater0,
+    2, // opGreaterOrEqual0,
+    2, // opEqual0,
+    2, // opNotEqual0,
+    2, // opAnd0,
+    2, // opOr0,
   
-    1, // opOperatorLesser,
-    1, // opOperatorLesserOrEqual,
-    1, // opOperatorGreater,
-    1, // opOperatorGreaterOrEqual,
-    1, // opOperatorEqual,
-    1, // opOperatorNotEqual,
-    1, // opOperatorAnd,
-    1, // opOperatorOr,
-    1, // opOperatorXor,
-    1, // opOperatorNot,
-    1, // opOperatorShiftLeft,
-    1, // opOperatorShiftRight,
+    1, // opLesser,
+    1, // opLesserOrEqual,
+    1, // opGreater,
+    1, // opGreaterOrEqual,
+    1, // opEqual,
+    1, // opNotEqual,
+    1, // opAnd,
+    1, // opOr,
+    1, // opXor,
+    1, // opNot,
+    1, // opShiftLeft,
+    1, // opShiftRight,
     2, // opPushConstFromConstList,
 
     4, // opCallRef,
@@ -8854,47 +8854,47 @@ label
   labelJumpEqualOrGreater2Rel,
   labelJumpEqualOrLesser2Rel,
 
-  labelOperatorInc, labelOperatorIncEnd,
+  labelInc, labelIncEnd,
 
-  labelOperatorAdd0,
-  labelOperatorMul0,
-  labelOperatorDiv0,
+  labelAdd0,
+  labelMul0,
+  labelDiv0,
 
-  labelOperatorConcat1,
-  labelOperatorAdd1,
-  labelOperatorSub1,
-  labelOperatorMul1,
-  labelOperatorDiv1,
+  labelConcat1,
+  labelAdd1,
+  labelSub1,
+  labelMul1,
+  labelDiv1,
 
-  labelOperatorConcat,
-  labelOperatorAdd,
-  labelOperatorSub,
-  labelOperatorMul,
-  labelOperatorDiv,
-  labelOperatorMod,
-  labelOperatorNegative,
+  labelConcat,
+  labelAdd,
+  labelSub,
+  labelMul,
+  labelDiv,
+  labelMod,
+  labelNegative,
 
-  labelOperatorLesser0,
-  labelOperatorLesserOrEqual0,
-  labelOperatorGreater0,
-  labelOperatorGreaterOrEqual0,
-  labelOperatorEqual0,
-  labelOperatorNotEqual0,
-  labelOperatorAnd0,
-  labelOperatorOr0,
+  labelLesser0,
+  labelLesserOrEqual0,
+  labelGreater0,
+  labelGreaterOrEqual0,
+  labelEqual0,
+  labelNotEqual0,
+  labelAnd0,
+  labelOr0,
 
-  labelOperatorLesser,
-  labelOperatorLesserOrEqual,
-  labelOperatorGreater,
-  labelOperatorGreaterOrEqual,
-  labelOperatorEqual,
-  labelOperatorNotEqual,
-  labelOperatorAnd,
-  labelOperatorOr,
-  labelOperatorXor,
-  labelOperatorNot,
-  labelOperatorShiftLeft,
-  labelOperatorShiftRight,
+  labelLesser,
+  labelLesserOrEqual,
+  labelGreater,
+  labelGreaterOrEqual,
+  labelEqual,
+  labelNotEqual,
+  labelAnd,
+  labelOr,
+  labelXor,
+  labelNot,
+  labelShiftLeft,
+  labelShiftRight,
   labelPushConstFromConstList,
 
   labelCallRef,
@@ -8933,47 +8933,47 @@ var
     @labelJumpEqualOrGreater2Rel,
     @labelJumpEqualOrLesser2Rel,
 
-    @labelOperatorInc,
+    @labelInc,
 
-    @labelOperatorAdd0,
-    @labelOperatorMul0,
-    @labelOperatorDiv0,
+    @labelAdd0,
+    @labelMul0,
+    @labelDiv0,
 
-    @labelOperatorConcat1,
-    @labelOperatorAdd1,
-    @labelOperatorSub1,
-    @labelOperatorMul1,
-    @labelOperatorDiv1,
+    @labelConcat1,
+    @labelAdd1,
+    @labelSub1,
+    @labelMul1,
+    @labelDiv1,
 
-    @labelOperatorConcat,
-    @labelOperatorAdd,
-    @labelOperatorSub,
-    @labelOperatorMul,
-    @labelOperatorDiv,
-    @labelOperatorMod,
-    @labelOperatorNegative,
+    @labelConcat,
+    @labelAdd,
+    @labelSub,
+    @labelMul,
+    @labelDiv,
+    @labelMod,
+    @labelNegative,
 
-    @labelOperatorLesser0,
-    @labelOperatorLesserOrEqual0,
-    @labelOperatorGreater0,
-    @labelOperatorGreaterOrEqual0,
-    @labelOperatorEqual0,
-    @labelOperatorNotEqual0,
-    @labelOperatorAnd0,
-    @labelOperatorOr0,
+    @labelLesser0,
+    @labelLesserOrEqual0,
+    @labelGreater0,
+    @labelGreaterOrEqual0,
+    @labelEqual0,
+    @labelNotEqual0,
+    @labelAnd0,
+    @labelOr0,
 
-    @labelOperatorLesser,
-    @labelOperatorLesserOrEqual,
-    @labelOperatorGreater,
-    @labelOperatorGreaterOrEqual,
-    @labelOperatorEqual,
-    @labelOperatorNotEqual,
-    @labelOperatorAnd,
-    @labelOperatorOr,
-    @labelOperatorXor,
-    @labelOperatorNot,
-    @labelOperatorShiftLeft,
-    @labelOperatorShiftRight,
+    @labelLesser,
+    @labelLesserOrEqual,
+    @labelGreater,
+    @labelGreaterOrEqual,
+    @labelEqual,
+    @labelNotEqual,
+    @labelAnd,
+    @labelOr,
+    @labelXor,
+    @labelNot,
+    @labelShiftLeft,
+    @labelShiftRight,
     @labelPushConstFromConstList,
 
     @labelCallRef,
@@ -9171,7 +9171,7 @@ var
             CodeSize := CodeSize + OpcodeSizes[Op];
             Inc(XMMStackPtr);
           end;
-        opOperatorAdd:
+        opAdd:
           begin
             E.AddSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
             //
@@ -9181,7 +9181,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
-        opOperatorSub:
+        opSub:
           begin
             E.SubSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
             //
@@ -9191,7 +9191,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
-        opOperatorMul:
+        opMul:
           begin
             E.MulSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
             //
@@ -9201,7 +9201,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
-        opOperatorDiv:
+        opDiv:
           begin
             E.DivSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
             //
@@ -9211,7 +9211,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
-        opOperatorMod:
+        opMod:
           begin
             // A - B * Trunc(A / B)
             E.MovRegFromSDXMM(regRAX, TXMMReg(XMMStackPtr - 2));
@@ -9231,7 +9231,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
-        opOperatorNegative:
+        opNegative:
           begin
             // mov r8, @Negative2QWords
             E.MovRegImm64(regRAX, NativeUInt(@Negative2QWords[0]));
@@ -9243,7 +9243,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
-        opOperatorAnd:
+        opAnd:
           begin
             E.CvttSD2SI(regRCX, TXMMReg(XMMStackPtr - 1));
             E.CvttSD2SI(regRAX, TXMMReg(XMMStackPtr - 2));
@@ -9256,7 +9256,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
-        opOperatorOr:
+        opOr:
           begin
             E.CvttSD2SI(regRCX, TXMMReg(XMMStackPtr - 1));
             E.CvttSD2SI(regRAX, TXMMReg(XMMStackPtr - 2));
@@ -9269,7 +9269,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
-        opOperatorXor:
+        opXor:
           begin
             E.CvttSD2SI(regRCX, TXMMReg(XMMStackPtr - 1));
             E.CvttSD2SI(regRAX, TXMMReg(XMMStackPtr - 2));
@@ -9282,7 +9282,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
-        opOperatorNot:
+        opNot:
           begin
             E.CvttSD2SI(regRAX, TXMMReg(XMMStackPtr - 1));
             E.XorRegImm32(regRAX, 1);
@@ -9293,7 +9293,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
-        opOperatorShiftLeft:
+        opShiftLeft:
           begin
             E.CvttSD2SI(regRCX, TXMMReg(XMMStackPtr - 1));
             E.CvttSD2SI(regRAX, TXMMReg(XMMStackPtr - 2));
@@ -9306,7 +9306,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
-        opOperatorShiftRight:
+        opShiftRight:
           begin
             E.CvttSD2SI(regRCX, TXMMReg(XMMStackPtr - 1));
             E.CvttSD2SI(regRAX, TXMMReg(XMMStackPtr - 2));
@@ -9319,7 +9319,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
-        opOperatorEqual:
+        opEqual:
           begin
             LabelDone := E.CreateLabel;
             LabelYes := E.CreateLabel;
@@ -9341,7 +9341,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkBoolean));
           end;
-        opOperatorNotEqual:
+        opNotEqual:
           begin
             LabelDone := E.CreateLabel;
             LabelYes := E.CreateLabel;
@@ -9363,7 +9363,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkBoolean));
           end;
-        opOperatorGreater:
+        opGreater:
           begin
             LabelDone := E.CreateLabel;
             LabelYes := E.CreateLabel;
@@ -9385,7 +9385,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkBoolean));
           end;
-        opOperatorGreaterOrEqual:
+        opGreaterOrEqual:
           begin
             LabelDone := E.CreateLabel;
             LabelYes := E.CreateLabel;
@@ -9407,7 +9407,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkBoolean));
           end;
-        opOperatorLesser:
+        opLesser:
           begin
             LabelDone := E.CreateLabel;
             LabelYes := E.CreateLabel;
@@ -9429,7 +9429,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkBoolean));
           end;
-        opOperatorLesserOrEqual:
+        opLesserOrEqual:
           begin
             LabelDone := E.CreateLabel;
             LabelYes := E.CreateLabel;
@@ -9452,7 +9452,7 @@ var
               E.MovRegImm32(regRBX, Cardinal(sevkBoolean));
           end;
 
-        opOperatorAdd0:
+        opAdd0:
           begin
             // mov rax, code[1].VarPointer
             E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
@@ -9468,7 +9468,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
-        opOperatorMul0:
+        opMul0:
           begin
             // mov rax, code[1].VarPointer
             E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
@@ -9484,7 +9484,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
-        opOperatorDiv0:
+        opDiv0:
           begin
             // mov rax, code[1].VarPointer
             E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
@@ -9500,7 +9500,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
-        opOperatorAnd0:
+        opAnd0:
           begin
             // mov rax, code[1].VarNumber
             E.MovRegImm64(regRAX, Trunc(JitCodePtrLocal[BIndex + 1].VarNumber));
@@ -9514,7 +9514,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
-        opOperatorOr0:
+        opOr0:
           begin
             // mov rax, code[1].VarNumber
             E.MovRegImm64(regRAX, Trunc(JitCodePtrLocal[BIndex + 1].VarNumber));
@@ -9528,7 +9528,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
-        opOperatorEqual0:
+        opEqual0:
           begin
             LabelDone := E.CreateLabel;
             LabelYes := E.CreateLabel;
@@ -9554,7 +9554,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkBoolean));
           end;
-        opOperatorNotEqual0:
+        opNotEqual0:
           begin
             LabelDone := E.CreateLabel;
             LabelYes := E.CreateLabel;
@@ -9580,7 +9580,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkBoolean));
           end;
-        opOperatorGreater0:
+        opGreater0:
           begin
             LabelDone := E.CreateLabel;
             LabelYes := E.CreateLabel;
@@ -9606,7 +9606,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkBoolean));
           end;
-        opOperatorGreaterOrEqual0:
+        opGreaterOrEqual0:
           begin
             LabelDone := E.CreateLabel;
             LabelYes := E.CreateLabel;
@@ -9632,7 +9632,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkBoolean));
           end;
-        opOperatorLesser0:
+        opLesser0:
           begin
             LabelDone := E.CreateLabel;
             LabelYes := E.CreateLabel;
@@ -9658,7 +9658,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkBoolean));
           end;
-        opOperatorLesserOrEqual0:
+        opLesserOrEqual0:
           begin
             LabelDone := E.CreateLabel;
             LabelYes := E.CreateLabel;
@@ -9685,7 +9685,7 @@ var
               E.MovRegImm32(regRBX, Cardinal(sevkBoolean));
           end;
 
-        opOperatorInc:
+        opInc:
           begin
             GenGetVariable(False);
             E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 3].VarNumber));
@@ -9700,7 +9700,7 @@ var
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
           end;
-        opOperatorAdd1:
+        opAdd1:
           begin
             GenGetVariable;
             { Add }
@@ -9712,7 +9712,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
-        opOperatorSub1:
+        opSub1:
           begin
             GenGetVariable;
             { Sub }
@@ -9724,7 +9724,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
-        opOperatorMul1:
+        opMul1:
           begin
             GenGetVariable;
             { Mul }
@@ -9736,7 +9736,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
-        opOperatorDiv1:
+        opDiv1:
           begin
             GenGetVariable;
             { Div }
@@ -10015,18 +10015,18 @@ labelStart:
           DispatchGoto;
           {$endif}
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorInc:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opInc:{$endif}
         begin
-        labelOperatorInc:
+        labelInc:
           V  := GetVariable(CodePtrLocal[1].VarPointer, CodePtrLocal[2].VarPointer);
           V^.VarNumber := V^.VarNumber + CodePtrLocal[3].VarNumber;
           Inc(CodePtrLocal, 4);
-        labelOperatorIncEnd:
+        labelIncEnd:
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorAdd0:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opAdd0:{$endif}
         begin
-        labelOperatorAdd0:
+        labelAdd0:
           A := Pop;
           if A^.Kind = sevkNumber then
             StackPtrLocal^.VarNumber := A^.VarNumber + CodePtrLocal[1].VarNumber
@@ -10036,58 +10036,58 @@ labelStart:
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorMul0:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opMul0:{$endif}
         begin
-        labelOperatorMul0:
+        labelMul0:
           StackPtrLocal^.VarNumber := Pop^.VarNumber * CodePtrLocal[1].VarNumber;
           Inc(StackPtrLocal);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorDiv0:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opDiv0:{$endif}
         begin
-        labelOperatorDiv0:
+        labelDiv0:
           StackPtrLocal^.VarNumber := Pop^.VarNumber / CodePtrLocal[1].VarNumber;
           Inc(StackPtrLocal);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
 
-      {$ifndef SE_COMPUTED_GOTO}opOperatorLesser0:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opLesser0:{$endif}
         begin
-        labelOperatorLesser0:
+        labelLesser0:
           StackPtrLocal^ := Pop^.VarNumber < CodePtrLocal[1].VarNumber;
           Inc(StackPtrLocal);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorLesserOrEqual0:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opLesserOrEqual0:{$endif}
         begin
-        labelOperatorLesserOrEqual0:
+        labelLesserOrEqual0:
           StackPtrLocal^ := Pop^.VarNumber <= CodePtrLocal[1].VarNumber;
           Inc(StackPtrLocal);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorGreater0:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opGreater0:{$endif}
         begin
-        labelOperatorGreater0:
+        labelGreater0:
           StackPtrLocal^ := Pop^.VarNumber > CodePtrLocal[1].VarNumber;
           Inc(StackPtrLocal);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorGreaterOrEqual0:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opGreaterOrEqual0:{$endif}
         begin
-        labelOperatorGreaterOrEqual0:
+        labelGreaterOrEqual0:
           StackPtrLocal^ := Pop^.VarNumber >= CodePtrLocal[1].VarNumber;
           Inc(StackPtrLocal);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorEqual0:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opEqual0:{$endif}
         begin
-        labelOperatorEqual0:
+        labelEqual0:
           A := Pop;
           if A^.Kind = sevkNumber then
             StackPtrLocal^ := A^.VarNumber = CodePtrLocal[1].VarNumber
@@ -10097,9 +10097,9 @@ labelStart:
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorNotEqual0:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opNotEqual0:{$endif}
         begin
-        labelOperatorNotEqual0:
+        labelNotEqual0:
           A := Pop;
           if A^.Kind = sevkNumber then
             StackPtrLocal^ := A^.VarNumber <> CodePtrLocal[1].VarNumber
@@ -10109,34 +10109,34 @@ labelStart:
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorAnd0:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opAnd0:{$endif}
         begin
-        labelOperatorAnd0:
+        labelAnd0:
           StackPtrLocal^.VarNumber := NativeInt(Pop^) and NativeInt(CodePtrLocal[1]);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorOr0:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opOr0:{$endif}
         begin
-        labelOperatorOr0:
+        labelOr0:
           StackPtrLocal^.VarNumber := NativeInt(Pop^) or NativeInt(CodePtrLocal[1]);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
 
-      {$ifndef SE_COMPUTED_GOTO}opOperatorNegative:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opNegative:{$endif}
         begin
-        labelOperatorNegative:
+        labelNegative:
           SEValueNeg(StackPtrLocal^, Pop^);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorConcat:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opConcat:{$endif}
         begin
-        labelOperatorConcat:
+        labelConcat:
           B := Pop;
           A := Pop;
           if (A^.VarString^.Data <> '') and (StringRefCount(A^.VarString^.Data) <= 2) then
@@ -10147,9 +10147,9 @@ labelStart:
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorAdd:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opAdd:{$endif}
         begin
-        labelOperatorAdd:
+        labelAdd:
           B := Pop;
           A := Pop;
           if A^.Kind = sevkNumber then
@@ -10160,9 +10160,9 @@ labelStart:
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorSub:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opSub:{$endif}
         begin
-        labelOperatorSub:
+        labelSub:
           B := Pop;
           A := Pop;
           if A^.Kind = sevkNumber then
@@ -10173,112 +10173,112 @@ labelStart:
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorMul:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opMul:{$endif}
         begin
-        labelOperatorMul:
+        labelMul:
           SEValueMul(StackPtrLocal^, {B}Pop^, Pop^);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorDiv:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opDiv:{$endif}
         begin
-        labelOperatorDiv:
+        labelDiv:
           SEValueDiv(StackPtrLocal^, {A}Pop^, Pop^);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorMod:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opMod:{$endif}
         begin
-        labelOperatorMod:
+        labelMod:
           B := Pop;
           A := Pop;
           Push(A^.VarNumber - B^.VarNumber * Int(A^.VarNumber / B^.VarNumber));
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorLesser:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opLesser:{$endif}
         begin
-        labelOperatorLesser:
+        labelLesser:
           SEValueLesser(StackPtrLocal^, {A}Pop^, Pop^);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorLesserOrEqual:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opLesserOrEqual:{$endif}
         begin
-        labelOperatorLesserOrEqual:
+        labelLesserOrEqual:
           SEValueLesserOrEqual(StackPtrLocal^, {A}Pop^, Pop^);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorGreater:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opGreater:{$endif}
         begin
-        labelOperatorGreater:
+        labelGreater:
           SEValueGreater(StackPtrLocal^, {A}Pop^, Pop^);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorGreaterOrEqual:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opGreaterOrEqual:{$endif}
         begin
-        labelOperatorGreaterOrEqual:
+        labelGreaterOrEqual:
           SEValueGreaterOrEqual(StackPtrLocal^, {A}Pop^, Pop^);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorEqual:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opEqual:{$endif}
         begin
-        labelOperatorEqual:
+        labelEqual:
           SEValueEqual(StackPtrLocal^, {A}Pop^, Pop^);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorNotEqual:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opNotEqual:{$endif}
         begin
-        labelOperatorNotEqual:
+        labelNotEqual:
           SEValueNotEqual(StackPtrLocal^, {A}Pop^, Pop^);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorAnd:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opAnd:{$endif}
         begin
-        labelOperatorAnd:
+        labelAnd:
           Push(NativeInt({A}Pop^) and NativeInt(Pop^));
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorOr:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opOr:{$endif}
         begin
-        labelOperatorOr:
+        labelOr:
           Push(NativeInt({A}Pop^) or NativeInt(Pop^));
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorXor:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opXor:{$endif}
         begin
-        labelOperatorXor:
+        labelXor:
           Push(NativeInt({A}Pop^) xor NativeInt(Pop^));
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorNot:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opNot:{$endif}
         begin
-        labelOperatorNot:
+        labelNot:
           SEValueNot(StackPtrLocal^, Pop^);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
 
-      {$ifndef SE_COMPUTED_GOTO}opOperatorConcat1:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opConcat1:{$endif}
         begin
-        labelOperatorConcat1:
+        labelConcat1:
           A := Pop;
           B := GetVariable(CodePtrLocal[1], {P}CodePtrLocal[2].VarPointer);
           if (A^.VarString^.Data <> '') and (StringRefCount(A^.VarString^.Data) <= 2) then
@@ -10289,9 +10289,9 @@ labelStart:
           Inc(CodePtrLocal, 3);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorAdd1:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opAdd1:{$endif}
         begin
-        labelOperatorAdd1:
+        labelAdd1:
           A := Pop;
           B := GetVariable(CodePtrLocal[1], {P}CodePtrLocal[2].VarPointer);
           if A^.Kind = sevkNumber then
@@ -10302,9 +10302,9 @@ labelStart:
           Inc(CodePtrLocal, 3);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorSub1:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opSub1:{$endif}
         begin
-        labelOperatorSub1:
+        labelSub1:
           A := Pop;
           B := GetVariable(CodePtrLocal[1], {P}CodePtrLocal[2].VarPointer);
           if A^.Kind = sevkNumber then
@@ -10315,33 +10315,33 @@ labelStart:
           Inc(CodePtrLocal, 3);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorMul1:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opMul1:{$endif}
         begin
-        labelOperatorMul1:
+        labelMul1:
           SEValueMul(StackPtrLocal^, {B}GetVariable(CodePtrLocal[1], {P}CodePtrLocal[2].VarPointer)^, Pop^);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal, 3);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorDiv1:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opDiv1:{$endif}
         begin
-        labelOperatorDiv1:
+        labelDiv1:
           SEValueDiv(StackPtrLocal^, Pop^, {B}GetVariable(CodePtrLocal[1], {P}CodePtrLocal[2].VarPointer)^);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal, 3);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorShiftLeft:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opShiftLeft:{$endif}
         begin
-        labelOperatorShiftLeft:
+        labelShiftLeft:
           SEValueShiftLeft(StackPtrLocal^, {A}Pop^, Pop^);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opOperatorShiftRight:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opShiftRight:{$endif}
         begin
-        labelOperatorShiftRight:
+        labelShiftRight:
           SEValueShiftRight(StackPtrLocal^, {A}Pop^, Pop^);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal);
@@ -12219,17 +12219,17 @@ var
           if not (Op2 in [
             opPushConst, opPushGlobalVar, opPushLocalVar, opLoadMapItem, opAssignGlobalVar, opAssignLocalVar,
             opJITBlockPotential,
-            opOperatorInc,
-            opOperatorNegative,
-            opOperatorAdd, opOperatorSub, opOperatorMul, opOperatorDiv, opOperatorMod,
-            opOperatorAdd0, opOperatorMul0, opOperatorDiv0,
-            opOperatorAdd1, opOperatorSub1, opOperatorMul1, opOperatorDiv1,
-            opOperatorEqual, opOperatorNotEqual, opOperatorGreater, opOperatorLesser, opOperatorGreaterOrEqual, opOperatorLesserOrEqual,
-            opOperatorEqual0, opOperatorNotEqual0, opOperatorGreater0, opOperatorLesser0, opOperatorGreaterOrEqual0, opOperatorLesserOrEqual0,
-            opOperatorAnd, opOperatorOr, opOperatorXor,
-            opOperatorAnd0, opOperatorOr0,
+            opInc,
+            opNegative,
+            opAdd, opSub, opMul, opDiv, opMod,
+            opAdd0, opMul0, opDiv0,
+            opAdd1, opSub1, opMul1, opDiv1,
+            opEqual, opNotEqual, opGreater, opLesser, opGreaterOrEqual, opLesserOrEqual,
+            opEqual0, opNotEqual0, opGreater0, opLesser0, opGreaterOrEqual0, opLesserOrEqual0,
+            opAnd, opOr, opXor,
+            opAnd0, opOr0,
             opJumpUnconditionalRel,
-            opOperatorShiftLeft, opOperatorShiftRight
+            opShiftLeft, opShiftRight
           ]) then
             IsInvalidOpcode := True;
           Inc(OpCount);
@@ -12319,42 +12319,42 @@ var
   function OpToOp0(const Op: TSEOpcode): TSEOpcode; inline;
   begin
     case Op of
-      opOperatorAdd:
-        Result := opOperatorAdd0;
-      opOperatorMul:
-        Result := opOperatorMul0;
-      opOperatorDiv:
-        Result := opOperatorDiv0;
-      opOperatorAnd:
-        Result := opOperatorAnd0;
-      opOperatorOr:
-        Result := opOperatorOr0;
-      opOperatorEqual:
-        Result := opOperatorEqual0;
-      opOperatorNotEqual:
-        Result := opOperatorNotEqual0;
-      opOperatorGreater:
-        Result := opOperatorGreater0;
-      opOperatorGreaterOrEqual:
-        Result := opOperatorGreaterOrEqual0;
-      opOperatorLesser:
-        Result := opOperatorLesser0;
-      opOperatorLesserOrEqual:
-        Result := opOperatorLesserOrEqual0;
+      opAdd:
+        Result := opAdd0;
+      opMul:
+        Result := opMul0;
+      opDiv:
+        Result := opDiv0;
+      opAnd:
+        Result := opAnd0;
+      opOr:
+        Result := opOr0;
+      opEqual:
+        Result := opEqual0;
+      opNotEqual:
+        Result := opNotEqual0;
+      opGreater:
+        Result := opGreater0;
+      opGreaterOrEqual:
+        Result := opGreaterOrEqual0;
+      opLesser:
+        Result := opLesser0;
+      opLesserOrEqual:
+        Result := opLesserOrEqual0;
     end;
   end;
 
   function OpToOp1(const Op: TSEOpcode): TSEOpcode; inline;
   begin
     case Op of
-      opOperatorAdd:
-        Result := opOperatorAdd1;
-      opOperatorSub:
-        Result := opOperatorSub1;
-      opOperatorMul:
-        Result := opOperatorMul1;
-      opOperatorDiv:
-        Result := opOperatorDiv1;
+      opAdd:
+        Result := opAdd1;
+      opSub:
+        Result := opSub1;
+      opMul:
+        Result := opMul1;
+      opDiv:
+        Result := opDiv1;
     end;
   end;
 
@@ -12402,7 +12402,7 @@ var
     if not Self.OptimizePeephole then
       Exit;
     OpInfoPrev1 := PeekAtPrevOpExpected(0, [opAssignGlobalVar, opAssignLocalVar]);
-    OpInfoPrev2 := PeekAtPrevOpExpected(1, [opOperatorAdd0]);
+    OpInfoPrev2 := PeekAtPrevOpExpected(1, [opAdd0]);
     OpInfoPrev3 := PeekAtPrevOpExpected(2, [opPushGlobalVar, opPushLocalVar]);
     if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) and (OpInfoPrev3 <> nil) then
     begin
@@ -12425,12 +12425,12 @@ var
         Exit;
 
       A := Self.Binary[OpInfoPrev2^.Pos + 1];
-      if OpInfoPrev2^.Op = opOperatorSub then
+      if OpInfoPrev2^.Op = opSub then
         A := -A;
       Size := OpInfoPrev1^.Size + OpInfoPrev2^.Size + OpInfoPrev3^.Size;;
       Self.Binary.DeleteRange(Self.Binary.Count - Size, Size);
       Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 3, 3);
-      Emit([Pointer(opOperatorInc), VarBase, VarAddr, A]);
+      Emit([Pointer(opInc), VarBase, VarAddr, A]);
       Result := True;
     end;
   end;
@@ -12447,18 +12447,18 @@ var
     if not Self.OptimizePeephole then
       Exit;
     case Op of
-      opOperatorAdd,
-      opOperatorSub:
+      opAdd,
+      opSub:
         begin
           OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushConst]);
           OpInfoPrev2 := PeekAtPrevOpExpected(1, [
             opPushGlobalVar, opPushLocalVar, opLoadMapItem,
-            opOperatorAdd0, opOperatorMul0, opOperatorDiv0,
-            opOperatorAdd1, opOperatorSub1, opOperatorMul1, opOperatorDiv1,
-            opOperatorAdd, opOperatorSub, opOperatorMul, opOperatorDiv,
-            opOperatorGreater, opOperatorGreaterOrEqual, opOperatorLesser, opOperatorLesserOrEqual,
-            opOperatorEqual, opOperatorNotEqual, opOperatorAnd, opOperatorOr, opOperatorXor, opOperatorNot,
-            opOperatorInc, opOperatorNegative,
+            opAdd0, opMul0, opDiv0,
+            opAdd1, opSub1, opMul1, opDiv1,
+            opAdd, opSub, opMul, opDiv,
+            opGreater, opGreaterOrEqual, opLesser, opLesserOrEqual,
+            opEqual, opNotEqual, opAnd, opOr, opXor, opNot,
+            opInc, opNegative,
             opCallScript, opCallNative, opCallImport
           ]);
           if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
@@ -12470,14 +12470,14 @@ var
               Exit;
             Self.Binary.DeleteRange(Self.Binary.Count - 2, 2);
             Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 1, 1);
-            if Op = opOperatorAdd then
-              Emit([Pointer(NativeInt(opOperatorAdd0)), A.VarNumber])
+            if Op = opAdd then
+              Emit([Pointer(NativeInt(opAdd0)), A.VarNumber])
             else
-              Emit([Pointer(NativeInt(opOperatorAdd0)), -A.VarNumber]);
+              Emit([Pointer(NativeInt(opAdd0)), -A.VarNumber]);
             Result := True;
           end else
           begin
-            if Op <> opOperatorAdd then
+            if Op <> opAdd then
               Exit;
             OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushGlobalVar, opPushLocalVar]);
             OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushConst]);
@@ -12491,22 +12491,22 @@ var
                 Exit;
               Self.Binary.DeleteRange(Self.Binary.Count - (OpInfoPrev1^.Size + OpInfoPrev2^.Size), 2);
               Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 1);
-              Emit([Pointer(NativeInt(opOperatorAdd0)), A.VarNumber]);
+              Emit([Pointer(NativeInt(opAdd0)), A.VarNumber]);
               Result := True;
             end;
           end;
         end;
-      opOperatorMul:
+      opMul:
         begin
           OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushConst]);
           OpInfoPrev2 := PeekAtPrevOpExpected(1, [
             opPushGlobalVar, opPushLocalVar, opLoadMapItem,
-            opOperatorAdd0, opOperatorMul0, opOperatorDiv0,
-            opOperatorAdd1, opOperatorSub1, opOperatorMul1, opOperatorDiv1,
-            opOperatorAdd, opOperatorSub, opOperatorMul, opOperatorDiv,
-            opOperatorGreater, opOperatorGreaterOrEqual, opOperatorLesser, opOperatorLesserOrEqual,
-            opOperatorEqual, opOperatorNotEqual, opOperatorAnd, opOperatorOr, opOperatorXor, opOperatorNot,
-            opOperatorInc, opOperatorNegative,
+            opAdd0, opMul0, opDiv0,
+            opAdd1, opSub1, opMul1, opDiv1,
+            opAdd, opSub, opMul, opDiv,
+            opGreater, opGreaterOrEqual, opLesser, opLesserOrEqual,
+            opEqual, opNotEqual, opAnd, opOr, opXor, opNot,
+            opInc, opNegative,
             opCallScript, opCallNative, opCallImport
           ]);
           if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
@@ -12518,7 +12518,7 @@ var
               Exit;
             Self.Binary.DeleteRange(Self.Binary.Count - 2, 2);
             Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 1, 1);
-            Emit([Pointer(NativeInt(opOperatorMul0)), A.VarNumber]);
+            Emit([Pointer(NativeInt(opMul0)), A.VarNumber]);
             Result := True;
           end else
           begin
@@ -12533,30 +12533,30 @@ var
                 Exit;
               Self.Binary.DeleteRange(Self.Binary.Count - (OpInfoPrev1^.Size + OpInfoPrev2^.Size), 2);
               Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 1);
-              Emit([Pointer(NativeInt(opOperatorMul0)), A.VarNumber]);
+              Emit([Pointer(NativeInt(opMul0)), A.VarNumber]);
               Result := True;
             end;
           end;
         end;
-      opOperatorDiv,
-      opOperatorEqual,
-      opOperatorNotEqual,
-      opOperatorGreater,
-      opOperatorGreaterOrEqual,
-      opOperatorLesser,
-      opOperatorLesserOrEqual,
-      opOperatorAnd,
-      opOperatorOr:
+      opDiv,
+      opEqual,
+      opNotEqual,
+      opGreater,
+      opGreaterOrEqual,
+      opLesser,
+      opLesserOrEqual,
+      opAnd,
+      opOr:
         begin
           OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushConst]);
           OpInfoPrev2 := PeekAtPrevOpExpected(1, [
             opPushGlobalVar, opPushLocalVar,
-            opOperatorAdd0, opOperatorMul0, opOperatorDiv0,
-            opOperatorAdd1, opOperatorSub1, opOperatorMul1, opOperatorDiv1,
-            opOperatorAdd, opOperatorSub, opOperatorMul, opOperatorDiv,
-            opOperatorGreater, opOperatorGreaterOrEqual, opOperatorLesser, opOperatorLesserOrEqual,
-            opOperatorEqual, opOperatorNotEqual, opOperatorAnd, opOperatorOr, opOperatorXor, opOperatorNot,
-            opOperatorInc, opOperatorNegative,
+            opAdd0, opMul0, opDiv0,
+            opAdd1, opSub1, opMul1, opDiv1,
+            opAdd, opSub, opMul, opDiv,
+            opGreater, opGreaterOrEqual, opLesser, opLesserOrEqual,
+            opEqual, opNotEqual, opAnd, opOr, opXor, opNot,
+            opInc, opNegative,
             opLoadMapItem, opCallScript, opCallNative, opCallImport
           ]);
           if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
@@ -12586,10 +12586,10 @@ var
     if not Self.OptimizePeephole then
       Exit;
     case Op of
-      opOperatorAdd,
-      opOperatorSub,
-      opOperatorMul,
-      opOperatorDiv:
+      opAdd,
+      opSub,
+      opMul,
+      opDiv:
         begin
           OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushGlobalVar, opPushLocalVar]);
           if (OpInfoPrev1 <> nil) then
@@ -12644,7 +12644,7 @@ var
     if not Self.OptimizePeephole then
       Exit;
     OpInfoPrev3 := PeekAtPrevOpExpected(Self.OpcodeInfoList.Count - FirstExprOpIndex - 1, [opPushGlobalVar, opPushLocalVar]);
-    OpInfoPrev1 := PeekAtPrevOpExpected(1, [opOperatorAdd]);
+    OpInfoPrev1 := PeekAtPrevOpExpected(1, [opAdd]);
     if (OpInfoPrev1 <> nil) and (OpInfoPrev3 <> nil) and (OpInfoPrev3^.Binary = Pointer(Self.Binary)) and (OpInfoPrev1^.Binary = Pointer(Self.Binary)) then
     begin
       OpInfoPrev0 := PeekAtPrevOpExpected(0, [opAssignGlobalVar, opAssignLocalVar]);
@@ -12654,7 +12654,7 @@ var
             begin
               if Self.Binary[OpInfoPrev0^.Pos + 1] = Self.Binary[OpInfoPrev3^.Pos + 1] then
               begin
-                Self.Binary[OpInfoPrev1^.Pos] := Pointer(opOperatorConcat);
+                Self.Binary[OpInfoPrev1^.Pos] := Pointer(opConcat);
                 Result := True;
               end;
             end;
@@ -12663,14 +12663,14 @@ var
               if (Self.Binary[OpInfoPrev0^.Pos + 1] = Self.Binary[OpInfoPrev3^.Pos + 1]) and
                 (Self.Binary[OpInfoPrev0^.Pos + 2] = Self.Binary[OpInfoPrev3^.Pos + 2]) then
               begin
-                Self.Binary[OpInfoPrev1^.Pos] := Pointer(opOperatorConcat);
+                Self.Binary[OpInfoPrev1^.Pos] := Pointer(opConcat);
                 Result := True;
               end;
             end;
         end;
     end else
     begin
-      OpInfoPrev1 := PeekAtPrevOpExpected(1, [opOperatorAdd1]);
+      OpInfoPrev1 := PeekAtPrevOpExpected(1, [opAdd1]);
       if (OpInfoPrev1 <> nil) and (OpInfoPrev3 <> nil) and (OpInfoPrev3^.Binary = Pointer(Self.Binary)) and (OpInfoPrev1^.Binary = Pointer(Self.Binary)) then
       begin
         OpInfoPrev0 := PeekAtPrevOpExpected(0, [opAssignGlobalVar, opAssignLocalVar]);
@@ -12680,7 +12680,7 @@ var
               begin
                 if Self.Binary[OpInfoPrev0^.Pos + 1] = Self.Binary[OpInfoPrev3^.Pos + 1] then
                 begin
-                  Self.Binary[OpInfoPrev1^.Pos] := Pointer(opOperatorConcat1);
+                  Self.Binary[OpInfoPrev1^.Pos] := Pointer(opConcat1);
                   Result := True;
                 end;
               end;
@@ -12689,7 +12689,7 @@ var
                 if (Self.Binary[OpInfoPrev0^.Pos + 1] = Self.Binary[OpInfoPrev3^.Pos + 1]) and
                   (Self.Binary[OpInfoPrev0^.Pos + 2] = Self.Binary[OpInfoPrev3^.Pos + 2]) then
                 begin
-                  Self.Binary[OpInfoPrev1^.Pos] := Pointer(opOperatorConcat1);
+                  Self.Binary[OpInfoPrev1^.Pos] := Pointer(opConcat1);
                   Result := True;
                 end;
               end;
@@ -12775,93 +12775,93 @@ var
             Exit;
           Result := True;
           case Op of
-            opOperatorAdd:
+            opAdd:
               begin
                 Pop2;
                 SEValueAdd(V, V1, V2);
                 Emit([Pointer(opPushConst), V]);
               end;
-            opOperatorSub:
+            opSub:
               begin
                 Pop2;
                 SEValueSub(V, V1, V2);
                 Emit([Pointer(opPushConst), V]);
               end;
-            opOperatorMul:
+            opMul:
               begin
                 Pop2;
                 SEValueMul(V, V2, V1);
                 Emit([Pointer(opPushConst), V]);
               end;
-            opOperatorDiv:
+            opDiv:
               begin
                 Pop2;
                 SEValueDiv(V, V1, V2);
                 Emit([Pointer(opPushConst), V]);
               end;
-            opOperatorMod:
+            opMod:
               begin
                 Pop2;
                 Emit([Pointer(opPushConst), V1 - V2 * Int(TSENumber(V1 / V2))]);
               end;
-            opOperatorAnd:
+            opAnd:
               begin
                 Pop2;
                 Emit([Pointer(opPushConst), NativeInt(V1) and NativeInt(V2)]);
               end;
-            opOperatorOr:
+            opOr:
               begin
                 Pop2;
                 Emit([Pointer(opPushConst), NativeInt(V1) or NativeInt(V2)]);
               end;
-            opOperatorXor:
+            opXor:
               begin
                 Pop2;
                 Emit([Pointer(opPushConst), NativeInt(V1) xor NativeInt(V2)]);
               end;
-            opOperatorGreater:
+            opGreater:
               begin
                 Pop2;
                 SEValueGreater(V, V1, V2);
                 Emit([Pointer(opPushConst), V]);
               end;
-            opOperatorGreaterOrEqual:
+            opGreaterOrEqual:
               begin
                 Pop2;
                 SEValueGreaterOrEqual(V, V1, V2);
                 Emit([Pointer(opPushConst), V]);
               end;
-            opOperatorLesser:
+            opLesser:
               begin
                 Pop2;
                 SEValueLesser(V, V1, V2);
                 Emit([Pointer(opPushConst), V]);
               end;
-            opOperatorLesserOrEqual:
+            opLesserOrEqual:
               begin
                 Pop2;
                 SEValueLesserOrEqual(V, V1, V2);
                 Emit([Pointer(opPushConst), V]);
               end;
-            opOperatorEqual:
+            opEqual:
               begin
                 Pop2;
                 SEValueEqual(V, V1, V2);
                 Emit([Pointer(opPushConst), V]);
               end;
-            opOperatorNotEqual:
+            opNotEqual:
               begin
                 Pop2;
                 SEValueNotEqual(V, V1, V2);
                 Emit([Pointer(opPushConst), V]);
               end;
-            opOperatorShiftLeft:
+            opShiftLeft:
               begin
                 Pop2;
                 SEValueShiftLeft(V, V1, V2);
                 Emit([Pointer(opPushConst), V]);
               end;
-            opOperatorShiftRight:
+            opShiftRight:
               begin
                 Pop2;
                 SEValueShiftRight(V, V1, V2);
@@ -12896,7 +12896,7 @@ var
         end;
       begin
         Result := False;
-        if (PushConstCount < 2) or (IsTailed) or (Op <> opOperatorAdd) then Exit;
+        if (PushConstCount < 2) or (IsTailed) or (Op <> opAdd) then Exit;
         OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushConstString]);
         OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushConstString]);
         if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) and SameKind then
@@ -13178,14 +13178,14 @@ var
               NextToken;
               PeekAtNextTokenExpected([tkBracketOpen, tkNumber, tkIdent]);
               Factor;
-              EmitExpr([Pointer(opOperatorNegative)]);
+              EmitExpr([Pointer(opNegative)]);
             end;
           tkNot:
             begin
               NextToken;
               PeekAtNextTokenExpected([tkBracketOpen, tkNumber, tkIdent]);
               Factor;
-              EmitExpr([Pointer(opOperatorNot)]);
+              EmitExpr([Pointer(opNot)]);
             end;
           else
             Exit;
@@ -13206,7 +13206,7 @@ var
         case Token.Kind of
           tkPow:
             begin
-              // BinaryOp(opOperatorPow, @SignedFactor);
+              // BinaryOp(opPow, @SignedFactor);
               NextToken;
               PeekAtNextTokenExpected([tkBracketOpen, tkSquareBracketOpen, tkDot, tkNumber, tkString, tkNegative, tkIdent]);
               SignedFactor;
@@ -13229,11 +13229,11 @@ var
         Token := PeekAtNextToken;
         case Token.Kind of
           tkMul:
-            BinaryOp(opOperatorMul, @Pow);
+            BinaryOp(opMul, @Pow);
           tkDiv:
-            BinaryOp(opOperatorDiv, @Pow);
+            BinaryOp(opDiv, @Pow);
           tkMod:
-            BinaryOp(opOperatorMod, @Pow);
+            BinaryOp(opMod, @Pow);
           else
             Exit;
         end;
@@ -13250,9 +13250,9 @@ var
         Token := PeekAtNextToken;
         case Token.Kind of
           tkAdd:
-            BinaryOp(opOperatorAdd, @Term);
+            BinaryOp(opAdd, @Term);
           tkSub:
-            BinaryOp(opOperatorSub, @Term);
+            BinaryOp(opSub, @Term);
           else
             Exit;
         end;
@@ -13269,9 +13269,9 @@ var
         Token := PeekAtNextToken;
         case Token.Kind of
           tkShiftLeft:
-            BinaryOp(opOperatorShiftLeft, @Expr);
+            BinaryOp(opShiftLeft, @Expr);
           tkShiftRight:
-            BinaryOp(opOperatorShiftRight, @Expr);
+            BinaryOp(opShiftRight, @Expr);
           else
             Exit;
         end;
@@ -13288,23 +13288,23 @@ var
         Token := PeekAtNextToken;
         case Token.Kind of
           tkEqual:
-            BinaryOp(opOperatorEqual, @Bitwise);
+            BinaryOp(opEqual, @Bitwise);
           tkNotEqual:
-            BinaryOp(opOperatorNotEqual, @Bitwise);
+            BinaryOp(opNotEqual, @Bitwise);
           tkGreater:
-            BinaryOp(opOperatorGreater, @Bitwise);
+            BinaryOp(opGreater, @Bitwise);
           tkGreaterOrEqual:
-            BinaryOp(opOperatorGreaterOrEqual, @Bitwise);
+            BinaryOp(opGreaterOrEqual, @Bitwise);
           tkSmaller:
-            BinaryOp(opOperatorLesser, @Bitwise);
+            BinaryOp(opLesser, @Bitwise);
           tkSmallerOrEqual:
-            BinaryOp(opOperatorLesserOrEqual, @Bitwise);
+            BinaryOp(opLesserOrEqual, @Bitwise);
           tkAnd:
-            BinaryOp(opOperatorAnd, @Bitwise);
+            BinaryOp(opAnd, @Bitwise);
           tkOr:
-            BinaryOp(opOperatorOr, @Bitwise);
+            BinaryOp(opOr, @Bitwise);
           tkXor:
-            BinaryOp(opOperatorXor, @Bitwise);
+            BinaryOp(opXor, @Bitwise);
           else
             Exit;
         end;
@@ -14110,7 +14110,7 @@ var
         begin
           Step := -Step;
         end;
-        Emit([Pointer(opOperatorAdd0), Step]);
+        Emit([Pointer(opAdd0), Step]);
         EmitAssignVar(VarHiddenTargetIdent);
 
         StartBlock := Self.Binary.Count;
@@ -14128,7 +14128,7 @@ var
         ParseBlock;
 
         ContinueBlock := Self.Binary.Count;
-        Emit([Pointer(opOperatorInc), Pointer(VarIdent.Addr), GetVarFrame(VarIdent), Step]);
+        Emit([Pointer(opInc), Pointer(VarIdent.Addr), GetVarFrame(VarIdent), Step]);
         JumpBlock := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
         EndBLock := JumpBlock;
       end else
@@ -14177,7 +14177,7 @@ var
         ParseBlock;
 
         ContinueBlock := Self.Binary.Count;
-        Emit([Pointer(opOperatorInc), Pointer(VarHiddenCountIdent.Addr), GetVarFrame(VarHiddenCountIdent), 1]);
+        Emit([Pointer(opInc), Pointer(VarHiddenCountIdent.Addr), GetVarFrame(VarHiddenCountIdent), 1]);
         JumpBlock := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
         EndBLock := JumpBlock;
       end;
@@ -14487,17 +14487,17 @@ var
           begin
             case Token.Value of
               '+':
-                if not PeepholeOpXOptimization(opOperatorAdd) then
-                  Emit([Pointer(opOperatorAdd)]);
+                if not PeepholeOpXOptimization(opAdd) then
+                  Emit([Pointer(opAdd)]);
               '-':
-                if not PeepholeOpXOptimization(opOperatorSub) then
-                  Emit([Pointer(opOperatorSub)]);
+                if not PeepholeOpXOptimization(opSub) then
+                  Emit([Pointer(opSub)]);
               '*':
-                if not PeepholeOpXOptimization(opOperatorMul) then
-                  Emit([Pointer(opOperatorMul)]);
+                if not PeepholeOpXOptimization(opMul) then
+                  Emit([Pointer(opMul)]);
               '/':
-                if not PeepholeOpXOptimization(opOperatorDiv) then
-                  Emit([Pointer(opOperatorDiv)]);
+                if not PeepholeOpXOptimization(opDiv) then
+                  Emit([Pointer(opDiv)]);
             end;
           end;
           if ArgCount > 0 then
@@ -15330,7 +15330,7 @@ initialization
   FunctionAssert := [
     Pointer(opPushLocalVar), Pointer(0), Pointer(0),
     Pointer(opPushConst), false,
-    Pointer(opOperatorEqual),
+    Pointer(opEqual),
     Pointer(opJumpEqual1Rel), true, Pointer(5),
     Pointer(opJumpUnconditionalRel), Pointer(6),
     Pointer(opPushLocalVar), Pointer(1), Pointer(0),
