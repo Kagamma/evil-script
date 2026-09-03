@@ -92,13 +92,13 @@ type
     opPushConstString,
     opPushGlobalVar,
     opPushLocalVar,
-    opPushArrayPop,
+    opLoadMapItem,
     opPopConst,
     opPopFrame,
     opAssignGlobalVar,
-    opAssignGlobalArray,
+    opAssignGlobalMap,
     opAssignLocalVar,
-    opAssignLocalArray,
+    opAssignLocalMap,
     opJumpEqualRel,
     opJumpEqual1Rel,
     opJumpUnconditionalRel,
@@ -866,13 +866,13 @@ const
     2, // opPushConstString,
     2, // opPushGlobalVar,
     3, // opPushLocalVar,
-    3, // opPushArrayPop, the last slot is used for inline cache
+    3, // opLoadMapItem, the last slot is used for inline cache
     1, // opPopConst,
     1, // opPopFrame,
     2, // opAssignGlobalVar,
-    4, // opAssignGlobalArray, the last slot is used for inline cache
+    4, // opAssignGlobalMap, the last slot is used for inline cache
     3, // opAssignLocalVar,
-    5, // opAssignLocalArray, the last slot is used for inline cache
+    5, // opAssignLocalMap, the last slot is used for inline cache
     2, // opJumpEqualRel,
     3, // opJumpEqual1Rel,
     2, // opJumpUnconditionalRel,
@@ -8841,13 +8841,13 @@ label
   labelPushGlobalVar,
   labelPushLocalVar,
   labelPushVar2,
-  labelPushArrayPop,
+  labelLoadMapItem,
   labelPopConst,
   labelPopFrame,
   labelAssignGlobalVar,
-  labelAssignGlobalArray,
+  labelAssignGlobalMap,
   labelAssignLocalVar,
-  labelAssignLocalArray,
+  labelAssignLocalMap,
   labelJumpEqualRel,
   labelJumpEqual1Rel,
   labelJumpUnconditionalRel,
@@ -8920,13 +8920,13 @@ var
     @labelPushConstString,
     @labelPushGlobalVar,
     @labelPushLocalVar,
-    @labelPushArrayPop,
+    @labelLoadMapItem,
     @labelPopConst,
     @labelPopFrame,
     @labelAssignGlobalVar,
-    @labelAssignGlobalArray,
+    @labelAssignGlobalMap,
     @labelAssignLocalVar,
-    @labelAssignLocalArray,
+    @labelAssignLocalMap,
     @labelJumpEqualRel,
     @labelJumpEqual1Rel,
     @labelJumpUnconditionalRel,
@@ -9109,7 +9109,7 @@ var
             IsCodePtrAssigned := True;
             break;
           end;
-        opPushArrayPop:
+        opLoadMapItem:
           begin
             { There's a difference in how FPC pass variables despite the function has SystemV ABI?}
             { A, either from code, or from stack }
@@ -10376,9 +10376,9 @@ labelStart:
           Inc(CodePtrLocal, 3);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opPushArrayPop:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opLoadMapItem:{$endif}
         begin
-        labelPushArrayPop:
+        labelLoadMapItem:
           A := @CodePtrLocal[1];
           if A^.Kind = sevkNull then
             A := Pop;
@@ -10582,9 +10582,9 @@ labelStart:
           Inc(CodePtrLocal, 3);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opAssignGlobalArray:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opAssignGlobalMap:{$endif}
         begin
-        labelAssignGlobalArray:
+        labelAssignGlobalMap:
           A := @CodePtrLocal[1];
           TV := GetGlobalInt(NativeInt(A^))^;
           B := Pop;
@@ -10613,9 +10613,9 @@ labelStart:
           Inc(CodePtrLocal, 4);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opAssignLocalArray:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opAssignLocalMap:{$endif}
         begin
-        labelAssignLocalArray:
+        labelAssignLocalMap:
           A := @CodePtrLocal[1];
           TV := GetLocalInt(NativeInt(A^), NativeInt(CodePtrLocal[3].VarPointer))^;
           B := Pop;
@@ -12217,7 +12217,7 @@ var
         begin
           Op2 := TSEOpcode(NativeInt(Self.Binary.Ptr(BIndex2)^.VarPointer));
           if not (Op2 in [
-            opPushConst, opPushGlobalVar, opPushLocalVar, opPushArrayPop, opAssignGlobalVar, opAssignLocalVar,
+            opPushConst, opPushGlobalVar, opPushLocalVar, opLoadMapItem, opAssignGlobalVar, opAssignLocalVar,
             opJITBlockPotential,
             opOperatorInc,
             opOperatorNegative,
@@ -12269,9 +12269,9 @@ var
   function EmitAssignArray(const Ident: TSEIdent; const ArgCount: NativeInt): NativeInt; inline;
   begin
     if Ident.Local > 0 then
-      Result := Emit([Pointer(opAssignLocalArray), Ident.Addr, ArgCount, Pointer(Self.FuncTraversal - Ident.Local), Pointer(1)])
+      Result := Emit([Pointer(opAssignLocalMap), Ident.Addr, ArgCount, Pointer(Self.FuncTraversal - Ident.Local), Pointer(1)])
     else
-      Result := Emit([Pointer(opAssignGlobalArray), Ident.Addr, ArgCount, Pointer(1)]);
+      Result := Emit([Pointer(opAssignGlobalMap), Ident.Addr, ArgCount, Pointer(1)]);
   end;
 
   procedure Patch(const Addr: NativeInt; const Data: TSEValue); inline;
@@ -12374,7 +12374,7 @@ var
     if Self.OptimizeJIT then
       Exit;
     {$endif}
-    OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushArrayPop]);
+    OpInfoPrev1 := PeekAtPrevOpExpected(0, [opLoadMapItem]);
     OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushConst]);
     if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
     begin
@@ -12382,7 +12382,7 @@ var
       A := Self.Binary[OpInfoPrev2^.Pos + 1];
       Self.Binary.DeleteRange(Self.Binary.Count - Size, Size);
       Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 2);
-      Emit([Pointer(opPushArrayPop), A, Pointer(1)]);
+      Emit([Pointer(opLoadMapItem), A, Pointer(1)]);
       Result := True;
     end;
   end;
@@ -12452,7 +12452,7 @@ var
         begin
           OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushConst]);
           OpInfoPrev2 := PeekAtPrevOpExpected(1, [
-            opPushGlobalVar, opPushLocalVar, opPushArrayPop,
+            opPushGlobalVar, opPushLocalVar, opLoadMapItem,
             opOperatorAdd0, opOperatorMul0, opOperatorDiv0,
             opOperatorAdd1, opOperatorSub1, opOperatorMul1, opOperatorDiv1,
             opOperatorAdd, opOperatorSub, opOperatorMul, opOperatorDiv,
@@ -12481,7 +12481,7 @@ var
               Exit;
             OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushGlobalVar, opPushLocalVar]);
             OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushConst]);
-            // TODO: Handle opPushArrayPop
+            // TODO: Handle opLoadMapItem
             if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
             begin
               if (OpInfoPrev1^.Binary <> Pointer(Self.Binary)) or (OpInfoPrev2^.Binary <> Pointer(Self.Binary)) then
@@ -12500,7 +12500,7 @@ var
         begin
           OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushConst]);
           OpInfoPrev2 := PeekAtPrevOpExpected(1, [
-            opPushGlobalVar, opPushLocalVar, opPushArrayPop,
+            opPushGlobalVar, opPushLocalVar, opLoadMapItem,
             opOperatorAdd0, opOperatorMul0, opOperatorDiv0,
             opOperatorAdd1, opOperatorSub1, opOperatorMul1, opOperatorDiv1,
             opOperatorAdd, opOperatorSub, opOperatorMul, opOperatorDiv,
@@ -12557,7 +12557,7 @@ var
             opOperatorGreater, opOperatorGreaterOrEqual, opOperatorLesser, opOperatorLesserOrEqual,
             opOperatorEqual, opOperatorNotEqual, opOperatorAnd, opOperatorOr, opOperatorXor, opOperatorNot,
             opOperatorInc, opOperatorNegative,
-            opPushArrayPop, opCallScript, opCallNative, opCallImport
+            opLoadMapItem, opCallScript, opCallNative, opCallImport
           ]);
           if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
           begin
@@ -12952,7 +12952,7 @@ var
             NextTokenExpected([tkSquareBracketClose]);
             AllocFuncRef;
             AssignReturnFuncRef;
-            EmitExpr([Pointer(opPushArrayPop), SENull, Pointer(1)]);
+            EmitExpr([Pointer(opLoadMapItem), SENull, Pointer(1)]);
             PeepholeArrayAssignOptimization;
             Tail;
           end;
@@ -12965,7 +12965,7 @@ var
             Token := NextTokenExpected([tkIdent]);
             AllocFuncRef;
             AssignReturnFuncRef;
-            EmitExpr([Pointer(opPushArrayPop), CreateConstStringValue(Token.Value), Pointer(1)]);
+            EmitExpr([Pointer(opLoadMapItem), CreateConstStringValue(Token.Value), Pointer(1)]);
             Tail;
           end;
       end;
@@ -13090,7 +13090,7 @@ var
                             EmitPushVar(Ident^);
                             MarkJITBlock;
                             Result := Result + VerifyJITBlock(ParseExpr(False));
-                            Emit([Pointer(opPushArrayPop), SENull, Pointer(1)]);
+                            Emit([Pointer(opLoadMapItem), SENull, Pointer(1)]);
                             PeepholeArrayAssignOptimization;
                             NextTokenExpected([tkSquareBracketClose]);
                             Tail;
@@ -13104,7 +13104,7 @@ var
                             NextToken;
                             Token2 := NextTokenExpected([tkIdent]);
                             EmitPushVar(Ident^);
-                            Emit([Pointer(opPushArrayPop), CreateConstStringValue(Token2.Value), Pointer(1)]);
+                            Emit([Pointer(opLoadMapItem), CreateConstStringValue(Token2.Value), Pointer(1)]);
                             Tail;
                             FuncTail;
                           end;
@@ -14170,7 +14170,7 @@ var
 
         EmitPushVar(VarHiddenArrayIdent);
         EmitPushVar(VarHiddenCountIdent);
-        Emit([Pointer(opPushArrayPop), SENull, Pointer(1)]);
+        Emit([Pointer(opLoadMapItem), SENull, Pointer(1)]);
         PeepholeArrayAssignOptimization;
         EmitAssignVar(VarIdent);
 
@@ -14381,7 +14381,7 @@ var
               VerifyJITBlock(ParseExpr(False));
               NextTokenExpected([tkSquareBracketClose]);
               AssignReturnFuncRef;
-              Emit([Pointer(opPushArrayPop), SENull, Pointer(1)]);
+              Emit([Pointer(opLoadMapItem), SENull, Pointer(1)]);
               PeepholeArrayAssignOptimization;
             end;
           tkDot:
@@ -14389,7 +14389,7 @@ var
               NextToken;
               Token := NextTokenExpected([tkIdent]);
               AssignReturnFuncRef;
-              Emit([Pointer(opPushArrayPop), CreateConstStringValue(Token.Value), Pointer(1)]);
+              Emit([Pointer(opLoadMapItem), CreateConstStringValue(Token.Value), Pointer(1)]);
             end;
         end;
       end;
