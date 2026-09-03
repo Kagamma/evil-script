@@ -8254,9 +8254,6 @@ end;
 
 procedure SEMapSetJIT(P: Pointer; I: NativeInt; V: Double); sysv_abi_default;
 begin
-  Writeln(NativeUInt(P));
-  Writeln(I);
-  Writeln(V:0:2);
   TSEValueMap(P).Set2(I, V);
 end;
 
@@ -9046,15 +9043,15 @@ var
         E.SubRegImm32(regRDX, NativeUInt(JitCodePtrLocal[BIndex + 2].VarPointer) * SizeOf(TSEFrame));
       end;
       { Load local vraiable index to RAX }
-      // mov rdx, code[1].VarPointer
+      // mov rax, code[1].VarPointer
       E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer) * SizeOf(TSEValue));
-      { R8 = current frame's stack pointer }
+      { RDX = current frame's stack pointer }
       // mov rdx, qword ptr [rdx + .StackPtr]
       E.MovRegMem64(regRDX, E.Mem(regRDX, NativeUInt(@TSEFrame(nil^).StackPtr)));
       if IsValueOnly then
       { XMM? = local variable }
       // movsd xmm?, qword ptr [rdx + rax + .VarNumber]
-      E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.MemIndex(regRDX, regRAX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
+        E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.MemIndex(regRDX, regRAX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
       if not IsValueOnly then
         { We get the address of the local variable }
         E.LeaRegMem(regRDX, E.MemIndex(regRDX, regRAX, 1, 0));
@@ -9117,22 +9114,78 @@ var
             IsCodePtrAssigned := True;
             break;
           end;
-        opAssignGlobalMap: // TODO: Only handle 1-dimensional maps for now
+        // TODO: Only handle 1-dimensional maps for now
+        // TODO: Array index is from stack, this is wasteful and we should merge jit blocks in the future
+        opAssignGlobalMap:
           begin
-            { Load global variable index to rcx }
-            // mov rcx, qword ptr [r15 + code[1].VarPointer]
-            E.MovRegImm64(regRCX, SizeOf(TSEValue) * NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
-            { TV, Load global variable to EDI }
-            // mov rdi, qword ptr [r12 + rcx + .VarNumber]
-            E.MovRegMem64(regRDI, E.MemIndex(regR12, regRCX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
+            { Load global variable index to RDI }
+            // mov rdi, qword ptr [r15 + code[1].VarPointer]
+            E.MovRegImm64(regRDI, SizeOf(TSEValue) * NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
+            { TV, Load global variable to RDI }
+            // mov rdi, qword ptr [r12 + rdi + .VarNumber]
+            E.MovRegMem64(regRDI, E.MemIndex(regR12, regRDI, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
             { B, Load from stack }
             // movq rdx,xmm?
-            E.MovRegFromSDXMM(regRDX, TXMMReg(XMMStackPtr - 1));
+            E.MovSDXMM(regXMM0, TXMMReg(XMMStackPtr - 1));
             Dec(XMMStackPtr);
-            { C, Load from stack }
-            // cvttsd2si rsi,xmm?
-            E.CvttSD2SI(regRSI, TXMMReg(XMMStackPtr - 1));
+            { C, Load from actual stack }
+            // mov rsi, qword ptr [r14 + .VarNumber]
+            E.MovRegMem64(regRSI, E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)));
+            { Decrease stack by 1 }
+            E.SubRegImm32(regR14, SizeOf(TSEValue));
+            E.MovMemReg64(E.Mem(regR13, 0), regR14);
+
+            {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
+              E.PushReg(regR15);
+              E.PushReg(regR14);
+              E.PushReg(regR13);
+              E.PushReg(regR12);
+              E.PushReg(regR10);
+            {$endif}
+            E.CallAbsolute(regRCX, @SEMapSetJIT);
+            {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
+              E.PopReg(regR10);
+              E.PopReg(regR12);
+              E.PopReg(regR13);
+              E.PopReg(regR14);
+              E.PopReg(regR15);
+            {$endif}
+            //
+            CodeSize := CodeSize + OpcodeSizes[Op];
+          end;
+        // TODO: Only handle 1-dimensional maps for now
+        // TODO: Array index is from stack, this is wasteful and we should merge jit blocks in the future
+        opAssignLocalMap:
+          begin
+            { RDI = current frame }
+            // mov rdi, r11
+            E.MovRegReg64(regRDI, regR11);
+            if NativeUInt(JitCodePtrLocal[BIndex + 3].VarPointer) <> 0 then
+            begin
+              { RDI = current frame - relative index }
+              // sub rdi, frame
+              E.SubRegImm32(regRDI, NativeUInt(JitCodePtrLocal[BIndex + 3].VarPointer) * SizeOf(TSEFrame));
+            end;
+            { Load local vraiable index to RAX }
+            // mov rax, code[1].VarPointer
+            E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer) * SizeOf(TSEValue));
+            { RDI = current frame's stack pointer }
+            // mov rdi, qword ptr [rdi + .StackPtr]
+            E.MovRegMem64(regRDI, E.Mem(regRDI, NativeUInt(@TSEFrame(nil^).StackPtr)));
+            { TV, Load local variable to RDI }
+            // mov rdi, qword ptr [rdi + rax + .VarNumber]
+            E.MovRegMem64(regRDI, E.MemIndex(regRDI, regRAX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
+
+            { B, Load from stack }
+            // movq rdx,xmm?
+            E.MovSDXMM(regXMM0, TXMMReg(XMMStackPtr - 1));
             Dec(XMMStackPtr);
+            { C, Load from actual stack }
+            // mov rsi, qword ptr [r14 + .VarNumber]
+            E.MovRegMem64(regRSI, E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)));
+            { Decrease stack by 1 }
+            E.SubRegImm32(regR14, SizeOf(TSEValue));
+            E.MovMemReg64(E.Mem(regR13, 0), regR14);
 
             {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
               E.PushReg(regR15);
@@ -10628,9 +10681,9 @@ labelStart:
         begin
         labelAssignGlobalMap:
           A := @CodePtrLocal[1];
-          TV := GetGlobalInt(NativeInt(A^))^;
+          TV := GetGlobalInt(NativeInt(A^.VarPointer))^;
           B := Pop;
-          ArgCount := CodePtrLocal[2];
+          ArgCount := NativeInt(CodePtrLocal[2].VarPointer);
           if ArgCount = 1 then
             C := Pop
           else
@@ -10659,9 +10712,9 @@ labelStart:
         begin
         labelAssignLocalMap:
           A := @CodePtrLocal[1];
-          TV := GetLocalInt(NativeInt(A^), NativeInt(CodePtrLocal[3].VarPointer))^;
+          TV := GetLocalInt(NativeInt(A^.VarPointer), NativeInt(CodePtrLocal[3].VarPointer))^;
           B := Pop;
-          ArgCount := CodePtrLocal[2];
+          ArgCount := NativeInt(CodePtrLocal[2].VarPointer);
           if ArgCount = 1 then
             C := Pop
           else
@@ -12264,7 +12317,7 @@ var
           Op2 := TSEOpcode(NativeInt(Self.Binary.Ptr(BIndex2)^.VarPointer));
           if not (Op2 in [
             opPushConst, opPushGlobalVar, opPushLocalVar, opLoadMapItem,
-            opAssignGlobalVar, opAssignLocalVar,// opAssignGlobalMap,
+            opAssignGlobalVar, opAssignLocalVar, opAssignGlobalMap, opAssignLocalMap,
             opJITBlockPotential,
             opInc,
             opNegative,
@@ -12316,9 +12369,9 @@ var
   function EmitAssignArray(const Ident: TSEIdent; const ArgCount: NativeInt): NativeInt; inline;
   begin
     if Ident.Local > 0 then
-      Result := Emit([Pointer(opAssignLocalMap), Ident.Addr, ArgCount, Pointer(Self.FuncTraversal - Ident.Local), Pointer(1)])
+      Result := Emit([Pointer(opAssignLocalMap), Pointer(Ident.Addr), Pointer(ArgCount), Pointer(Self.FuncTraversal - Ident.Local), Pointer(1)])
     else
-      Result := Emit([Pointer(opAssignGlobalMap), Ident.Addr, ArgCount, Pointer(1)]);
+      Result := Emit([Pointer(opAssignGlobalMap), Pointer(Ident.Addr), Pointer(ArgCount), Pointer(1)]);
   end;
 
   procedure Patch(const Addr: NativeInt; const Data: TSEValue); inline;
@@ -14550,8 +14603,15 @@ var
           end;
           if ArgCount > 0 then
           begin
-            VerifyJITBlock(Ident^.PossibleKinds);
-            EmitAssignArray(Ident^, ArgCount);
+            if ArgCount = 1 then
+            begin
+              EmitAssignArray(Ident^, ArgCount);
+              VerifyJITBlock(Ident^.PossibleKinds);
+            end else
+            begin
+              VerifyJITBlock(Ident^.PossibleKinds);
+              EmitAssignArray(Ident^, ArgCount);
+            end;
           end else
           begin
             EmitAssignVar(Ident^);
