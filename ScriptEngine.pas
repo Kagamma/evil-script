@@ -93,6 +93,7 @@ type
     opPushGlobalVar,
     opPushLocalVar,
     opLoadMapItem,
+    opLoadMapAttr,
     opPopConst,
     opPopFrame,
     opAssignGlobalVar,
@@ -867,6 +868,7 @@ const
     2, // opPushGlobalVar,
     3, // opPushLocalVar,
     3, // opLoadMapItem, the last slot is used for inline cache
+    3, // opLoadMapAttr, the last slot is used for inline cache
     1, // opPopConst,
     1, // opPopFrame,
     2, // opAssignGlobalVar,
@@ -8253,6 +8255,29 @@ begin
   Result := TSEValueMap(P).Get2(I);
 end;
 
+function SEMapGetJITResolve(P: Pointer; I: NativeInt; CacheSite: PSEValue): TSEValue; sysv_abi_default;
+var
+  CacheValue: TSECacheValue;
+begin
+  {$ifdef SE_THREADS}
+  InterlockedExchange64(QWord(CacheValue), CacheSite^.VarData);
+  {$else}
+  QWord(CacheValue) := CacheSite^.VarData;
+  {$endif}
+  if (CacheValue.ID = Cardinal(Pointer(TSEValueMap(P).Shape))) and (CacheValue.Index >= 0) then
+  begin
+    Result := TSEValueMap(P)[CacheValue.Index];
+  end else
+  begin
+    Result := TSEValueMap(P).Get2(ConstStrings.Ptr(I)^.VarString, CacheValue);
+    {$ifdef SE_THREADS}
+    InterlockedExchange64(CacheSite^.VarData, QWord(CacheValue));
+    {$else}
+    CacheSite^.VarData := QWord(CacheValue);
+    {$endif}
+  end;
+end;
+
 procedure SEMapSetJIT(P: Pointer; I, V: Double); sysv_abi_default;
 begin
   TSEValueMap(P).Set2(Round(I), V);
@@ -8848,6 +8873,7 @@ label
   labelPushLocalVar,
   labelPushVar2,
   labelLoadMapItem,
+  labelLoadMapAttr,
   labelPopConst,
   labelPopFrame,
   labelAssignGlobalVar,
@@ -8927,6 +8953,7 @@ var
     @labelPushGlobalVar,
     @labelPushLocalVar,
     @labelLoadMapItem,
+    @labelLoadMapAttr,
     @labelPopConst,
     @labelPopFrame,
     @labelAssignGlobalVar,
@@ -9206,12 +9233,57 @@ var
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
           end;
+        opLoadMapAttr:
+          begin
+            { A, either from code, or from stack }
+            if JitCodePtrLocal[BIndex + 1].Kind <> sevkNull then
+            begin
+              E.MovRegImm64(regRSI, Trunc(JitCodePtrLocal[BIndex + 1].VarNumber))
+            end else
+            begin
+              E.CvttSD2SI(regRSI, TXMMReg(XMMStackPtr - 1));
+              Dec(XMMStackPtr);
+            end;
+            { B }
+            E.MovRegFromSDXMM(regRDI, TXMMReg(XMMStackPtr - 1));
+            Dec(XMMStackPtr);
+            { CacheSite }
+            E.MovRegImm64(regRDX, NativeUInt(@JitCodePtrLocal[BIndex + 2]));
+            //
+            {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
+              E.PushReg(regR15);
+              E.PushReg(regR14);
+              E.PushReg(regR13);
+              E.PushReg(regR12);
+              E.PushReg(regR10);
+            {$endif}
+
+            E.CallAbsolute(regRCX, @SEMapGetJITResolve);
+
+            {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
+              E.PopReg(regR10);
+              E.PopReg(regR12);
+              E.PopReg(regR13);
+              E.PopReg(regR14);
+              E.PopReg(regR15);
+            {$endif}
+
+            { Kind }
+            E.ShrRegImm(regRAX, 32);
+            E.MovRegReg32(regRBX, regRAX);
+            { Result store in rdx, we push it onto the stack }
+            E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRDX);
+            //
+            CodeSize := CodeSize + OpcodeSizes[Op];
+            Inc(XMMStackPtr);
+            LastOpKindInRBX := True;
+          end;
         opLoadMapItem:
           begin
             { A, either from code, or from stack }
             if JitCodePtrLocal[BIndex + 1].Kind <> sevkNull then
             begin
-              E.MovRegImm64(regRSI, Trunc(JitCodePtrLocal[BIndex + 2].VarNumber))
+              E.MovRegImm64(regRSI, Trunc(JitCodePtrLocal[BIndex + 1].VarNumber))
             end else
             begin
               E.CvttSD2SI(regRSI, TXMMReg(XMMStackPtr - 1));
@@ -10472,9 +10544,10 @@ labelStart:
           Inc(CodePtrLocal, 3);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opLoadMapItem:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opLoadMapItem, opLoadMapAttr:{$endif}
         begin
         labelLoadMapItem:
+        labelLoadMapAttr:
           A := @CodePtrLocal[1];
           if A^.Kind = sevkNull then
             A := Pop;
@@ -12317,7 +12390,7 @@ var
         begin
           Op2 := TSEOpcode(NativeInt(Self.Binary.Ptr(BIndex2)^.VarPointer));
           if not (Op2 in [
-            opPushConst, opPushGlobalVar, opPushLocalVar, opLoadMapItem,
+            opPushConst, opPushGlobalVar, opPushLocalVar, opLoadMapItem, opLoadMapAttr,
             opAssignGlobalVar, opAssignLocalVar, opAssignGlobalMap, opAssignLocalMap,
             opJITBlockPotential,
             opInc,
@@ -12477,7 +12550,7 @@ var
     if Self.OptimizeJIT then
       Exit;
     {$endif}
-    OpInfoPrev1 := PeekAtPrevOpExpected(0, [opLoadMapItem]);
+    OpInfoPrev1 := PeekAtPrevOpExpected(0, [opLoadMapItem, opLoadMapAttr]);
     OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushConst]);
     if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
     begin
@@ -12485,7 +12558,10 @@ var
       A := Self.Binary[OpInfoPrev2^.Pos + 1];
       Self.Binary.DeleteRange(Self.Binary.Count - Size, Size);
       Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 2);
-      Emit([Pointer(opLoadMapItem), A, Pointer(1)]);
+      if OpInfoPrev1^.Op = opLoadMapItem then
+        Emit([Pointer(opLoadMapItem), A, Pointer(1)])
+      else
+        Emit([Pointer(opLoadMapAttr), A, Pointer(1)]);
       Result := True;
     end;
   end;
@@ -12555,7 +12631,7 @@ var
         begin
           OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushConst]);
           OpInfoPrev2 := PeekAtPrevOpExpected(1, [
-            opPushGlobalVar, opPushLocalVar, opLoadMapItem,
+            opPushGlobalVar, opPushLocalVar, opLoadMapItem, opLoadMapAttr,
             opAdd0, opMul0, opDiv0,
             opAdd1, opSub1, opMul1, opDiv1,
             opAdd, opSub, opMul, opDiv,
@@ -12603,7 +12679,7 @@ var
         begin
           OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushConst]);
           OpInfoPrev2 := PeekAtPrevOpExpected(1, [
-            opPushGlobalVar, opPushLocalVar, opLoadMapItem,
+            opPushGlobalVar, opPushLocalVar, opLoadMapItem, opLoadMapAttr,
             opAdd0, opMul0, opDiv0,
             opAdd1, opSub1, opMul1, opDiv1,
             opAdd, opSub, opMul, opDiv,
@@ -12660,7 +12736,7 @@ var
             opGreater, opGreaterOrEqual, opLesser, opLesserOrEqual,
             opEqual, opNotEqual, opAnd, opOr, opXor, opNot,
             opInc, opNegative,
-            opLoadMapItem, opCallScript, opCallNative, opCallImport
+            opLoadMapItem, opLoadMapAttr, opCallScript, opCallNative, opCallImport
           ]);
           if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
           begin
@@ -13061,14 +13137,13 @@ var
           end;
         tkDot:
           begin
-            Result := Result + [sevkMap];
             PushConstCount := 0;
             IsTailed := True;
             NextToken;
             Token := NextTokenExpected([tkIdent]);
             AllocFuncRef;
             AssignReturnFuncRef;
-            EmitExpr([Pointer(opLoadMapItem), CreateConstStringValue(Token.Value), Pointer(1)]);
+            EmitExpr([Pointer(opLoadMapAttr), CreateConstStringValue(Token.Value), Pointer(1)]);
             Tail;
           end;
       end;
@@ -13201,13 +13276,12 @@ var
                           end;
                         tkDot:
                           begin
-                            Result := Result + [sevkMap];
                             PushConstCount := 0;
                             IsTailed := True;
                             NextToken;
                             Token2 := NextTokenExpected([tkIdent]);
                             EmitPushVar(Ident^);
-                            Emit([Pointer(opLoadMapItem), CreateConstStringValue(Token2.Value), Pointer(1)]);
+                            Emit([Pointer(opLoadMapAttr), CreateConstStringValue(Token2.Value), Pointer(1)]);
                             Tail;
                             FuncTail;
                           end;
@@ -14415,8 +14489,6 @@ var
           Token := NextToken;
           Emit([Pointer(opPushConst), Token.Value]);
           Token := NextToken;
-          if Token.Kind = tkColon then
-            Result := Result + [sevkMap];
           MarkJITBlock;
           ExprKinds := ParseExpr(False);
           VerifyJITBlock(ExprKinds);
@@ -14629,6 +14701,8 @@ var
               PeepholeStringConcatOptimization(FirstExprOpIndex);
             VerifyJITBlock(Ident^.PossibleKinds, 3);
           end;
+          //Writeln(Ident^.Name);
+          //DebugShowPossibleKinds(Ident^.PossibleKinds);
         end;
       tkBracketOpen:
         begin
