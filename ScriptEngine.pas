@@ -764,7 +764,7 @@ type
     procedure Reset;
     procedure Exec;
     procedure BinaryClear;
-    function Fork(const AStackSize: Cardinal): TSEVM;
+    function Fork(const AStackSize: Cardinal; const AName: String): TSEVM;
     procedure SetGlobalVariable(const AName: String; const AValue: TSEValue);
     function GetGlobalVariable(const AName: String): PSEValue;
     procedure ModifyGlobalVariable(const AName: String; const AValue: TSEValue);
@@ -8149,7 +8149,7 @@ begin
   inherited;
 end;
 
-function TSEVM.Fork(const AStackSize: Cardinal): TSEVM;
+function TSEVM.Fork(const AStackSize: Cardinal; const AName: String): TSEVM;
 var
   StackCount: Cardinal;
   I: NativeInt;
@@ -8171,7 +8171,7 @@ begin
   Result.FramePtr := @Result.Frame[0];
   Result.FramePtr^.StackPtr := Result.StackPtr;
   Result.TrapPtr := @Result.Trap[0];
-  Result.Name := Self.Name + ' [Fork]';
+  Result.Name := AName;
   Dec(Result.TrapPtr);
   //
   Result.Binaries := Self.Binaries.Ref;
@@ -11101,7 +11101,7 @@ constructor TSEVMThread.Create(const AVM: TSEVM; const Fn: TSEValue; const Args:
 var
   I: NativeInt;
 begin
-  Self.VM := AVM.Fork(AStackSize);
+  Self.VM := AVM.Fork(AStackSize, AVM.Name + ' [Thread]');
   Self.VM.ThreadOwner := Self;
   for I := 0 to ArgCount - 1 do
   begin
@@ -11155,7 +11155,7 @@ var
   I: NativeInt;
 begin
   inherited Create;
-  Self.VM := AVM.Fork(AStackSize);
+  Self.VM := AVM.Fork(AStackSize, AVM.Name + ' [Coroutine]');
   Self.VM.CoroutineOwner := Self;
   for I := 0 to ArgCount - 1 do
   begin
