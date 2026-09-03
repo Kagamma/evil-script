@@ -11101,7 +11101,7 @@ constructor TSEVMThread.Create(const AVM: TSEVM; const Fn: TSEValue; const Args:
 var
   I: NativeInt;
 begin
-  Self.VM := AVM.Fork(AStackSize, AVM.Name + ' [Thread]');
+  Self.VM := AVM.Fork(AStackSize, AVM.Name + '[Thread]');
   Self.VM.ThreadOwner := Self;
   for I := 0 to ArgCount - 1 do
   begin
@@ -11155,7 +11155,7 @@ var
   I: NativeInt;
 begin
   inherited Create;
-  Self.VM := AVM.Fork(AStackSize, AVM.Name + ' [Coroutine]');
+  Self.VM := AVM.Fork(AStackSize, AVM.Name + '[Coroutine]');
   Self.VM.CoroutineOwner := Self;
   for I := 0 to ArgCount - 1 do
   begin
