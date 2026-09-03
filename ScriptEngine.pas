@@ -980,6 +980,7 @@ type
     FInternalIdentCount: NativeUInt;
     JITBlockSignatureStack: TSEJITBlockSignatureStack;
     JITBlockCount: NativeInt;
+    FLastVerifyJITBlockResult: Boolean;
     procedure SetSource(V: String);
     function InternalIdent: String;
   public
@@ -12339,9 +12340,11 @@ var
         APossibleKinds := APossibleKinds + [sevkNumber, sevkBoolean];
         if (APossibleKinds <> [sevkNumber, sevkBoolean]) or (OpCount < AMinOpcodeCount) or (IsInvalidOpcode) then
         begin
+          Self.FLastVerifyJITBlockResult := False;
           Self.Binary.DeleteRange(BIndex, OpcodeSizes[Op]);
         end else
         begin
+          Self.FLastVerifyJITBlockResult := True;
           Self.Binary.Ptr(BIndex + 1)^.VarPointer := Pointer(Self.Binary.Count - 1 - BIndex);
         end;
         break;
@@ -14524,6 +14527,7 @@ var
     KindName: String;
     FirstExprOpIndex: Integer;
     AssignPossibleKinds: TSEValueKindSet;
+    IsJitPossibleForArray: Boolean = True;
   begin
     Ident := FindVar(Name);
     if Ident^.IsAssigned and Ident^.IsConst then
@@ -14545,6 +14549,8 @@ var
               NextToken;
               MarkJITBlock;
               VerifyJITBlock(ParseExpr(False));
+              if not Self.FLastVerifyJITBlockResult then
+                IsJitPossibleForArray := False;
               NextTokenExpected([tkSquareBracketClose]);
             end;
           tkDot:
@@ -14552,6 +14558,7 @@ var
               NextToken;
               Token2 := NextTokenExpected([tkIdent]);
               Emit([Pointer(opPushConst), CreateConstStringValue(Token2.Value)]);
+              IsJitPossibleForArray := False;
             end;
         end;
         Inc(ArgCount);
@@ -14603,7 +14610,7 @@ var
           end;
           if ArgCount > 0 then
           begin
-            if ArgCount = 1 then
+            if (ArgCount = 1) and IsJitPossibleForArray then
             begin
               EmitAssignArray(Ident^, ArgCount);
               VerifyJITBlock(Ident^.PossibleKinds);
