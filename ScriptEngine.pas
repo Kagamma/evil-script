@@ -7566,6 +7566,9 @@ var
   Key: String;
   Cache: TSECache;
   Binary: TSEBinary;
+  {$ifdef SE_PROFILER}
+  ProfilerItem: TSEProfilerItem;
+  {$endif}
 
   procedure SuspendThreads;
   var
@@ -7725,6 +7728,10 @@ begin
         Writeln('[GC] Number of old objects before cleaning: ', Self.FObjectsOld);
         Writeln('[GC] Number of objects in object pool: ', Self.FNodeAvailStack.Count);
         {$endif}
+        {$ifdef SE_PROFILER}
+        ProfilerItem.FuncName := 'GC <Mark>';
+        ProfilerItem.TimeStartInNSec := TSEProfiler.GetTimeInNSec;
+        {$endif}
         Self.Initial;
 
         Self.FPhase := segcpMark;
@@ -7732,6 +7739,9 @@ begin
         Writeln('[GC] ', Self.FPhase);
         {$endif}
         Marking;
+        {$ifdef SE_PROFILER}
+        SEProfiler.AddReport(ProfilerItem);
+        {$endif}
         if Self.EnableParallel then
           Exit;
       end;
@@ -7748,6 +7758,10 @@ begin
         {$ifdef SE_LOG}
         Writeln('[GC] ', Self.FPhase);
         {$endif}
+        {$ifdef SE_PROFILER}
+        ProfilerItem.FuncName := 'GC <Sweep>';
+        ProfilerItem.TimeStartInNSec := TSEProfiler.GetTimeInNSec;
+        {$endif}
         if Self.FRunCount mod Self.FOldObjectCheckCycle = 0 then
         begin
           Sweep(2);
@@ -7755,6 +7769,9 @@ begin
         begin
           Sweep(1);
         end;
+        {$ifdef SE_PROFILER}
+        SEProfiler.AddReport(ProfilerItem);
+        {$endif}
         {$ifdef SE_LOG}
         Writeln('[GC] Number of objects after cleaning: ', Self.FObjects);
         Writeln('[GC] Number of old objects after cleaning: ', Self.FObjectsOld);
