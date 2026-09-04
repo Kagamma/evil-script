@@ -10835,8 +10835,8 @@ labelStart:
           SEProfilerStack.Push(SEProfileItem);
           {$endif}
           Inc(FramePtrLocal);
-          if FramePtrLocal > @Self.Frame[Self.FrameSize - 1] then
-            raise Exception.Create('Too much recursion');
+          //if FramePtrLocal > @Self.Frame[Self.FrameSize - 1] then
+          //  raise Exception.Create('Too much recursion');
           FramePtrLocal^.StackPtr := StackPtrLocal - {ArgCount}NativeInt(CodePtrLocal[2].VarPointer);
           FramePtrLocal^.CodePtr := CodePtrLocal + 4;
           FramePtrLocal^.CodeSegmentIndex := CodeSegmentIndexLocal;
