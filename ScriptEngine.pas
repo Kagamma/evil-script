@@ -12477,6 +12477,15 @@ var
       Result := Pointer(SE_REG_GLOBAL);
   end;
 
+  function PossibleKindsCount(const PossibleKinds: TSEValueKindSet): Integer;
+  var
+    Kind: TSEValueKind;
+  begin
+    Result := 0;
+    for Kind in PossibleKinds do
+      Inc(Result);
+  end;
+
   procedure DebugShowPossibleKinds(const PossibleKinds: TSEValueKindSet);
   var
     Kind: TSEValueKind;
