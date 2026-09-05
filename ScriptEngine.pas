@@ -10320,7 +10320,8 @@ labelStart:
             mov r12, GlobalLocal
             mov r11, FramePtrLocal
             lea r10, CodePtrLocal
-            jmp qword ptr [r15 + 24]
+            mov rax, qword ptr [r15 + 24]
+            jmp rax
           end;
         labelJITBlockEnd:
           DispatchGoto;
@@ -14677,8 +14678,6 @@ var
       end;
       Token := NextTokenExpected([tkComma, tkSquareBracketClose]);
     until Token.Kind = tkSquareBracketClose;
-    if PossibleKindsCount(Result) >= 2 then
-      Result := [sevkMap];
     Emit([Pointer(opCallNative), Pointer(Ind), Pointer(ArgCount), Pointer(0)]);
   end;
 
