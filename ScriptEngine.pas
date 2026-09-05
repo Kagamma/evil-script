@@ -1048,6 +1048,7 @@ type
     procedure RegisterImportFunc(const Name, ActualName, LibName: String; const Args: TSEAtomKindArray; const Return: TSEAtomKind; const CC: TSECallingConvention = seccAuto);
     function Backup: TSECache;
     procedure Restore(const Cache: TSECache);
+    function Fork: TEvilC;
     function FindFunc(const Name: String): Pointer; inline; overload;
     function FindFuncNative(const Name: String; var Ind: Cardinal): PSEFuncNativeInfo; inline;
     function FindFuncScript(const Name: String; var Ind: Cardinal): PSEFuncScriptInfo; inline;
@@ -9176,7 +9177,7 @@ var
       end;
       Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
       // Writeln(' - ', Op);
-      case Op of
+      case Op of // TODO: Free registers for future register allocator: R8, R9, R10
         opNop,
         opJITBlock,
         opJITBlockPotential:
@@ -15617,6 +15618,63 @@ begin
   Self.GlobalVarSymbols.Assign(Cache.GlobalVarSymbols);
   Self.GlobalVarCount := Cache.GlobalVarCount;
   Self.IsParsed := True;
+end;
+
+function TScriptEngine.Fork: TEvilC;
+var
+  I: Integer;
+  Key: String;
+  FuncScriptInfo: TSEFuncScriptInfo;
+begin
+  Result := TEvilC.Create;
+  Result.Owner := Self.Owner;
+  Result.OptimizeAsserts := Self.OptimizeAsserts;
+  Result.OptimizeConstantFolding := Self.OptimizeConstantFolding;
+  Result.OptimizeConstants := Self.OptimizeConstants;
+  Result.OptimizePeephole := Self.OptimizePeephole;
+  Result.OptimizeJIT := Self.OptimizeJIT;
+  Result.IsParsed := Self.IsParsed;
+
+  Result.LineOfCodeList.Count := Self.LineOfCodeList.Count;
+  for I := 0 to Self.LineOfCodeList.Count - 1 do
+    Result.LineOfCodeList[I] := Self.LineOfCodeList[I];
+
+  Result.FuncScriptList.Count := Self.FuncScriptList.Count;
+  for I := 0 to Self.FuncScriptList.Count - 1 do
+  begin
+    FuncScriptInfo := Self.FuncScriptList[I];
+    FuncScriptInfo.VarSymbols := TStringList.Create;
+    FuncScriptInfo.VarSymbols.Assign(Self.FuncScriptList[I].VarSymbols);
+    Result.FuncScriptList[I] := FuncScriptInfo;
+  end;
+
+  Result.FuncImportList.Count := Self.FuncImportList.Count;
+  for I := 0 to Self.FuncImportList.Count - 1 do
+    Result.FuncImportList[I] := Self.FuncImportList[I];
+
+  Result.FuncNativeList.Count := Self.FuncNativeList.Count;
+  for I := 0 to Self.FuncNativeList.Count - 1 do
+    Result.FuncNativeList[I] := Self.FuncNativeList[I];
+
+  Result.ConstList.Count := Self.ConstList.Count;
+  for I := 0 to Self.ConstList.Count - 1 do
+    Result.ConstList[I] := Self.ConstList[I];
+
+  for Key in Self.ConstLookup.Keys do
+    Result.ConstLookup.AddOrSetValue(Key, Self.ConstLookup[Key]);
+
+  Result.GlobalVarSymbols.Assign(Self.GlobalVarSymbols);
+
+  Result.GlobalVarCount := Self.GlobalVarCount;
+  Result.VarList.Count := Self.VarList.Count;
+  for I := 0 to Self.VarList.Count - 1 do
+    Result.VarList[I] := Self.VarList[I];
+  //
+  Result.VM.Reset;
+  Result.VM.Binaries.Free;
+  Result.VM.Name := Self.VM.Name;
+  //
+  Result.VM.Binaries := Self.VM.Binaries.Ref;
 end;
 
 procedure TSECacheMap.ClearSingle(const AName: String);
