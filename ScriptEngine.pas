@@ -379,6 +379,8 @@ type
     function GetOffsetHash(Hash: Cardinal; const Name: String): Integer;
     function HasProperty(const Name: String): Boolean;
     function GetKeys: TStringDynArray;
+    function NeedsCompaction: Boolean;
+    function ToString: String;
     property ID: Integer read FID;
     property Parent: TSEShape read FParent;
     property PropertyName: String read FPropertyName;
@@ -407,6 +409,7 @@ type
     destructor Destroy; override;
     function AddProperty(AParent: TSEShape; const Name: String): TSEShape;
     function RemoveProperty(AParent: TSEShape; const Name: String): TSEShape;
+    function Compact(AOldShape: TSEShape; out Remap: TIntegerDynArray): TSEShape;
     procedure BeginMark;
     procedure Mark(AShape: TSEShape);
     procedure Sweep;
@@ -1617,7 +1620,7 @@ type
     class function SEKindOf(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEWrite(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEWriteln(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
-    class function SEWriteShapeInfo(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+    class function SEShapeInfo(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SERandom(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SERnd(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SERound(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -3823,6 +3826,36 @@ begin
     Result[I] := FKeys[I];
 end;
 
+function TSEShape.NeedsCompaction: Boolean;
+begin
+  Result := (FTombstoneCount >= 8) and (FTombstoneCount * 4 >= FSlotCount);
+end;
+
+function TSEShape.ToString: String;
+var
+  Keys: TStringDynArray;
+  I, Offset: Integer;
+begin
+  Result := 'ID             : ' + ID.ToString + LineEnding;
+  if Parent <> nil then
+    Result := Result + 'Parent         : ' + Parent.ID + LineEnding
+  else
+    Result := Result + 'Parent         : nil' + LineEnding;
+  Result := Result + 'SlotCount      : ' + SlotCount.ToString + LineEnding;
+  Result := Result + 'LiveCount      : ' + LiveCount.ToString + LineEnding;
+  Result := Result + 'TombstoneCount : ' + TombstoneCount.ToString + LineEnding;
+  Result := Result + 'IsDeleted      : ' + IsDeleted .ToString+ LineEnding;
+
+  Keys := GetKeys;
+  Result := Result + 'Keys           : ' + Length(Keys).ToString + LineEnding;
+
+  for I := 0 to High(Keys) do
+  begin
+    TryGetOffset(Keys[I], Offset);
+    Result := Result + '  ' + Keys[I] + ' -> ' + Offset.ToString + LineEnding;
+  end;
+end;
+
 constructor TSEShapeManager.Create;
 begin
   inherited Create;
@@ -3916,6 +3949,29 @@ begin
     {$ifdef SE_THREADS}
     LeaveCriticalSection(FLock);
     {$endif}
+  end;
+end;
+
+function TSEShapeManager.Compact(AOldShape: TSEShape; out Remap: TIntegerDynArray): TSEShape;
+var
+  Keys: TStringDynArray;
+  OldOffset, NewOffset: Integer;
+  I: Integer;
+begin
+  SetLength(Remap, AOldShape.SlotCount);
+  for I:=0 to High(Remap) do
+    Remap[I] := -1;
+
+  Keys := AOldShape.GetKeys;
+  Result := Root;
+  NewOffset := 0;
+
+  for I := 0 to High(Keys) do
+  begin
+    AOldShape.TryGetOffset(Keys[I], OldOffset);
+    Remap[OldOffset] := NewOffset;
+    Result := AddProperty(Result, Keys[I]);
+    Inc(NewOffset);
   end;
 end;
 
@@ -5119,35 +5175,17 @@ begin
   Result := SENull;
 end;
 
-class function TBuiltInFunction.SEWriteShapeInfo(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+class function TBuiltInFunction.SEShapeInfo(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 var
   Keys: TStringDynArray;
   I, Offset: Integer;
   S: TSEShape;
+  Res: String;
 begin
   SEValidateType(@Args[0], sevkMap, 1, {$I %CURRENTROUTINE%});
   if SEMapIsValidArray(Args[0]) then
     Exit;
-  S := TSEValueMap(Args[0].VarMap).Shape;
-  Writeln('ID             : ', S.ID);
-  if S.Parent <> nil then
-    Writeln('Parent         : ', S.Parent.ID)
-  else
-    Writeln('Parent         : nil');
-  Writeln('SlotCount      : ', S.SlotCount);
-  Writeln('LiveCount      : ', S.LiveCount);
-  Writeln('TombstoneCount : ', S.TombstoneCount);
-  Writeln('IsDeleted      : ', S.IsDeleted);
-
-  Keys := S.GetKeys;
-  Writeln('Keys           : ', Length(Keys));
-
-  for I := 0 to High(Keys) do
-  begin
-    S.TryGetOffset(Keys[I], Offset);
-    Writeln('  ', Keys[I], ' -> ', Offset);
-  end;
-  Writeln;
+  Result := TSEValueMap(Args[0].VarMap).Shape.ToString;
 end;
 
 class function TBuiltInFunction.SERandom(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -7131,10 +7169,29 @@ begin
 end;
 
 procedure TSEValueMap.Del2(const Key: PString);
+var
+  Remap: TIntegerDynArray;
+  NewValues: array of TSEValue;
+  I: Integer;
 begin
   Self.Lock;
   try
     Self.FShape := ShapeManager.RemoveProperty(Self.FShape, Key^);
+    if Self.FShape.NeedsCompaction then
+    begin
+      //Writeln('=========== COMPACT START ===========');
+      //Writeln('OLD SHAPE: ', Self.FShape.ToString);
+      Self.FShape := ShapeManager.Compact(Self.FShape, Remap);
+      SetLength(NewValues, Self.FShape.SlotCount);
+      for I := 0 to High(Remap) do
+        if Remap[I] >= 0 then
+          NewValues[Remap[I]] := Self.Items[I];
+      Self.Capacity := Length(NewValues);
+      for I := 0 to High(NewValues) do
+        Self.Items[I] := NewValues[I];
+      //Writeln('NEW SHAPE: ', Self.FShape.ToString);
+      //Writeln('=========== COMPACT END ===========');
+    end;
   finally
     Self.Unlock;
   end;
@@ -11374,7 +11431,7 @@ begin
     Self.RegisterFunc('slerp', @TBuiltInFunction(nil).SESLerp, 3, [sevkNumber]);
     Self.RegisterFunc('write', @TBuiltInFunction(nil).SEWrite, -1);
     Self.RegisterFunc('writeln', @TBuiltInFunction(nil).SEWriteln, -1);
-    Self.RegisterFunc('write_shape_info', @TBuiltInFunction(nil).SEWriteShapeInfo, 1);
+    Self.RegisterFunc('shape_info', @TBuiltInFunction(nil).SEShapeInfo, 1);
     Self.RegisterFunc('ticks', @TBuiltInFunction(nil).SEGetTickCount, 0, [sevkNumber]);
     Self.RegisterFunc('dt_now', @TBuiltInFunction(nil).SEDTNow, 0, [sevkNumber]);
     Self.RegisterFunc('dt_year_get', @TBuiltInFunction(nil).SEDTGetYear, 1, [sevkNumber]);
@@ -11430,7 +11487,7 @@ begin
     Self.RegisterFunc('pasobject_classname', @TBuiltInFunction(nil).SEPasObjectClassName, 1);
     Self.RegisterFunc('invoke', @TBuiltInFunction(nil).SEInvoke, -1);
     Self.RegisterFunc('chr', @TBuiltInFunction(nil).SEChar, 1);
-    Self.RegisterFunc('ord', @TBuiltInFunction(nil).SEOrd, 1);
+    Self.RegisterFunc('ord', @TBuiltInFunction(nil).SEOrd, 1, [sevkNumber]);
 
     Self.RegisterFunc('coroutine_create', @TBuiltInFunction(nil).SECoroutineCreate, -1);
     Self.RegisterFunc('coroutine_reset', @TBuiltInFunction(nil).SECoroutineReset, -1);
