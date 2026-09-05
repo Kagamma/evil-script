@@ -13280,11 +13280,12 @@ var
       case PeekAtNextToken.Kind of
         tkSquareBracketOpen:
           begin
+            Result := Result + [sevkMap];
             PushConstCount := 0;
             IsTailed := True;
             NextToken;
             MarkJITBlock;
-            Result := Result + VerifyJITBlock(ParseExpr(False));
+            VerifyJITBlock(ParseExpr(False));
             NextTokenExpected([tkSquareBracketClose]);
             AllocFuncRef;
             AssignReturnFuncRef;
@@ -13420,12 +13421,13 @@ var
                       case PeekAtNextToken.Kind of
                         tkSquareBracketOpen:
                           begin
+                            Result := Result + [sevkMap];
                             PushConstCount := 0;
                             IsTailed := True;
                             NextToken;
                             EmitPushVar(Ident^);
                             MarkJITBlock;
-                            Result := Result + VerifyJITBlock(ParseExpr(False));
+                            VerifyJITBlock(ParseExpr(False));
                             Emit([Pointer(opLoadMapItem), SENull, Pointer(1)]);
                             PeepholeArrayAssignOptimization;
                             NextTokenExpected([tkSquareBracketClose]);
