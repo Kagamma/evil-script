@@ -183,7 +183,12 @@ type
   public
     type
       PTT = ^TT;
+    var
+      RefCount: Integer;
+    constructor Create;
+    procedure TryFree;
     function Ptr(const Index: SizeInt): PTT; inline;
+    function Ref: TSEListPtr;
   end;
 
   generic TSEStackPtr<TT> = class(specialize TStack<TT>)
@@ -603,9 +608,9 @@ type
   PSEFuncImportInfo = ^TSEFuncImportInfo;
 
   TSEStringLookupMap = specialize TSEDictionary<String, Cardinal>;
-  TSEFuncNativeList = class(specialize TSEListPtr<TSEFuncNativeInfo>);
-  TSEFuncScriptList = class(specialize TSEListPtr<TSEFuncScriptInfo>);
-  TSEFuncImportList = class(specialize TSEListPtr<TSEFuncImportInfo>);
+  TSEFuncNativeList = specialize TSEListPtr<TSEFuncNativeInfo>;
+  TSEFuncScriptList = specialize TSEListPtr<TSEFuncScriptInfo>;
+  TSEFuncImportList = specialize TSEListPtr<TSEFuncImportInfo>;
 
   TSELineOfCode = record
     CodeIndex: NativeInt;
@@ -613,7 +618,7 @@ type
     Line: NativeInt;
     Module: String;
   end;
-  TSELineOfCodeList = specialize TList<TSELineOfCode>;
+  TSELineOfCodeList = specialize TSEListPtr<TSELineOfCode>;
 
   TSEConstLookup = specialize TSEDictionary<String, NativeInt>;
   TSEStack = TSEValueList;
@@ -768,21 +773,6 @@ type
     procedure SetGlobalVariable(const AName: String; const AValue: TSEValue);
     function GetGlobalVariable(const AName: String): PSEValue;
     procedure ModifyGlobalVariable(const AName: String; const AValue: TSEValue);
-  end;
-
-  TSECache = record
-    Binaries: array of TSEBinary;
-    GlobalVarCount: Cardinal;
-    GlobalVarSymbols: TStrings;
-    LineOfCodeList: TSELineOfCodeList;
-    FuncScriptList: TSEFuncScriptList;
-    FuncImportList: TSEFuncImportList;
-  end;
-  TSECacheMapAncestor = specialize TSEDictionary<String, TSECache>;
-  TSECacheMap = class(TSECacheMapAncestor)
-  public
-    procedure ClearSingle(const AName: String);
-    procedure Clear;
   end;
 
   TSETokenKind = (
@@ -1046,8 +1036,6 @@ type
     procedure RegisterFunc(const Name: String; const Func: TSEFunc; const ArgCount: NativeInt; APossibleKinds: TSEValueKindSet = [sevkNumber, sevkString, sevkMap, sevkNull, sevkFunction, sevkPascalObject]);
     function RegisterScriptFunc(const Name: String; const ArgCount: NativeInt; var AIndex: Cardinal; const IsOverride: Boolean = False): PSEFuncScriptInfo;
     procedure RegisterImportFunc(const Name, ActualName, LibName: String; const Args: TSEAtomKindArray; const Return: TSEAtomKind; const CC: TSECallingConvention = seccAuto);
-    function Backup: TSECache;
-    procedure Restore(const Cache: TSECache);
     function Fork: TEvilC;
     function FindFunc(const Name: String): Pointer; inline; overload;
     function FindFuncNative(const Name: String; var Ind: Cardinal): PSEFuncNativeInfo; inline;
@@ -1563,7 +1551,6 @@ var
   {$ifdef SE_THREADS}
   GCMarkJob: TSEGarbageCollectorMarkJob;
   {$endif}
-  ScriptCacheMap: TSECacheMap;
   SENull: TSEValue;
   JumpTable: array[TSEOpcode] of Pointer;
   SEStackSize,
@@ -6304,6 +6291,25 @@ begin
   Result := Args[0].Invoke(Args[1], @Args[2], ArgCount - 2);
 end;
 
+constructor TSEListPtr.Create;
+begin
+  inherited Create;
+  Self.RefCount := 1;
+end;
+
+procedure TSEListPtr.TryFree;
+begin
+  Dec(Self.RefCount);
+  if Self.RefCount <= 0 then
+    Free;
+end;
+
+function TSEListPtr.Ref: TSEListPtr;
+begin
+  Inc(Self.RefCount);
+  Result := Self;
+end;
+
 function TSEListPtr.Ptr(const Index: SizeInt): PTT;
 begin
   Result := @FItems[Index];
@@ -7565,7 +7571,6 @@ var
   VM: TSEVM;
   I: NativeInt;
   Key: String;
-  Cache: TSECache;
   Binary: TSEBinary;
   {$ifdef SE_PROFILER}
   ProfilerItem: TSEProfilerItem;
@@ -11462,8 +11467,9 @@ destructor TEvilC.Destroy;
 var
   I: NativeInt;
 begin
-  for I := 0 to Self.FuncScriptList.Count - 1 do
-    Self.FuncScriptList[I].VarSymbols.Free;
+  if Self.FuncScriptList.RefCount = 1 then
+    for I := 0 to Self.FuncScriptList.Count - 1 do
+      Self.FuncScriptList[I].VarSymbols.Free;
   {$ifdef SE_THREADS}
   for I := Self.VMThreadList.Count - 1 downto 0 do
     Self.VMThreadList[I].Terminate;
@@ -11473,14 +11479,14 @@ begin
   FreeAndNil(Self.TokenList);
   FreeAndNil(Self.OpcodeInfoList);
   FreeAndNil(Self.VarList);
-  FreeAndNil(Self.FuncNativeList);
-  FreeAndNil(Self.FuncScriptList);
-  FreeAndNil(Self.FuncImportList);
+  Self.FuncNativeList.TryFree;
+  Self.FuncScriptList.TryFree;
+  Self.FuncImportList.TryFree;
+  Self.LineOfCodeList.TryFree;
   FreeAndNil(Self.ConstList);
   FreeAndNil(Self.ConstLookup);
   FreeAndNil(Self.ScopeStack);
   FreeAndNil(Self.ScopeFunc);
-  FreeAndNil(Self.LineOfCodeList);
   FreeAndNil(Self.IncludeList);
   FreeAndNil(Self.IncludePathList);
   FreeAndNil(Self.CurrentFileList);
@@ -15544,87 +15550,10 @@ begin
   Self.FuncImportList.Add(FuncImportInfo);
 end;
 
-function TEvilC.Backup: TSECache;
-var
-  I, J: NativeInt;
-  BackupBinary, SrcBinary: TSEBinary;
-  FuncScriptInfo: TSEFuncScriptInfo;
-begin
-  Result.LineOfCodeList := TSELineOfCodeList.Create;
-  Result.FuncScriptList := TSEFuncScriptList.Create;
-  Result.FuncImportList := TSEFuncImportList.Create;
-  Result.GlobalVarSymbols := TStringList.Create;
-  SetLength(Result.Binaries, Self.VM.Binaries.Value^.Size);
-  for J := 0 to Self.VM.Binaries.Value^.Size - 1 do
-  begin
-    BackupBinary := TSEBinary.Create;
-    Result.Binaries[J] := BackupBinary;
-    SrcBinary := Self.VM.Binaries.Value^.Data[J];
-    for I := 0 to SrcBinary.Count - 1 do
-    begin
-      BackupBinary.Add(SrcBinary[I]);
-    end;
-  end;
-  for I := 0 to Self.LineOfCodeList.Count - 1 do
-  begin
-    Result.LineOfCodeList.Add(Self.LineOfCodeList[I]);
-  end;
-  for I := 0 to Self.FuncScriptList.Count - 1 do
-  begin
-    FuncScriptInfo := Self.FuncScriptList[I];
-    FuncScriptInfo.VarSymbols := TStringList.Create;
-    FuncScriptInfo.VarSymbols.Assign(Self.FuncScriptList[I].VarSymbols);
-    Result.FuncScriptList.Add(FuncScriptInfo);
-  end;
-  for I := 0 to Self.FuncImportList.Count - 1 do
-  begin
-    Result.FuncImportList.Add(Self.FuncImportList[I]);
-  end;
-  Result.GlobalVarSymbols.Assign(Self.GlobalVarSymbols);
-  Result.GlobalVarCount := Self.GlobalVarCount;
-end;
-
-procedure TEvilC.Restore(const Cache: TSECache);
-var
-  I, J: NativeInt;
-  BackupBinary, DstBinary: TSEBinary;
-  FuncScriptInfo: TSEFuncScriptInfo;
-begin
-  Self.VM.BinaryClear;
-  Self.LineOfCodeList.Count := 0;
-  Self.GlobalVarSymbols.Clear;
-  for I := 0 to Cache.LineOfCodeList.Count - 1 do
-    Self.LineOfCodeList.Add(Cache.LineOfCodeList[I]);
-  for I := 0 to Self.VM.Binaries.Value^.Size - 1 do
-    Self.VM.Binaries.Value^.Data[I].Free;
-  Self.VM.Binaries.Alloc(Length(Cache.Binaries));
-  for I := 0 to High(Cache.Binaries) do
-  begin
-    BackupBinary := Cache.Binaries[I];
-    DstBinary := TSEBinary.Create;
-    Self.VM.Binaries.Value^.Data[I] := DstBinary;
-    for J := 0 to BackupBinary.Count - 1 do
-      DstBinary.Add(BackupBinary[J]);
-  end;
-  for I := 0 to Cache.FuncScriptList.Count - 1 do
-  begin
-    FuncScriptInfo := Cache.FuncScriptList[I];
-    FuncScriptInfo.VarSymbols := TStringList.Create;
-    FuncScriptInfo.VarSymbols.Assign(Cache.FuncScriptList[I].VarSymbols);
-    Self.FuncScriptList.Add(FuncScriptInfo);
-  end;
-  for I := 0 to Cache.FuncImportList.Count - 1 do
-    Self.FuncImportList.Add(Cache.FuncImportList[I]);
-  Self.GlobalVarSymbols.Assign(Cache.GlobalVarSymbols);
-  Self.GlobalVarCount := Cache.GlobalVarCount;
-  Self.IsParsed := True;
-end;
-
 function TScriptEngine.Fork: TEvilC;
 var
   I: Integer;
   Key: String;
-  FuncScriptInfo: TSEFuncScriptInfo;
 begin
   Result := TEvilC.Create;
   Result.Owner := Self.Owner;
@@ -15635,26 +15564,17 @@ begin
   Result.OptimizeJIT := Self.OptimizeJIT;
   Result.IsParsed := Self.IsParsed;
 
-  Result.LineOfCodeList.Count := Self.LineOfCodeList.Count;
-  for I := 0 to Self.LineOfCodeList.Count - 1 do
-    Result.LineOfCodeList[I] := Self.LineOfCodeList[I];
+  Result.LineOfCodeList.Free;
+  Result.LineOfCodeList := Self.LineOfCodeList.Ref;
 
-  Result.FuncScriptList.Count := Self.FuncScriptList.Count;
-  for I := 0 to Self.FuncScriptList.Count - 1 do
-  begin
-    FuncScriptInfo := Self.FuncScriptList[I];
-    FuncScriptInfo.VarSymbols := TStringList.Create;
-    FuncScriptInfo.VarSymbols.Assign(Self.FuncScriptList[I].VarSymbols);
-    Result.FuncScriptList[I] := FuncScriptInfo;
-  end;
+  Result.FuncScriptList.Free;
+  Result.FuncScriptList := Self.FuncScriptList.Ref;
 
-  Result.FuncImportList.Count := Self.FuncImportList.Count;
-  for I := 0 to Self.FuncImportList.Count - 1 do
-    Result.FuncImportList[I] := Self.FuncImportList[I];
+  Result.FuncImportList.Free;
+  Result.FuncImportList := Self.FuncImportList.Ref;
 
-  Result.FuncNativeList.Count := Self.FuncNativeList.Count;
-  for I := 0 to Self.FuncNativeList.Count - 1 do
-    Result.FuncNativeList[I] := Self.FuncNativeList[I];
+  Result.FuncNativeList.Free;
+  Result.FuncNativeList := Self.FuncNativeList.Ref;
 
   Result.ConstList.Count := Self.ConstList.Count;
   for I := 0 to Self.ConstList.Count - 1 do
@@ -15675,45 +15595,6 @@ begin
   Result.VM.Name := Self.VM.Name;
   //
   Result.VM.Binaries := Self.VM.Binaries.Ref;
-end;
-
-procedure TSECacheMap.ClearSingle(const AName: String);
-var
-  Cache: TSECache;
-  I: NativeInt;
-begin
-  try
-    Cache := Self[AName];
-    for I := 0 to High(Cache.Binaries) do
-      Cache.Binaries[I].Free;
-    Cache.LineOfCodeList.Free;
-    for I := 0 to Cache.FuncScriptList.Count - 1 do
-      Cache.FuncScriptList[I].VarSymbols.Free;
-    Cache.FuncScriptList.Free;
-    Cache.FuncImportList.Free;
-    Cache.GlobalVarSymbols.Free;
-    Self.Remove(AName);
-  except
-  end;
-end;
-
-procedure TSECacheMap.Clear;
-var
-  S: String;
-  Cache: TSECache;
-  I: NativeInt;
-begin
-  for S in Self.Keys do
-  begin
-    Cache := Self[S];
-    for I := 0 to High(Cache.Binaries) do
-      Cache.Binaries[I].Free;
-    Cache.LineOfCodeList.Free;
-    Cache.FuncScriptList.Free;
-    Cache.FuncImportList.Free;
-    Cache.GlobalVarSymbols.Free;
-  end;
-  inherited;
 end;
 
 var
@@ -15745,7 +15626,6 @@ initialization
   {$ifdef SE_THREADS}
   GCMarkJob := TSEGarbageCollectorMarkJob.Create;
   {$endif}
-  ScriptCacheMap := TSECacheMap.Create;
   GC.AllocMap(@ScriptVarMap);
   IsThread := 0;
   FunctionAssert := [
@@ -15785,7 +15665,6 @@ finalization
   GCMarkJob.Resume;
   {$endif}
   GC.Free;
-  ScriptCacheMap.Free;
   DynlibMap.Free;
   {$ifdef SE_PROFILER}
   SEProfiler.Free;
