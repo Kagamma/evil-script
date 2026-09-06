@@ -9138,6 +9138,8 @@ var
     STATUS_OK = 0;
     STATUS_OVERFLOW = 1;
     STATUS_INVALID = 2;
+    XMM_START = 3;
+    XMM_END = 14;
   var
     I, J, BIndex, BFinish: NativeInt;
     Op: TSEOpcode;
@@ -9204,7 +9206,7 @@ var
     BIndex := 0;
     BFinish := TSEJITCountPack(Cardinal(JitCodePtrLocal[1].VarPointer)).ApplyRange;
 
-    XMMStackPtr := 3;
+    XMMStackPtr := XMM_START;
     CodeSize := 0;
     Result := STATUS_OK;
     IsCodePtrAssigned := False;
@@ -9225,7 +9227,7 @@ var
     // Writeln('JIT from ', BIndex, ' to ', BFinish);
     while BIndex <= BFinish do
     begin
-      if XMMStackPtr >= 14 then
+      if XMMStackPtr >= XMM_END then
       begin
         Result := STATUS_OVERFLOW;
         break;
@@ -10230,12 +10232,8 @@ var
     begin
       Result := STATUS_INVALID;
     end;
-    {if (Result = STATUS_INVALID) or (Result = STATUS_OVERFLOW) then
     begin
-      JitCodePtrLocal[1] := nil;
-    end else}
-    begin
-      if XMMStackPtr = 4 then
+      if XMMStackPtr = XMM_START + 1 then
       begin
         { Move XMM3 to the stack }
         E.MovSDMemFromXMM(E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM3);
@@ -10248,8 +10246,8 @@ var
         E.AddRegImm32(regR14, SizeOf(TSEValue));
         E.MovMemReg64(E.Mem(regR13, 0), regR14);
       end else
-      if XMMStackPtr > 4 then
-        raise Exception.Create('JIT error: XMMStackPtr > 4');
+      if XMMStackPtr > XMM_START + 1 then
+        raise Exception.Create('JIT error: XMMStackPtr > ' + IntToStr(XMM_START + 1));
       { Increase CodePtr }
       if not IsCodePtrAssigned then
       begin
