@@ -3462,7 +3462,7 @@ end;
 
 function TX64Emitter.MakeExecutable(const JITBlockList: TSEJITBlockList): Pointer;
 const
-  BLOCK_SIZE = 16384;
+  BLOCK_SIZE = 65536;
 var
   Size: NativeUInt;
   I: Integer;
