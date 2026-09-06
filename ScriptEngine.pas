@@ -3775,43 +3775,44 @@ end;
 
 procedure TSEShape.BuildKeys;
 var
-  ParentKeys: TStringDynArray;
-  I: Integer;
-  Count: Integer;
+  Current: TSEShape;
+  Count, I: Integer;
+  Seen: specialize TDictionary<Cardinal, Boolean>;
+  Temp: array of String;
 begin
   if FKeysBuilt then
     Exit;
 
-  if FParent = nil then
-  begin
-    SetLength(FKeys, 0);
-    FKeysBuilt := True;
-    Exit;
-  end;
-
-  ParentKeys := FParent.GetKeys;
-
-  if not FIsDeleted then
-  begin
-    SetLength(FKeys, Length(ParentKeys) + 1);
-    for I := 0 to High(ParentKeys) do
-      FKeys[I] := ParentKeys[I];
-    FKeys[High(FKeys)] := FPropertyName;
-  end else
-  begin
-    SetLength(FKeys, Length(ParentKeys));
+  Seen := specialize TDictionary<Cardinal, Boolean>.Create;
+  try
+    SetLength(Temp, FLiveCount);
     Count := 0;
-    for I := 0 to High(ParentKeys) do
+    Current := Self;
+
+    while Current <> nil do
     begin
-      if ParentKeys[I] <> FPropertyName then
+      if Current.FPropertyName <> '' then
       begin
-        FKeys[Count] := ParentKeys[I];
-        Inc(Count);
+        if not Seen.ContainsKey(Current.FPropertyHash) then
+        begin
+          Seen.Add(Current.FPropertyHash, True);
+          if not Current.FIsDeleted then
+          begin
+            Temp[Count] := Current.FPropertyName;
+            Inc(Count);
+          end;
+        end;
       end;
+      Current := Current.FParent;
     end;
-    SetLength(FKeys, Count);
+    SetLength(FKeys,Count);
+    for I := 0 to Count-1 do
+      FKeys[I] := Temp[Count - I - 1];
+
+    FKeysBuilt := True;
+  finally
+    Seen.Free;
   end;
-  FKeysBuilt := True;
 end;
 
 function TSEShape.GetKeys: TStringDynArray;
@@ -3819,11 +3820,7 @@ var
   I: Integer;
 begin
   BuildKeys;
-
-  SetLength(Result, Length(FKeys));
-
-  for I := 0 to High(FKeys) do
-    Result[I] := FKeys[I];
+  Result := Copy(FKeys);
 end;
 
 function TSEShape.NeedsCompaction: Boolean;
@@ -3864,7 +3861,7 @@ begin
   FShapes := TSEShapeList.Create;
 
   FShapeRoot := TSEShape.CreateRoot(FNextID);
-  FShapeCeiling := 100000;
+  FShapeCeiling := 10000;
   FBeginMark := False;
   Inc(FNextID);
 
@@ -3959,7 +3956,7 @@ var
   I: Integer;
 begin
   SetLength(Remap, AOldShape.SlotCount);
-  for I:=0 to High(Remap) do
+  for I := 0 to High(Remap) do
     Remap[I] := -1;
 
   Keys := AOldShape.GetKeys;
@@ -4050,12 +4047,12 @@ var
 begin
   if not FBeginMark then
     Exit;
-  { Remove transitions first }
-  for I := 0 to FShapes.Count - 1 do
+  for I := FShapes.Count - 1 downto 0 do
   begin
     Shape := FShapes[I];
     if Shape.FGarbage then
     begin
+      { Remove transitions first }
       Parent := Shape.FParent;
       if Parent <> nil then
       begin
@@ -4068,14 +4065,7 @@ begin
           Parent.RemoveActiveTransition(Shape.PropertyName);
         end;
       end;
-    end;
-  end;
-  { Free unused shapes }
-  for I := FShapes.Count - 1 downto 0 do
-  begin
-    Shape := FShapes[I];
-    if Shape.FGarbage then
-    begin
+      { Free unused shapes }
       FShapes.Delete(I);
       Shape.Free;
     end;
