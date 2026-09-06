@@ -13887,7 +13887,7 @@ var
     Token: TSEToken;
     This: PSEIdent;
 
-    procedure ProcessNamedArguments;
+    procedure ParsesNamedArguments;
     type
       TSEArgumentInfo = record
         Start, Size: Cardinal;
@@ -13906,47 +13906,56 @@ var
       ArgMap := TSEStringArgumentInfoMap.Create;
       CodeStart := Self.Binary.Count;
       try
-        for I := 0 to DefinedArgCount - 1 do
-        begin
-          Token := NextTokenExpected([tkIdent]);
-          ArgName := Token.Value;
-          if FuncScriptInfo^.VarSymbols.IndexOf(ArgName) < 0 then
-            Error(Format('Invalid argument "%s"', [ArgName]), Token);
-          if ArgMap.{$ifdef SE_MAP_AVK959}Contains{$else}ContainsKey{$endif}(ArgName) then
-            Error(Format('Duplicate argument "%s"', [ArgName]), Token);
-          Item.Start := Self.Binary.Count;
-          NextTokenExpected([tkEqual]);
-          //
-          MarkJITBlock;
-          VerifyJITBlock(ParseExpr(True));
-          //
-          Item.Size := Self.Binary.Count - Item.Start;
-          Inc(CodeSize, Item.Size);
-          ArgMap.Add(ArgName, Item);
-          //
-          if I < DefinedArgCount - 1 then
-            NextTokenExpected([tkComma]);
-          Inc(ArgCount);
-        end;
-        if PeekAtNextToken.Kind = tkComma then
-          NextToken;
-        NextTokenExpected([tkEnd]);
-        // Sort arguments
-        SetLength(TempBinary, CodeSize);
-        P := @TempBinary[0];
-        for ArgName in FuncScriptInfo^.VarSymbols do
-        begin
-          if (ArgName = 'result') or (ArgName = 'self') then
-            continue;
-          Item := ArgMap[ArgName];
-          for I := Item.Start to Item.Start + Item.Size - 1 do
+        try
+          for I := 0 to DefinedArgCount - 1 do
           begin
-            P^ := Self.Binary[I];
-            Inc(P);
+            Token := NextTokenExpected([tkIdent]);
+            ArgName := Token.Value;
+            if FuncScriptInfo^.VarSymbols.IndexOf(ArgName) < 0 then
+              Error(Format('Invalid argument "%s"', [ArgName]), Token);
+            if ArgMap.{$ifdef SE_MAP_AVK959}Contains{$else}ContainsKey{$endif}(ArgName) then
+              Error(Format('Duplicate argument "%s"', [ArgName]), Token);
+            Item.Start := Self.Binary.Count;
+            NextTokenExpected([tkEqual]);
+            //
+            MarkJITBlock;
+            VerifyJITBlock(ParseExpr(True));
+            //
+            Item.Size := Self.Binary.Count - Item.Start;
+            Inc(CodeSize, Item.Size);
+            ArgMap.Add(ArgName, Item);
+            //
+            if I < DefinedArgCount - 1 then
+              NextTokenExpected([tkComma]);
+            Inc(ArgCount);
+          end;
+          if PeekAtNextToken.Kind = tkComma then
+            NextToken;
+          NextTokenExpected([tkEnd]);
+          // Sort arguments
+          SetLength(TempBinary, CodeSize);
+          P := @TempBinary[0];
+          for ArgName in FuncScriptInfo^.VarSymbols do
+          begin
+            if ArgName = 'result' then
+              continue;
+            if ArgName = 'self' then
+              break;
+            Item := ArgMap[ArgName];
+            for I := Item.Start to Item.Start + Item.Size - 1 do
+            begin
+              P^ := Self.Binary[I];
+              Inc(P);
+            end;
+          end;
+          Self.Binary.DeleteRange(CodeStart, CodeSize);
+          Self.Binary.InsertRange(CodeStart, TempBinary);
+        except
+          on E: Exception do
+          begin
+            Error('Got "' + E.Message + '" while parsing argument "' + ArgName + '"', Token);
           end;
         end;
-        Self.Binary.DeleteRange(CodeStart, CodeSize);
-        Self.Binary.InsertRange(CodeStart, TempBinary);
       finally
         ArgMap.Free;
       end;
@@ -13983,7 +13992,7 @@ var
       if (PeekAtNextToken.Kind = tkBegin) and (FuncScriptInfo <> nil) then
       begin
         NextToken;
-        ProcessNamedArguments;
+        ParsesNamedArguments;
         // Process named arguments
       end else
       begin
