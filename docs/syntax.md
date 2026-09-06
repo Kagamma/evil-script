@@ -21,6 +21,7 @@
   + [Function declaration](#function-declaration)
   + [Function reference](#function-reference)
   + [Anonymous function](#anonymous-function)
+  + [Named arguments](#named-arguments)
   + [Self](#self)
   + [Yield](#yield)
   + [Try-catch](#try-catch)
@@ -438,6 +439,35 @@ fn test() {
 
 test()
 ```
+
+### Named arguments
+
+The language supports named arguments, which can be used to improve readability.
+
+Consider the following example:
+
+```
+fn sub(a, b) {
+  result = a - b
+}
+```
+
+This function can be called like this:
+
+```
+sub({a = 5, b = 3})
+sub({b = 3, a = 5})
+```
+
+The above example is equivalent to:
+
+```
+sub(5, 3)
+```
+
+Note that the order of the arguments does not matter.
+
+Note: Named arguments are only supported for named functions declared in the script. Anonymouse functions and function references do not support named arguments.
 
 ### Self
 

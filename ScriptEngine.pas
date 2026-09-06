@@ -610,7 +610,8 @@ type
   end;
   PSEFuncImportInfo = ^TSEFuncImportInfo;
 
-  TSEStringLookupMap = specialize TSEDictionary<String, Cardinal>;
+  TSEStringCardinalMap = specialize TSEDictionary<String, Cardinal>;
+  TSEStringLookupMap = TSEStringCardinalMap;
   TSEFuncNativeList = specialize TSEListPtr<TSEFuncNativeInfo>;
   TSEFuncScriptList = specialize TSEListPtr<TSEFuncScriptInfo>;
   TSEFuncImportList = specialize TSEListPtr<TSEFuncImportInfo>;
@@ -13885,6 +13886,72 @@ var
     ArgCount: NativeInt = 0;
     Token: TSEToken;
     This: PSEIdent;
+
+    procedure ProcessNamedArguments;
+    type
+      TSEArgumentInfo = record
+        Start, Size: Cardinal;
+      end;
+      TSEStringArgumentInfoMap = specialize TSEDictionary<String, TSEArgumentInfo>;
+    var
+      I: Integer;
+      ArgMap: TSEStringArgumentInfoMap;
+      Item: TSEArgumentInfo;
+      ArgName: String;
+      CodeSize: Cardinal = 0;
+      CodeStart: Cardinal;
+      TempBinary: array of TSEValue;
+      P: PSEValue;
+    begin
+      ArgMap := TSEStringArgumentInfoMap.Create;
+      CodeStart := Self.Binary.Count;
+      try
+        for I := 0 to DefinedArgCount - 1 do
+        begin
+          Token := NextTokenExpected([tkIdent]);
+          ArgName := Token.Value;
+          if FuncScriptInfo^.VarSymbols.IndexOf(ArgName) < 0 then
+            Error(Format('Invalid argument "%s"', [ArgName]), Token);
+          if ArgMap.{$ifdef SE_MAP_AVK959}Contains{$else}ContainsKey{$endif}(ArgName) then
+            Error(Format('Duplicate argument "%s"', [ArgName]), Token);
+          Item.Start := Self.Binary.Count;
+          NextTokenExpected([tkEqual]);
+          //
+          MarkJITBlock;
+          VerifyJITBlock(ParseExpr(True));
+          //
+          Item.Size := Self.Binary.Count - Item.Start;
+          Inc(CodeSize, Item.Size);
+          ArgMap.Add(ArgName, Item);
+          //
+          if I < DefinedArgCount - 1 then
+            NextTokenExpected([tkComma]);
+          Inc(ArgCount);
+        end;
+        if PeekAtNextToken.Kind = tkComma then
+          NextToken;
+        NextTokenExpected([tkEnd]);
+        // Sort arguments
+        SetLength(TempBinary, CodeSize);
+        P := @TempBinary[0];
+        for ArgName in FuncScriptInfo^.VarSymbols do
+        begin
+          if (ArgName = 'result') or (ArgName = 'self') then
+            continue;
+          Item := ArgMap[ArgName];
+          for I := Item.Start to Item.Start + Item.Size - 1 do
+          begin
+            P^ := Self.Binary[I];
+            Inc(P);
+          end;
+        end;
+        Self.Binary.DeleteRange(CodeStart, CodeSize);
+        Self.Binary.InsertRange(CodeStart, TempBinary);
+      finally
+        ArgMap.Free;
+      end;
+    end;
+
   begin
     FuncNativeInfo := FindFuncNative(Name, Ind);
     if FuncNativeInfo <> nil then
@@ -13913,13 +13980,21 @@ var
     if DefinedArgCount > 0 then
     begin
       NextTokenExpected([tkBracketOpen]);
-      for I := 0 to DefinedArgCount - 1 do
+      if (PeekAtNextToken.Kind = tkBegin) and (FuncScriptInfo <> nil) then
       begin
-        MarkJITBlock;
-        VerifyJITBlock(ParseExpr(True));
-        if I < DefinedArgCount - 1 then
-          NextTokenExpected([tkComma]);
-        Inc(ArgCount);
+        NextToken;
+        ProcessNamedArguments;
+        // Process named arguments
+      end else
+      begin
+        for I := 0 to DefinedArgCount - 1 do
+        begin
+          MarkJITBlock;
+          VerifyJITBlock(ParseExpr(True));
+          if I < DefinedArgCount - 1 then
+            NextTokenExpected([tkComma]);
+          Inc(ArgCount);
+        end;
       end;
       NextTokenExpected([tkBracketClose]);
     end else
