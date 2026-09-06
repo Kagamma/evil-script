@@ -467,7 +467,7 @@ sub(5, 3)
 
 Note that the order of the arguments does not matter.
 
-Note: Named arguments are only supported for named functions declared in the script. Anonymouse functions and function references do not support named arguments.
+Note: Named arguments are only supported for named functions declared in the script, and native Pascal functions. Imported functions, anonymouse functions and function references do not support named arguments.
 
 ### Self
 

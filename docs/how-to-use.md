@@ -5,6 +5,7 @@ Below is an overview document that briefly explains how to integrate Evil script
   + [Execute a function](#execute-a-function)
   + [Register new functions](#register-new-functions)
   + [Register new functions with the self variable](#register-new-functions-with-the-self-variable)
+  + [Register functions with named arguments](#register-functions-with-named-arguments)
   + [Yield](#yield)
   + [Exec, ExecFunc, ExecFuncOnly](#exec-execfunc-execfunconly)
   + [Change global variables](#change-global-variables)
@@ -99,6 +100,13 @@ Register the function to the script engine:
   SE.Source :=
 'obj = [ value: 0, add: add ]' + #10 +
 'obj.add(2, 3)';
+```
+
+### Register functions with named arguments
+We can pass argument names to function similar to how we declare them in the script:
+```
+  SE.RegisterFunc('add(a, b)', @TCustomFunctions(nil).Add, 2, [sevkNumber]);
+  SE.Source := 'a = add({ a = 2, b = 3 })';
 ```
 
 #### Yield

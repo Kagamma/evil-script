@@ -585,6 +585,7 @@ type
     Name: String;
     Func: TSEFunc;
     ArgCount: NativeInt;
+    VarSymbols: TStrings;
   end;
   PSEFuncNativeInfo = ^TSEFuncNativeInfo;
 
@@ -983,6 +984,7 @@ type
     FLastVerifyJITBlockResult: Boolean;
     procedure SetSource(V: String);
     function InternalIdent: String;
+    procedure InternalLex(ASource: String; const ATokenList: TSETokenList; const IsIncluded: Boolean = False);
   public
     Owner: TObject;
     OptimizeConstants,        // True = enable optimization for constant values stored in ConstList
@@ -11518,6 +11520,9 @@ begin
   if Self.FuncScriptList.RefCount = 1 then
     for I := 0 to Self.FuncScriptList.Count - 1 do
       Self.FuncScriptList[I].VarSymbols.Free;
+  if Self.FuncNativeList.RefCount = 1 then
+    for I := 0 to Self.FuncNativeList.Count - 1 do
+      Self.FuncNativeList[I].VarSymbols.Free;
   {$ifdef SE_THREADS}
   for I := Self.VMThreadList.Count - 1 downto 0 do
     Self.VMThreadList[I].Terminate;
@@ -11594,7 +11599,7 @@ begin
   Exit(Self.VM.IsYielded);
 end;
 
-procedure TEvilC.Lex(const IsIncluded: Boolean = False);
+procedure TEvilC.InternalLex(ASource: String; const ATokenList: TSETokenList; const IsIncluded: Boolean = False);
 var
   Ln, Col: NativeInt;
   Pos: NativeInt = 0;
@@ -11607,23 +11612,23 @@ var
     P: NativeInt;
   begin
     P := Pos + 1;
-    if P > Length(Self.Source) then
+    if P > Length(ASource) then
       Exit(#0);
-    Exit(Self.Source[P]);
+    Exit(ASource[P]);
   end;
 
   function NextChar: Char; inline;
   begin
     Inc(Pos);
     Inc(Col);
-    if Pos > Length(Self.Source) then
+    if Pos > Length(ASource) then
       Exit(#0);
-    if Self.Source[Pos] = #10 then
+    if ASource[Pos] = #10 then
     begin
       Inc(Ln);
       Col := 1;
     end;
-    Exit(Self.Source[Pos]);
+    Exit(ASource[Pos]);
   end;
 
   procedure Error(const S: String; const N: String = '');
@@ -11724,7 +11729,7 @@ begin
           end else
           if Pos > 1 then
           begin
-            PC := Self.Source[Pos - 1];
+            PC := ASource[Pos - 1];
             NC := PeekAtNextChar;
             if ((PC = ' ') or (PC = '(') or (PC = '=') or (PC = ',')) and (NC <> ' ') then
               Token.Kind := tkNot;
@@ -11767,18 +11772,18 @@ begin
                   if PeekAtNextChar = '{' then
                   begin
                     NextChar;
-                    TokenList.Add(Token);
+                    ATokenList.Add(Token);
                     // Add a plus sign
                     Token.Value := '';
                     Token.Kind := tkAdd;
-                    TokenList.Add(Token);
+                    ATokenList.Add(Token);
                     // Add string function
                     Token.Value := 'string';
                     Token.Kind := tkIdent;
-                    TokenList.Add(Token);
+                    ATokenList.Add(Token);
                     Token.Value := '';
                     Token.Kind := tkBracketOpen;
-                    TokenList.Add(Token);
+                    ATokenList.Add(Token);
                     //
                     IsString := True;
                     goto EndLabel;
@@ -11787,10 +11792,10 @@ begin
                     IsString := False;
                     Token.Value := '';
                     Token.Kind := tkBracketClose;
-                    TokenList.Add(Token);
+                    ATokenList.Add(Token);
                     // Add a plus sign
                     Token.Kind := tkAdd;
-                    TokenList.Add(Token);
+                    ATokenList.Add(Token);
                     Token.Kind := tkString;
                   end else
                     Token.Value := Token.Value + C;
@@ -11865,7 +11870,7 @@ begin
           end else
           if Pos > 1 then
           begin
-            PC := Self.Source[Pos - 1];
+            PC := ASource[Pos - 1];
             NC := PeekAtNextChar;
             if ((PC = ' ') or (PC = '(') or (PC = '=') or (PC = ',') or (PC = '[') or
                 (PC = '+') or (PC = '*') or (PC = '/') or (PC = '^') or (PC = '&') or
@@ -12093,12 +12098,12 @@ begin
                 begin
                   if Self.IncludeList.IndexOf(Path) < 0 then
                   begin
-                    BackupSource := Source;
+                    BackupSource := ASource;
                     Self.CurrentFileList.Add(Path);
-                    ReadFileAsString(Path, FSource);
-                    Self.Lex(True);
+                    ReadFileAsString(Path, ASource);
+                    Self.InternalLex(ASource, ATokenList, True);
                     Self.CurrentFileList.Pop;
-                    FSource := BackupSource;
+                    ASource := BackupSource;
                     Self.IncludeList.Add(Path);
                   end;
                 end;
@@ -12165,9 +12170,14 @@ begin
       else
         Error('Unhandled symbol ' + C);
     end;
-    TokenList.Add(Token);
+    ATokenList.Add(Token);
 EndLabel:
   until C = #0;
+end;
+
+procedure TEvilC.Lex(const IsIncluded: Boolean = False);
+begin
+  Self.InternalLex(Self.FSource, Self.TokenList, IsIncluded);
   Self.IsLex := True;
 end;
 
@@ -12276,6 +12286,15 @@ begin
   end;
 end;
 
+function TokenTypeString(const Kinds: TSETokenKindSet): String; inline;
+var
+  Kind: TSETokenKind;
+begin
+  Result := '';
+  for Kind in Kinds do
+    Result := Result + '"' + TokenNames[Kind] + '", ';
+end;
+
 procedure TEvilC.Parse;
 var
   Pos: NativeInt = -1;
@@ -12348,15 +12367,6 @@ var
       CurrentLine := LineOfCode.Line;
       Self.LineOfCodeList.Add(LineOfCode);
     end;
-  end;
-
-  function TokenTypeString(const Kinds: TSETokenKindSet): String; inline;
-  var
-    Kind: TSETokenKind;
-  begin
-    Result := '';
-    for Kind in Kinds do
-      Result := Result + '"' + TokenNames[Kind] + '", ';
   end;
 
   function NextTokenExpected(const Expected: TSETokenKindSet): TSEToken; inline;
@@ -13887,7 +13897,7 @@ var
     Token: TSEToken;
     This: PSEIdent;
 
-    procedure ParsesNamedArguments;
+    procedure ParseNamedArguments;
     type
       TSEArgumentInfo = record
         Start, Size: Cardinal;
@@ -13902,16 +13912,24 @@ var
       CodeStart: Cardinal;
       TempBinary: array of TSEValue;
       P: PSEValue;
+      VarSymbols: TStrings = nil;
     begin
       ArgMap := TSEStringArgumentInfoMap.Create;
       CodeStart := Self.Binary.Count;
+      if FuncScriptInfo <> nil then
+        VarSymbols := FuncScriptInfo^.VarSymbols
+      else
+      if FuncNativeInfo <> nil then
+        VarSymbols := FuncNativeInfo^.VarSymbols;
+      if VarSymbols = nil then
+        Error('Function "' + Name + '" does not have argument symbols', NextToken);
       try
         try
           for I := 0 to DefinedArgCount - 1 do
           begin
             Token := NextTokenExpected([tkIdent]);
             ArgName := Token.Value;
-            if FuncScriptInfo^.VarSymbols.IndexOf(ArgName) < 0 then
+            if VarSymbols.IndexOf(ArgName) < 0 then
               Error(Format('Invalid argument "%s"', [ArgName]), Token);
             if ArgMap.{$ifdef SE_MAP_AVK959}Contains{$else}ContainsKey{$endif}(ArgName) then
               Error(Format('Duplicate argument "%s"', [ArgName]), Token);
@@ -13935,7 +13953,7 @@ var
           // Sort arguments
           SetLength(TempBinary, CodeSize);
           P := @TempBinary[0];
-          for ArgName in FuncScriptInfo^.VarSymbols do
+          for ArgName in VarSymbols do
           begin
             if ArgName = 'result' then
               continue;
@@ -13989,10 +14007,10 @@ var
     if DefinedArgCount > 0 then
     begin
       NextTokenExpected([tkBracketOpen]);
-      if (PeekAtNextToken.Kind = tkBegin) and (FuncScriptInfo <> nil) then
+      if PeekAtNextToken.Kind = tkBegin then
       begin
         NextToken;
-        ParsesNamedArguments;
+        ParseNamedArguments;
         // Process named arguments
       end else
       begin
@@ -15600,12 +15618,68 @@ end;
 procedure TEvilC.RegisterFunc(const Name: String; const Func: TSEFunc; const ArgCount: NativeInt; APossibleKinds: TSEValueKindSet = [sevkNumber, sevkString, sevkMap, sevkNull, sevkFunction, sevkPascalObject]);
 var
   FuncNativeInfo: TSEFuncNativeInfo;
+  I: Integer;
+  Pos: Integer = -1;
+  TokenListLocal: TSETokenList;
+
+  function NextToken: TSEToken;
+  begin
+    Pos := Pos + 1;
+    if Pos >= TokenListLocal.Count then
+      Pos := Pos - 1;
+    Result := TokenListLocal[Pos];
+  end;
+
+  function NextTokenExpected(const Expected: TSETokenKindSet): TSEToken;
+  var
+    Kind: TSETokenKind;
+  begin
+    Result := NextToken;
+    if Result.Kind in Expected then
+      Exit;
+    raise Exception.Create(Format('Expected %s but got %s', [TokenTypeString(Expected), TokenNames[Result.Kind]]));
+  end;
+
+  function PeekAtNextToken: TSEToken;
+  var
+    P: NativeInt;
+  begin
+    P := Pos + 1;
+    if P >= TokenListLocal.Count then
+      P := P - 1;
+    Exit(TokenListLocal[P]);
+  end;
+
 begin
   FuncNativeInfo.ArgCount := ArgCount;
   FuncNativeInfo.Func := Func;
-  FuncNativeInfo.Name := Name;
   FuncNativeInfo.PossibleKinds := APossibleKinds;
-  Self.FuncNativeList.Add(FuncNativeInfo);
+  FuncNativeInfo.VarSymbols := nil;
+
+  TokenListLocal := TSETokenList.Create;
+  try
+    Self.InternalLex(Name, TokenListLocal);
+    FuncNativeInfo.Name := NextTokenExpected([tkIdent]).Value;
+    if PeekAtNextToken.Kind = tkBracketOpen then
+    begin
+      NextToken;
+      if ArgCount > 0 then
+      begin
+        FuncNativeInfo.VarSymbols := TStringList.Create;
+        for I := 0 to ArgCount - 1 do
+        begin
+          FuncNativeInfo.VarSymbols.Add(NextTokenExpected([tkIdent]).Value);
+          if I < ArgCount - 1 then
+            NextTokenExpected([tkComma]);
+        end;
+        NextTokenExpected([tkBracketClose]);
+      end else
+        raise Exception.Create(FuncNativeInfo.Name + ': ArgCount and parameter count mismatch');
+    end;
+    Self.FuncNativeList.Add(FuncNativeInfo);
+  finally
+    TokenListLocal.Free;
+  end;
 end;
 
 function TEvilC.RegisterScriptFunc(const Name: String; const ArgCount: NativeInt; var AIndex: Cardinal; const IsOverride: Boolean = False): PSEFuncScriptInfo;
