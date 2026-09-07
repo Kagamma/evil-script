@@ -9542,7 +9542,7 @@ var
             end;
             E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
             E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
-            LastOpKind := JitCodePtrLocal[BIndex + 1].Kind;
+            //LastOpKind := JitCodePtrLocal[BIndex + 1].Kind;
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Inc(XMMStackPtr);
@@ -10267,11 +10267,11 @@ var
       { Increase CodePtr }
       // Check the next opcode to see if the next one is also a JITBlockPotential
       Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
-      if Op = opJITBlockPotential then
-      begin
+      //if Op = opJITBlockPotential then
+      //begin
        // Writeln('MERGED!');
-        Result := JITHandler(JitCodePtrBase, @JitCodePtrLocal[BIndex], E, CodeSize, OpCount);
-      end else
+      //  Result := JITHandler(JitCodePtrBase, @JitCodePtrLocal[BIndex], E, CodeSize, OpCount);
+      //end else
       begin
         if (Result = STATUS_INVALID) or (Result = STATUS_OVERFLOW) then
         begin
@@ -13384,7 +13384,7 @@ var
             MarkJITBlock;
             Kinds := ParseExpr(False);
             VerifyJITBlock(Kinds);
-            Result := Result + Kinds + [sevkMap];
+            Result := Result + (Kinds - [sevkNumber, sevkBoolean]) + [sevkMap];
             NextTokenExpected([tkSquareBracketClose]);
             AllocFuncRef;
             AssignReturnFuncRef;
@@ -13530,7 +13530,7 @@ var
                             MarkJITBlock;
                             Kinds := ParseExpr(False);
                             VerifyJITBlock(Kinds);
-                            Result := Result + Kinds + [sevkMap];
+                            Result := Result + (Kinds - [sevkNumber, sevkBoolean]) + [sevkMap];
                             Emit([Pointer(opLoadMapItem), SENull, Pointer(1)]);
                             PeepholeArrayAssignOptimization;
                             NextTokenExpected([tkSquareBracketClose]);
@@ -14658,15 +14658,15 @@ var
         ParseBlock;
 
         ContinueBlock := Self.Binary.Count;
-        MarkJITBlock;
+       // MarkJITBlock;
         Emit([Pointer(opInc), Pointer(VarIdent.Addr), GetVarFrame(VarIdent), Step]);
         JumpBlock := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
-        VerifyJITBlock([sevkNumber]);
+       // VerifyJITBlock([sevkNumber]);
         EndBLock := JumpBlock;
       end else
       begin
-        // Changed to string instead
-        PIdent^.PossibleKinds := [sevkString];
+        // Changed to any instead
+        PIdent^.PossibleKinds := [sevkString, sevkNumber, sevkMap, sevkFunction, sevkBoolean, sevkNull];
         if Token.Kind = tkComma then
         begin
           Token := NextTokenExpected([tkIdent]);
@@ -14712,10 +14712,10 @@ var
         ParseBlock;
 
         ContinueBlock := Self.Binary.Count;
-        MarkJITBlock;
+       // MarkJITBlock;
         Emit([Pointer(opInc), Pointer(VarHiddenCountIdent.Addr), GetVarFrame(VarHiddenCountIdent), 1]);
         JumpBlock := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
-        VerifyJITBlock([sevkNumber]);
+       // VerifyJITBlock([sevkNumber]);
         EndBLock := JumpBlock;
       end;
 
