@@ -982,6 +982,7 @@ type
     JITBlockSignatureStack: TSEJITBlockSignatureStack;
     JITBlockCount: NativeInt;
     FLastVerifyJITBlockResult: Boolean;
+    FLastVerifiedJITBlockLastPlace: NativeInt;
     procedure SetSource(V: String);
     function InternalIdent: String;
     procedure InternalLex(ASource: String; const ATokenList: TSETokenList; const IsIncluded: Boolean = False);
@@ -9133,7 +9134,7 @@ var
   LabelJITBlockEndAddr: Pointer = @labelJITBlockEnd;
 
 {$ifdef SE_HAS_JIT}
-  function JITHandler(JitCodePtrBase, JitCodePtrLocal: PSEValue; E: TX64Emitter): Integer;
+  function JITHandler(JitCodePtrBase, JitCodePtrLocal: PSEValue; E: TX64Emitter; CodeSize: Cardinal; OpCount: Cardinal): Integer;
   const
     STATUS_OK = 0;
     STATUS_OVERFLOW = 1;
@@ -9144,28 +9145,29 @@ var
     I, J, BIndex, BFinish: NativeInt;
     Op: TSEOpcode;
     XMMStackPtr: Byte;
-    CodeSize: Cardinal;
     P: Pointer;
     IsCodePtrAssigned: Boolean;
     LabelYes, LabelDone: TX64Label;
     LastOpKind: TSEValueKind = sevkNull;
     LastOpKindInRBX: Boolean = False;
+    NewCodePtr: PSEValue;
 
-    procedure GenGetGlobalVariable(IsValueOnly: Boolean = True);
+    procedure GenGetGlobalVariable(IsValue, IsAddress: Boolean);
     begin
       { Load global variable index to edx }
       // mov rdx, qword ptr [r15 + code[1].VarPointer]
       E.MovRegImm64(regRDX, SizeOf(TSEValue) * NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
       { Load global variable to stack }
         // movsd xmm?, qword ptr [r12 + rdx + .VarNumber]
-      E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.MemIndex(regR12, regRDX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
-      if not IsValueOnly then
+      if IsValue then
+        E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.MemIndex(regR12, regRDX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
+      if IsAddress then
         { We get the address of the local variable }
         E.LeaRegMem(regRDX, E.MemIndex(regR12, regRDX, 1, 0));
       Inc(XMMStackPtr);
     end;
 
-    procedure GenGetLocalVariable(IsValueOnly: Boolean = True);
+    procedure GenGetLocalVariable(IsValue, IsAddress: Boolean);
     begin
       { RDX = current frame }
       // mov rdx, r11
@@ -9182,32 +9184,33 @@ var
       { RDX = current frame's stack pointer }
       // mov rdx, qword ptr [rdx + .StackPtr]
       E.MovRegMem64(regRDX, E.Mem(regRDX, NativeUInt(@TSEFrame(nil^).StackPtr)));
-      if IsValueOnly then
       { XMM? = local variable }
       // movsd xmm?, qword ptr [rdx + rax + .VarNumber]
+      if IsValue then
         E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.MemIndex(regRDX, regRAX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
-      if not IsValueOnly then
+      if IsAddress then
         { We get the address of the local variable }
         E.LeaRegMem(regRDX, E.MemIndex(regRDX, regRAX, 1, 0));
       Inc(XMMStackPtr);
     end;
 
-    procedure GenGetVariable(IsValueOnly: Boolean = True);
+    procedure GenGetVariable(IsValue, IsAddress: Boolean);
     begin
       if JitCodePtrLocal[BIndex + 2].VarPointer = Pointer(SE_REG_GLOBAL) then
-        GenGetGlobalVariable(IsValueOnly)
+        GenGetGlobalVariable(IsValue, IsAddress)
       else
-        GenGetLocalVariable(IsValueOnly);
+        GenGetLocalVariable(IsValue, IsAddress);
     end;
 
   begin
     if E = nil then
+    begin
       E := TX64Emitter.Create;
+    end;
     BIndex := 0;
     BFinish := TSEJITCountPack(Cardinal(JitCodePtrLocal[1].VarPointer)).ApplyRange;
 
     XMMStackPtr := XMM_START;
-    CodeSize := 0;
     Result := STATUS_OK;
     IsCodePtrAssigned := False;
     begin
@@ -9224,7 +9227,7 @@ var
       // R10 = @CodePtrLocal
       //E.MovRegReg64(regR10, regRDI);
     end;
-    // Writeln('JIT from ', BIndex, ' to ', BFinish);
+   // Writeln('JIT from ', BIndex, ' to ', BFinish);
     while BIndex <= BFinish do
     begin
       if XMMStackPtr >= XMM_END then
@@ -9233,7 +9236,7 @@ var
         break;
       end;
       Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
-      // Writeln(' - ', Op);
+     // Writeln(' - ', Op);
       case Op of // TODO: Free registers for future register allocator: R8, R9, R10
         opNop,
         opJITBlock,
@@ -9243,7 +9246,10 @@ var
           end;
         opJumpUnconditionalRel:
           begin
-            E.AddRegImm32(regR15, NativeInt(JitCodePtrLocal[BIndex + 1].VarPointer) * SizeOf(TSEValue));
+           // Writeln('CodeSize: ', CodeSize);
+            NewCodePtr := @CodePtrLocal[CodeSize + NativeInt(JitCodePtrLocal[BIndex + 1].VarPointer)];
+           // Writeln('NewCodePtr: ', TSEOpcode(Cardinal(NewCodePtr^.VarPointer)));
+            E.AddRegImm32(regR15, NativeInt(JitCodePtrLocal[BIndex + 1].VarPointer + CodeSize) * SizeOf(TSEValue));
             E.MovMemReg64(E.Mem(regR10, 0), regR15);
             IsCodePtrAssigned := True;
             break;
@@ -9536,6 +9542,7 @@ var
             end;
             E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
             E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
+            LastOpKind := JitCodePtrLocal[BIndex + 1].Kind;
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Inc(XMMStackPtr);
@@ -10056,22 +10063,24 @@ var
 
         opInc:
           begin
-            GenGetVariable(False);
+            GenGetVariable(True, True);
             E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 3].VarNumber));
             E.MovSDXMMFromReg(regXMM4, regRAX);
             { Add }
             E.AddSD(regXMM3, regXMM4);
-            { Assign to address at RCX }
-            E.MovSDMemFromXMM(E.Mem(regRCX, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM3);
+            { Assign to address at RDX }
+            E.MovSDMemFromXMM(E.Mem(regRDX, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM3);
             { Mark as number }
             E.MovRegImm32(regRAX, Cardinal(sevkNumber));
-            E.MovMemReg32(E.Mem(regRCX, NativeUInt(@TSEValue(nil^).Kind)), regRAX);
+            E.MovMemReg32(E.Mem(regRDX, NativeUInt(@TSEValue(nil^).Kind)), regRAX);
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
+            LastOpKind := sevkNumber;
+            XMMStackPtr := XMM_START;
           end;
         opAdd1:
           begin
-            GenGetVariable;
+            GenGetVariable(True, False);
             { Add }
             E.AddSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
             Dec(XMMStackPtr);
@@ -10083,7 +10092,7 @@ var
           end;
         opSub1:
           begin
-            GenGetVariable;
+            GenGetVariable(True, False);
             { Sub }
             E.SubSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
             Dec(XMMStackPtr);
@@ -10095,7 +10104,7 @@ var
           end;
         opMul1:
           begin
-            GenGetVariable;
+            GenGetVariable(True, False);
             { Mul }
             E.MulSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
             Dec(XMMStackPtr);
@@ -10107,7 +10116,7 @@ var
           end;
         opDiv1:
           begin
-            GenGetVariable;
+            GenGetVariable(True, False);
             { Div }
             E.DivSD(TXMMReg(XMMStackPtr - 2), TXMMReg(XMMStackPtr - 1));
             Dec(XMMStackPtr);
@@ -10128,9 +10137,9 @@ var
             E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.MemIndex(regR12, regRAX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
-            LastOpKind := sevkNumber;
+            LastOpKind := GlobalLocal[NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer)].Kind;
             if LastOpKindInRBX then
-              E.MovRegImm32(regRBX, Cardinal(sevkNumber));
+              E.MovRegImm32(regRBX, Cardinal(LastOpKind));
             Inc(XMMStackPtr);
           end;
         opPushLocalVar:
@@ -10155,6 +10164,11 @@ var
             E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.MemIndex(regRCX, regRAX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
+
+            // TODO: This causes issue somehow...
+           // LastOpKind := ((FramePtr - NativeInt(JitCodePtrLocal[BIndex + 2].VarPointer))^.StackPtr + NativeInt(JitCodePtrLocal[BIndex + 1].VarPointer))^.Kind;
+           // if LastOpKindInRBX then
+           //   E.MovRegImm32(regRBX, Cardinal(LastOpKind));
             Inc(XMMStackPtr);
           end;
         opAssignGlobalVar:
@@ -10226,10 +10240,12 @@ var
             // TODO: Either roll back, or push the remaining XMM values to the stack and continue
           end;
       end;
+      Inc(OpCount);
       Inc(BIndex, OpcodeSizes[Op]);
     end;
-    if not (LastOpKind in [sevkBoolean, sevkNumber]) then
+    if (OpCount <= 2) or (not IsCodePtrAssigned) and (not (LastOpKind in [sevkBoolean, sevkNumber])) then
     begin
+     // Writeln('Rejected: ', LastOpKind, ', ', OpCount, ', ', IsCodePtrAssigned);
       Result := STATUS_INVALID;
     end;
     begin
@@ -10249,25 +10265,30 @@ var
       if XMMStackPtr > XMM_START + 1 then
         raise Exception.Create('JIT error: XMMStackPtr > ' + IntToStr(XMM_START + 1));
       { Increase CodePtr }
-      if not IsCodePtrAssigned then
-      begin
-        E.AddRegImm32(regR15, CodeSize * SizeOf(TSEValue));
-        E.MovMemReg64(E.Mem(regR10, 0), regR15);
-      end;
       // Check the next opcode to see if the next one is also a JITBlockPotential
       Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
       if Op = opJITBlockPotential then
       begin
-        Result := JITHandler(JitCodePtrBase, @JitCodePtrLocal[BIndex], E);
+       // Writeln('MERGED!');
+        Result := JITHandler(JitCodePtrBase, @JitCodePtrLocal[BIndex], E, CodeSize, OpCount);
       end else
       begin
-        //
         if (Result = STATUS_INVALID) or (Result = STATUS_OVERFLOW) then
         begin
+         // Writeln('REJECTED!!!! ', Result);
+         // Writeln;
           JitCodePtrBase[1] := nil;
         end else
         begin
-          E.JmpAbsolute(regRAX, DispatchTable[TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer))]);
+         // Writeln('WRITE CODE');
+         // Writeln;
+          if not IsCodePtrAssigned then
+          begin
+            E.AddRegImm32(regR15, CodeSize * SizeOf(TSEValue));
+            E.MovMemReg64(E.Mem(regR10, 0), regR15);
+            E.JmpAbsolute(regRAX, DispatchTable[TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer))]);
+          end else
+            E.JmpAbsolute(regRAX, DispatchTable[TSEOpcode(NativeUInt(NewCodePtr^.VarPointer))]);
           //E.Ret;
           // Patch the code to pass the memory block
           JitCodePtrBase[0] := Pointer(opJITBlock);
@@ -10290,7 +10311,7 @@ var
       begin
         if TSEJITCountPack(Cardinal(CodePtrLocal[1].VarPointer)).HotSpot >= 3 then
         begin
-          JITHandler(CodePtrLocal, CodePtrLocal, nil);
+          JITHandler(CodePtrLocal, CodePtrLocal, nil, 0, 0);
           Dec(CodePtrLocal, 2);
         end else
         begin
@@ -12632,13 +12653,16 @@ var
         end;
         //
         APossibleKinds := APossibleKinds + [sevkNumber, sevkBoolean];
-        if (APossibleKinds <> [sevkNumber, sevkBoolean]) or (OpCount < AMinOpcodeCount) or (IsInvalidOpcode) then
+        if (APossibleKinds <> [sevkNumber, sevkBoolean]) or
+           ((OpCount < AMinOpcodeCount) and (Self.FLastVerifiedJITBlockLastPlace <> BIndex)) or
+           (IsInvalidOpcode) then
         begin
           Self.FLastVerifyJITBlockResult := False;
           Self.Binary.DeleteRange(BIndex, OpcodeSizes[Op]);
         end else
         begin
           Self.FLastVerifyJITBlockResult := True;
+          Self.FLastVerifiedJITBlockLastPlace := Self.Binary.Count;
           Self.Binary.Ptr(BIndex + 1)^.VarPointer := Pointer(Self.Binary.Count - 1 - BIndex);
         end;
         break;
@@ -13349,16 +13373,18 @@ var
     procedure Tail;
     var
       Token: TSEToken;
+      Kinds: TSEValueKindSet;
     begin
       case PeekAtNextToken.Kind of
         tkSquareBracketOpen:
           begin
-            Result := Result + [sevkMap];
             PushConstCount := 0;
             IsTailed := True;
             NextToken;
             MarkJITBlock;
-            VerifyJITBlock(ParseExpr(False));
+            Kinds := ParseExpr(False);
+            VerifyJITBlock(Kinds);
+            Result := Result + Kinds + [sevkMap];
             NextTokenExpected([tkSquareBracketClose]);
             AllocFuncRef;
             AssignReturnFuncRef;
@@ -13414,6 +13440,9 @@ var
           end;
         end;
       end;
+
+    var
+      Kinds: TSEValueKindSet;
 
     begin
       Token := PeekAtNextTokenExpected([
@@ -13494,13 +13523,14 @@ var
                       case PeekAtNextToken.Kind of
                         tkSquareBracketOpen:
                           begin
-                            Result := Result + [sevkMap];
                             PushConstCount := 0;
                             IsTailed := True;
                             NextToken;
                             EmitPushVar(Ident^);
                             MarkJITBlock;
-                            VerifyJITBlock(ParseExpr(False));
+                            Kinds := ParseExpr(False);
+                            VerifyJITBlock(Kinds);
+                            Result := Result + Kinds + [sevkMap];
                             Emit([Pointer(opLoadMapItem), SENull, Pointer(1)]);
                             PeepholeArrayAssignOptimization;
                             NextTokenExpected([tkSquareBracketClose]);
@@ -14115,8 +14145,8 @@ var
           end;
         'any':
           begin
-            Ident^.IsForcedKind := False;
-            Ident^.PossibleKinds := [sevkNull];
+            Ident^.IsForcedKind := True;
+            Ident^.PossibleKinds := [sevkString, sevkNumber, sevkBoolean, sevkMap, sevkFunction, sevkPascalObject];
           end;
         else
           Error(Format('Unknown type "%s"', [KindName]), PeekAtNextToken);
@@ -14142,6 +14172,7 @@ var
     HasOverride: Boolean = False;
     KindName: String;
   begin
+    Self.FLastVerifiedJITBlockLastPlace := -1;
     ReturnList := TList.Create;
     VarSymbols := TStringList.Create;
     try
@@ -14233,6 +14264,7 @@ var
     Ind: Cardinal;
     P: Pointer;
   begin
+    Self.FLastVerifiedJITBlockLastPlace := -1;
     Inc(Self.FuncTraversal, ATraversal);
     Self.LocalVarCountList.Add(-1);
     Self.ScopeStack.Push(Self.VarList.Count);
@@ -14427,6 +14459,7 @@ var
   begin
     ContinueList := TList.Create;
     BreakList := TList.Create;
+    Self.FLastVerifiedJITBlockLastPlace := -1;
     try
       ContinueStack.Push(ContinueList);
       BreakStack.Push(BreakList);
@@ -14489,6 +14522,7 @@ var
   begin
     ContinueList := TList.Create;
     BreakList := TList.Create;
+    Self.FLastVerifiedJITBlockLastPlace := -1;
     try
       ContinueStack.Push(ContinueList);
       BreakStack.Push(BreakList);
@@ -14562,6 +14596,7 @@ var
   begin
     ContinueList := TList.Create;
     BreakList := TList.Create;
+    Self.FLastVerifiedJITBlockLastPlace := -1;
     try
       ContinueStack.Push(ContinueList);
       BreakStack.Push(BreakList);
@@ -14623,11 +14658,15 @@ var
         ParseBlock;
 
         ContinueBlock := Self.Binary.Count;
+        MarkJITBlock;
         Emit([Pointer(opInc), Pointer(VarIdent.Addr), GetVarFrame(VarIdent), Step]);
         JumpBlock := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
+        VerifyJITBlock([sevkNumber]);
         EndBLock := JumpBlock;
       end else
       begin
+        // Changed to string instead
+        PIdent^.PossibleKinds := [sevkString];
         if Token.Kind = tkComma then
         begin
           Token := NextTokenExpected([tkIdent]);
@@ -14639,12 +14678,13 @@ var
 
         Token.Value := VarHiddenCountName;
         PIdent := CreateIdent(ikVariable, Token, True, False);
-        VarHiddenCountIdent := PIdent^;
         PIdent^.IsForcedKind := True;
         PIdent^.PossibleKinds := [sevkNumber];
+        VarHiddenCountIdent := PIdent^;
 
         Token.Value := VarHiddenArrayName;
-        VarHiddenArrayIdent := CreateIdent(ikVariable, Token, True, False)^;
+        PIdent := CreateIdent(ikVariable, Token, True, False);
+        VarHiddenArrayIdent := PIdent^;
 
         MarkJITBlock;
         VerifyJITBlock(ParseExpr(False));
@@ -14672,8 +14712,10 @@ var
         ParseBlock;
 
         ContinueBlock := Self.Binary.Count;
+        MarkJITBlock;
         Emit([Pointer(opInc), Pointer(VarHiddenCountIdent.Addr), GetVarFrame(VarHiddenCountIdent), 1]);
         JumpBlock := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
+        VerifyJITBlock([sevkNumber]);
         EndBLock := JumpBlock;
       end;
 
@@ -14700,6 +14742,7 @@ var
     JumpBlock2,
     JumpEnd: NativeInt;
   begin
+    Self.FLastVerifiedJITBlockLastPlace := -1;
     MarkJITBlock;
     VerifyJITBlock(ParseExpr(False));
     JumpBlock1 := Emit([Pointer(opJumpEqual1Rel), True, Pointer(0)]);
@@ -14735,6 +14778,7 @@ var
     EndBlock,
     I: NativeInt;
   begin
+    Self.FLastVerifiedJITBlockLastPlace := -1;
     Token.Kind := tkIdent;
     Token.Value := '___s' + Self.InternalIdent;
     VarHiddenIdent := CreateIdent(ikVariable, Token, True, False)^;
@@ -15018,7 +15062,7 @@ var
             PeepholeIncOptimization;
             if Ident^.PossibleKinds = [sevkString] then
               PeepholeStringConcatOptimization(FirstExprOpIndex);
-            VerifyJITBlock(Ident^.PossibleKinds, 3);
+            VerifyJITBlock(Ident^.PossibleKinds);
           end;
           //Writeln(Ident^.Name);
           //DebugShowPossibleKinds(Ident^.PossibleKinds);
@@ -15373,6 +15417,7 @@ begin
   try
     Self.LocalVarCountList.Clear;
     Self.Binary := Self.VM.Binaries.Value^.Data[0];
+    Self.FLastVerifiedJITBlockLastPlace := -1;
     repeat
       ParseBlock;
     until PeekAtNextToken.Kind = tkEOF;
