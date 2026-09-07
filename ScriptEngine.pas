@@ -9206,6 +9206,7 @@ var
     if E = nil then
     begin
       E := TX64Emitter.Create;
+     // Writeln('START');
     end;
     BIndex := 0;
     BFinish := TSEJITCountPack(Cardinal(JitCodePtrLocal[1].VarPointer)).ApplyRange;
@@ -10267,11 +10268,11 @@ var
       { Increase CodePtr }
       // Check the next opcode to see if the next one is also a JITBlockPotential
       Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
-      //if Op = opJITBlockPotential then
-      //begin
+      if (Op = opJITBlockPotential) and (Result = 0) then
+      begin
        // Writeln('MERGED!');
-      //  Result := JITHandler(JitCodePtrBase, @JitCodePtrLocal[BIndex], E, CodeSize, OpCount);
-      //end else
+        Result := JITHandler(JitCodePtrBase, @JitCodePtrLocal[BIndex], E, CodeSize, OpCount);
+      end else
       begin
         if (Result = STATUS_INVALID) or (Result = STATUS_OVERFLOW) then
         begin
@@ -14658,10 +14659,10 @@ var
         ParseBlock;
 
         ContinueBlock := Self.Binary.Count;
-       // MarkJITBlock;
+        MarkJITBlock;
         Emit([Pointer(opInc), Pointer(VarIdent.Addr), GetVarFrame(VarIdent), Step]);
         JumpBlock := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
-       // VerifyJITBlock([sevkNumber]);
+        VerifyJITBlock([sevkNumber]);
         EndBLock := JumpBlock;
       end else
       begin
@@ -14712,10 +14713,10 @@ var
         ParseBlock;
 
         ContinueBlock := Self.Binary.Count;
-       // MarkJITBlock;
+        MarkJITBlock;
         Emit([Pointer(opInc), Pointer(VarHiddenCountIdent.Addr), GetVarFrame(VarHiddenCountIdent), 1]);
         JumpBlock := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
-       // VerifyJITBlock([sevkNumber]);
+        VerifyJITBlock([sevkNumber]);
         EndBLock := JumpBlock;
       end;
 
@@ -14986,7 +14987,7 @@ var
               MarkJITBlock;
               ArrayIndexPossibleKinds := ParseExpr(False);
               VerifyJITBlock(ArrayIndexPossibleKinds);
-              if ArrayIndexPossibleKinds - [sevkNumber] <> [] then
+              if ArrayIndexPossibleKinds - [sevkNumber, sevkBoolean] <> [] then
                 IsJitPossibleForArray := False;
               NextTokenExpected([tkSquareBracketClose]);
             end;
