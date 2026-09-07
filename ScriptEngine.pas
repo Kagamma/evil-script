@@ -9211,9 +9211,13 @@ var
       I: Integer;
       Key: String;
     begin
+      {$ifdef SE_DISABLE_AGGRESSIVE_JIT}
       if AValue.Kind <> sevkMap then
         Exit([AValue.Kind]);
       Result := TSEValueMap(AValue.VarMap).PossibleKinds;
+      {$else}
+      Exit([sevkString]);
+      {$endif}
     end;
 
   begin
@@ -9290,21 +9294,7 @@ var
             // movq xmm0, qword ptr [r14 + .VarNumber]
             E.MovSDXMMFromMem(regXMM0, E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)));
 
-            {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
-              E.PushReg(regR15);
-              E.PushReg(regR14);
-              E.PushReg(regR13);
-              E.PushReg(regR12);
-              E.PushReg(regR10);
-            {$endif}
             E.CallAbsolute(regRCX, @SEMapSetJIT);
-            {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
-              E.PopReg(regR10);
-              E.PopReg(regR12);
-              E.PopReg(regR13);
-              E.PopReg(regR14);
-              E.PopReg(regR15);
-            {$endif}
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
           end;
@@ -9331,21 +9321,7 @@ var
             { CacheSite }
             E.MovRegImm64(regRSI, NativeUInt(@JitCodePtrLocal[BIndex + 3]));
 
-            {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
-              E.PushReg(regR15);
-              E.PushReg(regR14);
-              E.PushReg(regR13);
-              E.PushReg(regR12);
-              E.PushReg(regR10);
-            {$endif}
             E.CallAbsolute(regRCX, @SEMapSetJITResolve);
-            {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
-              E.PopReg(regR10);
-              E.PopReg(regR12);
-              E.PopReg(regR13);
-              E.PopReg(regR14);
-              E.PopReg(regR15);
-            {$endif}
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
           end;
@@ -9383,21 +9359,7 @@ var
             // movq xmm0, qword ptr [r14 + .VarNumber]
             E.MovSDXMMFromMem(regXMM0, E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)));
 
-            {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
-              E.PushReg(regR15);
-              E.PushReg(regR14);
-              E.PushReg(regR13);
-              E.PushReg(regR12);
-              E.PushReg(regR10);
-            {$endif}
             E.CallAbsolute(regRCX, @SEMapSetJIT);
-            {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
-              E.PopReg(regR10);
-              E.PopReg(regR12);
-              E.PopReg(regR13);
-              E.PopReg(regR14);
-              E.PopReg(regR15);
-            {$endif}
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
           end;
@@ -9437,21 +9399,7 @@ var
             { CacheSite }
             E.MovRegImm64(regRSI, NativeUInt(@JitCodePtrLocal[BIndex + 4]));
 
-            {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
-              E.PushReg(regR15);
-              E.PushReg(regR14);
-              E.PushReg(regR13);
-              E.PushReg(regR12);
-              E.PushReg(regR10);
-            {$endif}
             E.CallAbsolute(regRCX, @SEMapSetJITResolve);
-            {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
-              E.PopReg(regR10);
-              E.PopReg(regR12);
-              E.PopReg(regR13);
-              E.PopReg(regR14);
-              E.PopReg(regR15);
-            {$endif}
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
           end;
@@ -9472,23 +9420,8 @@ var
             { CacheSite }
             E.MovRegImm64(regRDX, NativeUInt(@JitCodePtrLocal[BIndex + 2]));
             //
-            {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
-              E.PushReg(regR15);
-              E.PushReg(regR14);
-              E.PushReg(regR13);
-              E.PushReg(regR12);
-              E.PushReg(regR10);
-            {$endif}
 
             E.CallAbsolute(regRCX, @SEMapGetJITResolve);
-
-            {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
-              E.PopReg(regR10);
-              E.PopReg(regR12);
-              E.PopReg(regR13);
-              E.PopReg(regR14);
-              E.PopReg(regR15);
-            {$endif}
 
             { Kind }
             E.ShrRegImm(regRAX, 32);
@@ -9515,23 +9448,8 @@ var
             E.MovRegFromSDXMM(regRDI, TXMMReg(XMMStackPtr - 1));
             Dec(XMMStackPtr);
             //
-            {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
-              E.PushReg(regR15);
-              E.PushReg(regR14);
-              E.PushReg(regR13);
-              E.PushReg(regR12);
-              E.PushReg(regR10);
-            {$endif}
 
             E.CallAbsolute(regRCX, @SEMapGetJIT);
-
-            {$ifndef SE_DISABLE_AGGRESSIVE_JIT}
-              E.PopReg(regR10);
-              E.PopReg(regR12);
-              E.PopReg(regR13);
-              E.PopReg(regR14);
-              E.PopReg(regR15);
-            {$endif}
 
             { Kind }
             E.ShrRegImm(regRAX, 32);
