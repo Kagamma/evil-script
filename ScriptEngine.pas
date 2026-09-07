@@ -9216,7 +9216,7 @@ var
         Exit([AValue.Kind]);
       Result := TSEValueMap(AValue.VarMap).PossibleKinds;
       {$else}
-      Exit([sevkString]);
+      Exit([sevkNumber]);
       {$endif}
     end;
 
