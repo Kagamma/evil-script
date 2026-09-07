@@ -908,7 +908,7 @@ const
     2, // opNotEqual0,
     2, // opAnd0,
     2, // opOr0,
-  
+
     1, // opLesser,
     1, // opLesserOrEqual,
     1, // opGreater,
@@ -10167,9 +10167,9 @@ var
             CodeSize := CodeSize + OpcodeSizes[Op];
 
             // TODO: This causes issue somehow...
-           // LastOpKind := ((FramePtr - NativeInt(JitCodePtrLocal[BIndex + 2].VarPointer))^.StackPtr + NativeInt(JitCodePtrLocal[BIndex + 1].VarPointer))^.Kind;
-           // if LastOpKindInRBX then
-           //   E.MovRegImm32(regRBX, Cardinal(LastOpKind));
+            //LastOpKind := ((FramePtr - NativeInt(JitCodePtrLocal[BIndex + 2].VarPointer))^.StackPtr + NativeInt(JitCodePtrLocal[BIndex + 1].VarPointer))^.Kind;
+            //if LastOpKindInRBX then
+            //  E.MovRegImm32(regRBX, Cardinal(LastOpKind));
             Inc(XMMStackPtr);
           end;
         opAssignGlobalVar:
