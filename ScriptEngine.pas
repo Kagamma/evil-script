@@ -433,6 +433,7 @@ type
     FLock: TRTLCriticalSection;
     {$endif}
   public
+    PossibleKinds: TSEValueKindSet;
     constructor Create;
     destructor Destroy; override;
     procedure Lock; inline;
@@ -7113,6 +7114,7 @@ begin
         Self.Count := CacheValue.Index + 1;
       end;
       Self.FItems[CacheValue.Index] := AValue;
+      Self.PossibleKinds := Self.PossibleKinds + [AValue.Kind];
     end;
     CacheValue.ID := Cardinal(Pointer(Self.FShape));
   finally
@@ -7140,6 +7142,7 @@ begin
         Self.Count := Index + 1;
       end;
       Self.FItems[Index] := AValue;
+      Self.PossibleKinds := Self.PossibleKinds + [AValue.Kind];
     end;
   finally
     Self.Unlock;
@@ -7157,6 +7160,7 @@ begin
       Self.Count := Index + 1;
     end;
     Self.FItems[Index] := AValue;
+    Self.PossibleKinds := Self.PossibleKinds + [AValue.Kind];
   finally
     Self.Unlock;
   end;
@@ -9202,6 +9206,16 @@ var
         GenGetLocalVariable(IsValue, IsAddress);
     end;
 
+    function TypeChecker(const AValue: TSEValue): TSEValueKindSet;
+    var
+      I: Integer;
+      Key: String;
+    begin
+      if AValue.Kind <> sevkMap then
+        Exit([AValue.Kind]);
+      Result := TSEValueMap(AValue.VarMap).PossibleKinds;
+    end;
+
   begin
     if E = nil then
     begin
@@ -10130,6 +10144,11 @@ var
 
         opPushGlobalVar:
           begin
+            if sevkString in TypeChecker(GlobalLocal[NativeInt(JitCodePtrLocal[BIndex + 1].VarPointer)]) then
+            begin
+              Result := STATUS_INVALID;
+              break;
+            end;
             { Load global variable index to RAX }
             // mov rax, code[1].VarPointer
             E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer) * SizeOf(TSEValue));
@@ -10145,6 +10164,11 @@ var
           end;
         opPushLocalVar:
           begin
+            if sevkString in TypeChecker(((FramePtrLocal - NativeUInt(JitCodePtrLocal[BIndex + 2].VarPointer))^.StackPtr + NativeInt(JitCodePtrLocal[BIndex + 1].VarPointer))^) then
+            begin
+              Result := STATUS_INVALID;
+              break;
+            end;
             { RCX = current frame }
             // mov rcx, r11
             E.MovRegReg64(regRCX, regR11);
