@@ -14594,6 +14594,7 @@ var
     VarHiddenArrayName: String;
     Ind: Cardinal;
     Step: Single = 1;
+    Kinds: TSEValueKindSet;
   begin
     ContinueList := TList.Create;
     BreakList := TList.Create;
@@ -14629,7 +14630,7 @@ var
         Token := NextTokenExpected([tkTo, tkDownto]);
 
         MarkJITBlock;
-        VerifyJITBlock(ParseExpr(False));
+        Kinds := ParseExpr(False);
 
         if PeekAtNextToken.Kind = tkStep then
         begin
@@ -14643,6 +14644,7 @@ var
         end;
         Emit([Pointer(opAdd0), Step]);
         EmitAssignVar(VarHiddenTargetIdent);
+        VerifyJITBlock(Kinds);
 
         StartBlock := Self.Binary.Count;
         //EmitPushVar(VarIdent);
