@@ -7139,6 +7139,8 @@ begin
     Inc(IncSize, 4);
   Self.Capacity := NewSize + Self.IncSize;
   SetLength(Self.Items, Self.Capacity);
+  if NewSize = 0 then
+    Self.PossibleKinds := [];
 end;
 
 procedure TSEValueMapHelper.ExpandArray(const NewSize: NativeInt);
@@ -7309,6 +7311,7 @@ begin
     Self.Shape := ShapeManager.Root;
   Self.IncSize := 4;
   Self.Capacity := 4;
+  Self.PossibleKinds := [];
   SetLength(Self.Items, Self.Capacity);
 end;
 
