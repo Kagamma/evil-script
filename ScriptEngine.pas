@@ -242,6 +242,7 @@ type
   TSEVMList = specialize TList<TSEVM>;
 
   TSEFuncKind = (sefkNative, sefkScript, sefkImport);
+  PSEValueMap = ^TSEValueMap;
 
   PSEValue = ^TSEValue;
   TSEValue = record
@@ -261,7 +262,7 @@ type
         );
       sevkMap:
         (
-          VarMap: TObject;
+          VarMap: PSEValueMap;
         );
       sevkBuffer:
         (
@@ -425,34 +426,39 @@ type
     Index: Integer;
   end;
 
-  TSEValueMap = class(specialize TList<TSEValue>)
-  private
-    FIsValidArray: Boolean;
-    FShape: TSEShape;
+  TSEValueMap = record
+    Items: array of TSEValue;
+    Count,
+    Capacity,
+    IncSize: NativeInt;
+    Shape: TSEShape;
     {$ifdef SE_THREADS}
     FLock: TRTLCriticalSection;
     {$endif}
-  public
     PossibleKinds: TSEValueKindSet;
-    constructor Create;
-    destructor Destroy; override;
+  end;
+
+  TSEValueMapHelper = record helper for TSEValueMap
+    procedure Init;
+    procedure Done;
     procedure Lock; inline;
     procedure Unlock; inline;
     function TryLock: Boolean; inline;
     procedure ToMap;
+    procedure Insert(const Index: NativeInt; constref AValue: TSEValue);
+    procedure Resize(const NewSize: NativeInt);
+    procedure ExpandArray(const NewSize: NativeInt);
     procedure Set2(const Key: PSEString; constref AValue: TSEValue; var CacheValue: TSECacheValue); overload; inline;
     procedure Set2(const Key: PString; constref AValue: TSEValue); overload; inline;
-    procedure Set2(const Index: Integer; constref AValue: TSEValue); overload; inline;
+    procedure Set2(const Index: NativeInt; constref AValue: TSEValue); overload; inline;
     function Get2(const Key: PString): TSEValue; overload; inline;
     function Get2(const Key: PSEString; var CacheValue: TSECacheValue): TSEValue;
-    function Get2(const Index: Integer): TSEValue; overload; inline;
+    function Get2(const Index: NativeInt): TSEValue; overload; inline;
     procedure Del2(const Key: PString); overload; inline;
-    procedure Del2(const Index: Integer); overload; inline;
-    function Ptr(const I: NativeInt): PSEValue;
+    procedure Del2(const Index: NativeInt); overload; inline;
     procedure Reset;
-    property Shape: TSEShape read FShape;
-    property IsValidArray: Boolean read FIsValidArray;
   end;
+
   TSEValueArray = array of TSEValue;
   PPSEValue = ^PSEValue;
 
@@ -4196,7 +4202,6 @@ end;
 function SEValueToText(const Value: TSEValue; const IsRoot: Boolean = True): String;
 var
   Key, S: String;
-  IsValidArray: Boolean;
   I: NativeInt = 0;
 begin
   case Value.Kind of
@@ -4214,10 +4219,9 @@ begin
     sevkMap:
       begin
         Result := '[';
-        IsValidArray := SEMapIsValidArray(Value);
-        if IsValidArray then
+        if SEMapIsValidArray(Value) then
         begin
-          for I := 0 to TSEValueMap(Value.VarMap).Count - 1 do
+          for I := 0 to Value.VarMap^.Count - 1 do
           begin
             if I > 0 then
               Result := Result + ', ';
@@ -4225,9 +4229,9 @@ begin
           end;
         end else
         begin
-          TSEValueMap(Value.VarMap).Lock;
+          Value.VarMap^.Lock;
           try
-            for Key in TSEValueMap(Value.VarMap).Shape.GetKeys do
+            for Key in Value.VarMap^.Shape.GetKeys do
             begin
               if I > 0 then
                 Result := Result + ', ';
@@ -4235,7 +4239,7 @@ begin
               Inc(I);
             end;
           finally
-            TSEValueMap(Value.VarMap).Unlock;
+            Value.VarMap^.Unlock;
           end;
         end;
         Result := Result + ']'
@@ -4276,9 +4280,9 @@ begin
     sevkMap:
       begin
         if SEMapIsValidArray(Value) then
-          Result := TSEValueMap(Value.VarMap).Count
+          Result := Value.VarMap^.Count
         else
-          Result := TSEValueMap(Value.VarMap).Shape.LiveCount;
+          Result := Value.VarMap^.Shape.LiveCount;
       end;
     sevkBuffer:
       begin
@@ -4295,12 +4299,12 @@ end;
 
 procedure SEMapDelete(constref V: TSEValue; const I: NativeInt); inline; overload;
 begin
-  TSEValueMap(V.VarMap).Del2(I);
+  V.VarMap^.Del2(I);
 end;
 
 procedure SEMapDelete(constref V: TSEValue; constref S: String); inline; overload;
 begin
-  TSEValueMap(V.VarMap).Del2(@S);
+  V.VarMap^.Del2(@S);
 end;
 
 procedure SEMapDelete(constref V, I: TSEValue); inline; overload;
@@ -4308,11 +4312,11 @@ begin
   case I.Kind of
     sevkString:
       begin
-        TSEValueMap(V.VarMap).Del2(@I.VarString^.Data);
+        V.VarMap^.Del2(@I.VarString^.Data);
       end;
     sevkNumber:
       begin
-        TSEValueMap(V.VarMap).Del2(Round(I.VarNumber));
+        V.VarMap^.Del2(Round(I.VarNumber));
       end;
   end;
 end;
@@ -4321,12 +4325,12 @@ end;
 
 function SEMapGet(constref V: TSEValue; const I: NativeInt): TSEValue; inline; overload;
 begin
-  Result := TSEValueMap(V.VarMap).Items[I];
+  Result := V.VarMap^.Items[I];
 end;
 
 function SEMapGet(constref V: TSEValue; constref S: String): TSEValue; inline; overload;
 begin
-  Result := TSEValueMap(V.VarMap).Get2(@S);
+  Result := V.VarMap^.Get2(@S);
 end;
 
 function SEMapGet(constref V, I: TSEValue): TSEValue; inline; overload;
@@ -4334,15 +4338,15 @@ begin
   case I.Kind of
     sevkString:
       begin
-        Result := TSEValueMap(V.VarMap).Get2(@I.VarString^.Data);
+        Result := V.VarMap^.Get2(@I.VarString^.Data);
       end;
     sevkNumber:
       begin
-        Result := TSEValueMap(V.VarMap).Get2(Round(I.VarNumber));
+        Result := V.VarMap^.Get2(Round(I.VarNumber));
       end;
     sevkConstString:
       begin
-        Result := TSEValueMap(V.VarMap).Get2(@ConstStrings.Ptr(I.VarConstStringIndex)^.VarString^.Data);
+        Result := V.VarMap^.Get2(@ConstStrings.Ptr(I.VarConstStringIndex)^.VarString^.Data);
       end;
     else
       Exit(SENull);
@@ -4354,15 +4358,15 @@ begin
   case I.Kind of
     sevkString:
       begin
-        R := TSEValueMap(V.VarMap).Get2(@I.VarString^.Data);
+        R := V.VarMap^.Get2(@I.VarString^.Data);
       end;
     sevkNumber:
       begin
-        R := TSEValueMap(V.VarMap).Get2(Round(I.VarNumber));
+        R := V.VarMap^.Get2(Round(I.VarNumber));
       end;
     sevkConstString:
       begin
-        R := TSEValueMap(V.VarMap).Get2(@ConstStrings.Ptr(I.VarConstStringIndex)^.VarString^.Data);
+        R := V.VarMap^.Get2(@ConstStrings.Ptr(I.VarConstStringIndex)^.VarString^.Data);
       end;
     else
       R := SENull;
@@ -4371,23 +4375,23 @@ end;
 
 procedure SEMapSet(constref V: TSEValue; const I: NativeInt; constref A: TSEValue); inline; overload;
 begin
-  TSEValueMap(V.VarMap).Set2(I, A);
+  V.VarMap^.Set2(I, A);
 end;
 
 procedure SEMapSet(constref V: TSEValue; constref S: String; constref A: TSEValue); inline; overload;
 begin
-  TSEValueMap(V.VarMap).Set2(@S, A);
+  V.VarMap^.Set2(@S, A);
 end;
 
 procedure SEMapSet(constref V, I: TSEValue; constref A: TSEValue); inline; overload;
 begin
   case I.Kind of
     sevkString:
-      TSEValueMap(V.VarMap).Set2(@I.VarString^.Data, A);
+      V.VarMap^.Set2(@I.VarString^.Data, A);
     sevkNumber:
-      TSEValueMap(V.VarMap).Set2(Round(I.VarNumber), A);
+      V.VarMap^.Set2(Round(I.VarNumber), A);
     sevkConstString:
-      TSEValueMap(V.VarMap).Set2(@ConstStrings.Ptr(I.VarConstStringIndex)^.VarString^.Data, A);
+      V.VarMap^.Set2(@ConstStrings.Ptr(I.VarConstStringIndex)^.VarString^.Data, A);
   end;
 end;
 
@@ -4395,7 +4399,7 @@ function SEMapIsValidArray(constref V: TSEValue): Boolean; inline;
 begin
   if V.Kind <> sevkMap then
     Exit(False);
-  Result := TSEValueMap(V.VarMap).IsValidArray;
+  Result := V.VarMap^.Shape = nil;
 end;
 
 procedure SEDisAsm(const VM: TSEVM; var Res: String);
@@ -4512,20 +4516,20 @@ begin
         GC.AllocMap(@Result);
         if not SEMapIsValidArray(V) then
         begin
-          TSEValueMap(V.VarMap).Lock;
+          V.VarMap^.Lock;
           try
-            for Key in TSEValueMap(V.VarMap).Shape.GetKeys do
+            for Key in V.VarMap^.Shape.GetKeys do
             begin
-              SEMapSet(Result, Key, TSEValueMap(V.VarMap).Get2(@Key));
+              SEMapSet(Result, Key, V.VarMap^.Get2(@Key));
             end;
           finally
-            TSEValueMap(V.VarMap).Unlock;
+            V.VarMap^.Unlock;
           end;
         end else
         begin
-          for I := 0 to TSEValueMap(V.VarMap).Count - 1 do
+          for I := 0 to V.VarMap^.Count - 1 do
           begin
-            SEMapSet(Result, I, TSEValueMap(V.VarMap).Get2(I));
+            SEMapSet(Result, I, V.VarMap^.Get2(I));
           end;
         end;
       end;
@@ -4730,7 +4734,7 @@ begin
     Exit(False);
   if SEMapIsValidArray(Self) then
     Exit(False);
-  Exit(TSEValueMap(Self.VarMap).Shape.TryGetOffset(S, Index));
+  Exit(Self.VarMap^.Shape.TryGetOffset(S, Index));
 end;
 
 procedure TSEValueHelper.UnManaged; inline;
@@ -5110,7 +5114,7 @@ begin
   SEValidateType(@Args[1], sevkNumber, 2, {$I %CURRENTROUTINE%});
   Size := Round(Args[1].VarNumber);
   GC.AllocMap(@Result);
-  TSEValueMap(Result.VarMap).Count := Size;
+  Result.VarMap^.Resize(Size);
   for I := 0 to Size - 1 do
   begin
     SEMapSet(Result, I, Single((Args[0].VarBuffer^.Ptr + I * 4)^))
@@ -5126,7 +5130,7 @@ begin
   SEValidateType(@Args[1], sevkNumber, 2, {$I %CURRENTROUTINE%});
   Size := Round(Args[1].VarNumber);
   GC.AllocMap(@Result);
-  TSEValueMap(Result.VarMap).Count := Size;
+  Result.VarMap^.Resize(Size);
   for I := 0 to Size - 1 do
   begin
     SEMapSet(Result, I, Double((Args[0].VarBuffer^.Ptr + I * 8)^))
@@ -5180,7 +5184,7 @@ begin
   SEValidateType(@Args[0], sevkMap, 1, {$I %CURRENTROUTINE%});
   if SEMapIsValidArray(Args[0]) then
     Exit;
-  Result := TSEValueMap(Args[0].VarMap).Shape.ToString;
+  Result := Args[0].VarMap^.Shape.ToString;
 end;
 
 class function TBuiltInFunction.SERandom(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -5315,19 +5319,19 @@ begin
   GC.AllocMap(@Result);
   if not SEMapIsValidArray(Args[0]) then
   begin
-    TSEValueMap(Args[0].VarMap).Lock;
+    Args[0].VarMap^.Lock;
     try
-      for Key in TSEValueMap(Args[0].VarMap).Shape.GetKeys do
+      for Key in Args[0].VarMap^.Shape.GetKeys do
       begin
         SEMapSet(Result, I, Key);
         Inc(I);
       end;
     finally
-      TSEValueMap(Args[0].VarMap).Unlock;
+      Args[0].VarMap^.Unlock;
     end;
   end else
   begin
-    for I := 0 to TSEValueMap(Args[0].VarMap).Count - 1 do
+    for I := 0 to Args[0].VarMap^.Count - 1 do
     begin
       SEMapSet(Result, I, I);
     end;
@@ -5336,14 +5340,14 @@ end;
 
 class function TBuiltInFunction.SEMapClear(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  TSEValueMap(Args[0].VarMap).Reset;
+  Args[0].VarMap^.Reset;
 end;
 
 class function TBuiltInFunction.SEArrayResize(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   if SEMapIsValidArray(Args[0]) then
   begin
-    TSEValueMap(Args[0].VarMap).Count := Round(Args[1].VarNumber);
+    Args[0].VarMap^.Resize(Round(Args[1].VarNumber));
   end;
   Result := Args[0];
 end;
@@ -5351,7 +5355,7 @@ end;
 class function TBuiltInFunction.SEArrayToMap(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   if Args[0].Kind = sevkMap then
-    TSEValueMap(Args[0].VarMap).ToMap;
+    Args[0].VarMap^.ToMap;
   Result := Args[0];
 end;
 
@@ -5361,8 +5365,8 @@ var
 begin
   if SEMapIsValidArray(Args[0]) then
   begin
-    for I := 0 to TSEValueMap(Args[0].VarMap).Count - 1 do
-      TSEValueMap(Args[0].VarMap)[I] := Args[1];
+    for I := 0 to Args[0].VarMap^.Count - 1 do
+      Args[0].VarMap^.Items[I] := Args[1];
   end;
   Result := Args[0];
 end;
@@ -5371,7 +5375,7 @@ class function TBuiltInFunction.SEArrayInsert(const VM: TSEVM; const Args: PSEVa
 begin
   if SEMapIsValidArray(Args[0]) then
   begin
-    TSEValueMap(Args[0].VarMap).Insert(Round(Args[1].VarNumber), Args[2]);
+    Args[0].VarMap^.Insert(Round(Args[1].VarNumber), Args[2]);
   end;
   Result := Args[0];
 end;
@@ -5418,9 +5422,9 @@ begin
   GC.AllocMap(@Result);
   V := Args[0];
   if ArgCount = 3 then
-    TSEValueMap(Result.VarMap).Capacity := Round(Args[1].VarNumber * (1 / Args[2].VarNumber)) // Set capacity beforehand
+    Result.VarMap^.Capacity := Round(Args[1].VarNumber * (1 / Args[2].VarNumber)) // Set capacity beforehand
   else
-    TSEValueMap(Result.VarMap).Capacity := Round(Args[1].VarNumber); // Set capacity beforehand
+    Result.VarMap^.Capacity := Round(Args[1].VarNumber); // Set capacity beforehand
   while EpsilonRound(V) <= Args[1].VarNumber do
   begin
     SEMapSet(Result, I, V);
@@ -6143,7 +6147,7 @@ class function TBuiltInFunction.SEJSONParse(const VM: TSEVM; const Args: PSEValu
     Name: String;
   begin
     GC.AllocMap(@R);
-    TSEValueMap(R.VarMap).ToMap;
+    R.VarMap^.ToMap;
     for I := 0 to Data.Count - 1 do
     begin
       Name := TJSONObject(Data).Names[I];
@@ -6225,7 +6229,7 @@ class function TBuiltInFunction.SEJSONStringify(const VM: TSEVM; const Args: PSE
     V: TSEValue;
   begin
     SB.Append('[');
-    for I := 0 to TSEValueMap(Map.VarMap).Count - 1 do
+    for I := 0 to Map.VarMap^.Count - 1 do
     begin
       V := SEMapGet(Map, I);
       if V.Kind = sevkPascalObject then
@@ -6261,10 +6265,10 @@ class function TBuiltInFunction.SEJSONStringify(const VM: TSEVM; const Args: PSE
     V: TSEValue;
     Key: String;
   begin
-    TSEValueMap(Map.VarMap).Lock;
+    Map.VarMap^.Lock;
     try
       SB.Append('{');
-      for Key in TSEValueMap(Map.VarMap).Shape.GetKeys do
+      for Key in Map.VarMap^.Shape.GetKeys do
       begin
         V := SEMapGet(Map, Key);
         if V.Kind = sevkPascalObject then
@@ -6294,7 +6298,7 @@ class function TBuiltInFunction.SEJSONStringify(const VM: TSEVM; const Args: PSE
       end;
       SB.Append('}');
     finally
-      TSEValueMap(Map.VarMap).Unlock;
+      Map.VarMap^.Unlock;
     end;
   end;
 
@@ -6377,14 +6381,14 @@ begin
         GC.AllocMap(@Temp);
         if (not SEMapIsValidArray(V1)) and (not SEMapIsValidArray(V2)) then
         begin
-          for S in TSEValueMap(V1.VarMap).Shape.GetKeys do
+          for S in V1.VarMap^.Shape.GetKeys do
             SEMapSet(Temp, S, SEMapGet(V1, S));
-          for S in TSEValueMap(V2.VarMap).Shape.GetKeys do
+          for S in V2.VarMap^.Shape.GetKeys do
             SEMapSet(Temp, S, SEMapGet(V2, S));
         end else
         begin
           Len := SESize(V1);
-          TSEValueMap(Temp.VarMap).Count := Len + SESize(V2);
+          Temp.VarMap^.Resize(Len + SESize(V2));
           for I := 0 to Len - 1 do
             SEMapSet(Temp, I, SEMapGet(V1, I));
           for I := Len to Len + SESize(V2) - 1 do
@@ -6851,14 +6855,14 @@ begin
         GC.AllocMap(@R);
         if (not SEMapIsValidArray(V1)) and (not SEMapIsValidArray(V2)) then
         begin
-          for S in TSEValueMap(V1.VarMap).Shape.GetKeys do
+          for S in V1.VarMap^.Shape.GetKeys do
             SEMapSet(R, S, SEMapGet(V1, S));
-          for S in TSEValueMap(V2.VarMap).Shape.GetKeys do
+          for S in V2.VarMap^.Shape.GetKeys do
             SEMapSet(R, S, SEMapGet(V2, S));
         end else
         begin
           Len := SESize(V1);
-          TSEValueMap(R.VarMap).Count := Len + SESize(V2);
+          R.VarMap^.Resize(Len + SESize(V2));
           for I := 0 to Len - 1 do
             SEMapSet(R, I, SEMapGet(V1, I));
           for I := Len to Len + SESize(V2) - 1 do
@@ -7037,33 +7041,40 @@ begin
     R := True;
 end;
 
-constructor TSEValueMap.Create;
+procedure TSEValueMapHelper.Init;
 begin
-  inherited;
-  Self.FIsValidArray := True;
-  Self.FShape := nil;
+  Self.Shape := nil;
+  Self.Count := 0;
+  Self.IncSize := 4;
+  Self.Capacity := 4;
+  SetLength(Self.Items, Capacity);
+  InitCriticalSection(Self.FLock);
 end;
 
-destructor TSEValueMap.Destroy;
+procedure TSEValueMapHelper.Done;
 begin
-  inherited;
+  Self.Capacity := 0;
+  Self.Count := 0;
+  Self.Shape := nil;
+  SetLength(Self.Items, 0);
+  DoneCriticalSection(Self.FLock);
 end;
 
-procedure TSEValueMap.Lock;
+procedure TSEValueMapHelper.Lock;
 begin
   {$ifdef SE_THREADS}
   EnterCriticalSection(Self.FLock);
   {$endif}
 end;
 
-procedure TSEValueMap.Unlock;
+procedure TSEValueMapHelper.Unlock;
 begin
   {$ifdef SE_THREADS}
   LeaveCriticalSection(Self.FLock);
   {$endif}
 end;
 
-function TSEValueMap.TryLock: Boolean;
+function TSEValueMapHelper.TryLock: Boolean;
 begin
   {$ifdef SE_THREADS}
   Result := System.TryEnterCriticalSection(Self.FLock) <> 0;
@@ -7072,76 +7083,127 @@ begin
   {$endif}
 end;
 
-procedure TSEValueMap.ToMap;
+procedure TSEValueMapHelper.ToMap;
 var
   I: NativeInt;
   S: String;
 begin
   Self.Lock;
   try
-    if Self.FIsValidArray then
+    if Self.Shape = nil then
     begin
-      Self.FShape := ShapeManager.Root;
+      Self.Shape := ShapeManager.Root;
       for I := 0 to Self.Count - 1 do
       begin
         S := IntToStr(I);
-        Self.Set2(@S, Self.FItems[I]);
+        Self.Set2(@S, Self.Items[I]);
       end;
-      Self.FIsValidArray := False;
     end;
   finally
     Self.Unlock;
   end;
 end;
 
-procedure TSEValueMap.Set2(const Key: PSEString; constref AValue: TSEValue; var CacheValue: TSECacheValue);
+procedure TSEValueMapHelper.Insert(const Index: NativeInt; constref AValue: TSEValue);
+var
+  I: NativeInt;
 begin
-  if Self.FIsValidArray then
+  Self.Lock;
+  try
+    if Self.Shape = nil then
+    begin
+      Self.ExpandArray(Self.Count);
+      for I := Self.Count - 1 downto Index + 1 do
+      begin
+        Self.Items[I] := Self.Items[I - 1];
+      end;
+      Self.Items[Index] := AValue;
+    end;
+  finally
+    Self.Unlock;
+  end;
+end;
+
+procedure TSEValueMapHelper.Resize(const NewSize: NativeInt);
+begin
+  if NewSize < 0 then
+    Exit;
+  Self.Count := NewSize;
+  if Self.Capacity > 127 then
+    Self.IncSize := Self.Capacity shr 2
+  else
+  if Self.Capacity > 8 then
+    Inc(IncSize, 8)
+  else
+  if Self.Capacity > 3 then
+    Inc(IncSize, 4);
+  Self.Capacity := NewSize + Self.IncSize;
+  SetLength(Self.Items, Self.Capacity);
+end;
+
+procedure TSEValueMapHelper.ExpandArray(const NewSize: NativeInt);
+begin
+  if NewSize > Self.Count - 1 then
+  begin
+    Self.Count := NewSize + 1;
+    if Self.Count > Self.Capacity then
+    begin
+      if Self.Capacity > 127 then
+        Self.IncSize := Self.Capacity shr 2
+      else
+      if Self.Capacity > 8 then
+        Inc(IncSize, 8)
+      else
+      if Self.Capacity > 3 then
+        Inc(IncSize, 4);
+      Self.Capacity := Self.Count + Self.IncSize;
+      SetLength(Self.Items, Self.Capacity);
+    end;
+  end;
+end;
+
+procedure TSEValueMapHelper.Set2(const Key: PSEString; constref AValue: TSEValue; var CacheValue: TSECacheValue);
+begin
+  if Self.Shape = nil then
     Self.ToMap;
   Self.Lock;
   try
     if Key^.Hash = 0 then
       Key^.Hash := SEHashString(Key^.Data);
-    if Self.FShape.TryGetOffsetHash(Key^.Hash, Key^.Data, CacheValue.Index) then
+    if Self.Shape.TryGetOffsetHash(Key^.Hash, Key^.Data, CacheValue.Index) then
     begin
-      Self.FItems[CacheValue.Index] := AValue;
+      Self.Items[CacheValue.Index] := AValue;
     end else
     begin
-      Self.FShape := ShapeManager.AddProperty(Self.FShape, Key^.Data);
-      CacheValue.Index := Self.FShape.PropertyOffset;
-      if CacheValue.Index > Self.Count - 1 then
-      begin
-        Self.Count := CacheValue.Index + 1;
-      end;
-      Self.FItems[CacheValue.Index] := AValue;
+      Self.Shape := ShapeManager.AddProperty(Self.Shape, Key^.Data);
+      CacheValue.Index := Self.Shape.PropertyOffset;
+      Self.ExpandArray(CacheValue.Index);
+      Self.Items[CacheValue.Index] := AValue;
       Self.PossibleKinds := Self.PossibleKinds + [AValue.Kind];
     end;
-    CacheValue.ID := Cardinal(Pointer(Self.FShape));
+    CacheValue.ID := Cardinal(Pointer(Self.Shape));
   finally
     Self.Unlock;
   end;
 end;
 
-procedure TSEValueMap.Set2(const Key: PString; constref AValue: TSEValue);
+procedure TSEValueMapHelper.Set2(const Key: PString; constref AValue: TSEValue);
 var
   Index: Integer;
 begin
-  if Self.FIsValidArray then
+  if Self.Shape = nil then
     Self.ToMap;
   Self.Lock;
   try
-    if Self.FShape.TryGetOffset(Key^, Index) then
+    if Self.Shape.TryGetOffset(Key^, Index) then
     begin
-      Self.FItems[Index] := AValue;
+      Self.Items[Index] := AValue;
     end else
     begin
-      Self.FShape := ShapeManager.AddProperty(Self.FShape, Key^);
-      Index := Self.FShape.PropertyOffset;
-      if Index > Self.Count - 1 then
-      begin
-        Self.Count := Index + 1;
-      end;
-      Self.FItems[Index] := AValue;
+      Self.Shape := ShapeManager.AddProperty(Self.Shape, Key^);
+      Index := Self.Shape.PropertyOffset;
+      Self.ExpandArray(Index);
+      Self.Items[Index] := AValue;
       Self.PossibleKinds := Self.PossibleKinds + [AValue.Kind];
     end;
   finally
@@ -7149,24 +7211,19 @@ begin
   end;
 end;
 
-procedure TSEValueMap.Set2(const Index: Integer; constref AValue: TSEValue);
+procedure TSEValueMapHelper.Set2(const Index: NativeInt; constref AValue: TSEValue);
 begin
-  if Index < 0 then
-    Exit;
   Self.Lock;
   try
-    if Index > Self.Count - 1 then
-    begin
-      Self.Count := Index + 1;
-    end;
-    Self.FItems[Index] := AValue;
+    Self.ExpandArray(Index);
+    Self.Items[Index] := AValue;
     Self.PossibleKinds := Self.PossibleKinds + [AValue.Kind];
   finally
     Self.Unlock;
   end;
 end;
 
-procedure TSEValueMap.Del2(const Key: PString);
+procedure TSEValueMapHelper.Del2(const Key: PString);
 var
   Remap: TIntegerDynArray;
   NewValues: array of TSEValue;
@@ -7174,88 +7231,85 @@ var
 begin
   Self.Lock;
   try
-    Self.FShape := ShapeManager.RemoveProperty(Self.FShape, Key^);
-    if Self.FShape.NeedsCompaction then
+    Self.Shape := ShapeManager.RemoveProperty(Self.Shape, Key^);
+    if Self.Shape.NeedsCompaction then
     begin
-      //Writeln('=========== COMPACT START ===========');
-      //Writeln('OLD SHAPE: ', Self.FShape.ToString);
-      Self.FShape := ShapeManager.Compact(Self.FShape, Remap);
-      SetLength(NewValues, Self.FShape.SlotCount);
+      Self.Shape := ShapeManager.Compact(Self.Shape, Remap);
+      SetLength(NewValues, Self.Shape.SlotCount + Self.IncSize);
       for I := 0 to High(Remap) do
         if Remap[I] >= 0 then
           NewValues[Remap[I]] := Self.Items[I];
-      Self.Capacity := Length(NewValues);
-      for I := 0 to High(NewValues) do
-        Self.Items[I] := NewValues[I];
-      //Writeln('NEW SHAPE: ', Self.FShape.ToString);
-      //Writeln('=========== COMPACT END ===========');
+      //
+      Self.Count := Self.Shape.SlotCount;
+      Self.Capacity := Self.Count + Self.IncSize;
+      Self.Items := NewValues;
     end;
   finally
     Self.Unlock;
   end;
 end;
 
-procedure TSEValueMap.Del2(const Index: Integer);
+procedure TSEValueMapHelper.Del2(const Index: NativeInt);
+var
+  I: Integer;
 begin
   Self.Lock;
   try
-    if (Index <= Self.Count - 1) and (Index >= 0) then
+    if Index <= Self.Count - 1 then
     begin
-      Self.Delete(Index);
+      for I := Index to Count - 2 do
+        Self.Items[I] := Self.Items[I + 1];
+      Dec(Self.Count);
     end;
   finally
     Self.Unlock;
   end;
 end;
 
-function TSEValueMap.Get2(const Key: PString): TSEValue;
+function TSEValueMapHelper.Get2(const Key: PString): TSEValue;
 var
   Index: Integer;
 begin
   Result := SENull;
-  if Self.FShape <> nil then
+  if Self.Shape <> nil then
   begin
-    if Self.FShape.TryGetOffset(Key^, Index) then
+    if Self.Shape.TryGetOffset(Key^, Index) then
     begin
-      Result := Self.FItems[Index];
+      Result := Self.Items[Index];
     end;
   end;
 end;
 
-function TSEValueMap.Get2(const Key: PSEString; var CacheValue: TSECacheValue): TSEValue;
+function TSEValueMapHelper.Get2(const Key: PSEString; var CacheValue: TSECacheValue): TSEValue;
 begin
   Result := SENull;
-  if Self.FShape <> nil then
+  if Self.Shape <> nil then
   begin
     if Key^.Hash = 0 then
       Key^.Hash := SEHashString(Key^.Data);
-    if Self.FShape.TryGetOffsetHash(Key^.Hash, Key^.Data, CacheValue.Index) then
+    if Self.Shape.TryGetOffsetHash(Key^.Hash, Key^.Data, CacheValue.Index) then
     begin
-      Result := Self.FItems[CacheValue.Index];
+      Result := Self.Items[CacheValue.Index];
     end;
-    CacheValue.ID := Cardinal(Pointer(Self.FShape));
+    CacheValue.ID := Cardinal(Pointer(Self.Shape));
   end;
 end;
 
-function TSEValueMap.Get2(const Index: Integer): TSEValue;
+function TSEValueMapHelper.Get2(const Index: NativeInt): TSEValue;
 begin
-  if (Index <= Self.Count - 1) and (Index >= 0) then
-    Result := Self.FItems[Index]
+  if Index <= Self.Count - 1 then
+    Result := Self.Items[Index]
   else
     Result := SENull;
 end;
 
-function TSEValueMap.Ptr(const I: NativeInt): PSEValue;
+procedure TSEValueMapHelper.Reset;
 begin
-  Result := @Self.FItems[I];
-end;
-
-procedure TSEValueMap.Reset;
-begin
-  if Self.FIsValidArray then
-    Self.Clear
-  else
-    Self.FShape := ShapeManager.Root;
+  if Self.Shape <> nil then
+    Self.Shape := ShapeManager.Root;
+  Self.IncSize := 4;
+  Self.Capacity := 4;
+  SetLength(Self.Items, Self.Capacity);
 end;
 
 function DumpCallStack: String;
@@ -7519,7 +7573,8 @@ begin
           begin
             if Value^.Value.VarMap <> nil then
             begin
-              Value^.Value.VarMap.Free;
+              Value^.Value.VarMap^.Done;
+              Dispose(Value^.Value.VarMap);
             end;
             Detach;
           end;
@@ -7583,9 +7638,9 @@ begin
           begin
             if SEMapIsValidArray(PValue^) then
             begin
-              TSEValueMap(PValue^.VarMap).Lock;
+              PValue^.VarMap^.Lock;
               try
-                for I := 0 to TSEValueMap(PValue^.VarMap).Count - 1 do
+                for I := 0 to PValue^.VarMap^.Count - 1 do
                 begin
                   RValue := SEMapGet(PValue^, I);
                   if (RValue.Kind <> sevkMap) and (RValue.Kind <> sevkString) and (RValue.Kind <> sevkBuffer) and (RValue.Kind <> sevkPascalObject) then
@@ -7593,14 +7648,14 @@ begin
                   Mark(@RValue);
                 end;
               finally
-                TSEValueMap(PValue^.VarMap).Unlock;
+                PValue^.VarMap^.Unlock;
               end;
             end else
             begin
-              TSEValueMap(PValue^.VarMap).Lock;
+              PValue^.VarMap^.Lock;
               try
-                ShapeManager.Mark(TSEValueMap(PValue^.VarMap).Shape);
-                for Key in TSEValueMap(PValue^.VarMap).Shape.GetKeys do
+                ShapeManager.Mark(PValue^.VarMap^.Shape);
+                for Key in PValue^.VarMap^.Shape.GetKeys do
                 begin
                   RValue := SEMapGet(PValue^, Key);
                   if (RValue.Kind <> sevkMap) and (RValue.Kind <> sevkString) and (RValue.Kind <> sevkBuffer) and (RValue.Kind <> sevkPascalObject) then
@@ -7608,7 +7663,7 @@ begin
                   Mark(@RValue);
                 end;
               finally
-                TSEValueMap(PValue^.VarMap).Unlock;
+                PValue^.VarMap^.Unlock;
               end;
             end;
           end;
@@ -7899,7 +7954,8 @@ begin
   {$endif}
   try
     PValue^.Kind := sevkMap;
-    PValue^.VarMap := TSEValueMap.Create;
+    New(PValue^.VarMap);
+    PValue^.VarMap^.Init;
     Self.AddToList(PValue);
   finally
     {$ifdef SE_THREADS}
@@ -8332,12 +8388,12 @@ begin
   end;
 end;
 
-function SEMapGetJIT(P: Pointer; I: NativeInt): TSEValue; sysv_abi_default;
+function SEMapGetJIT(P: PSEValueMap; I: NativeInt): TSEValue; sysv_abi_default;
 begin
-  Result := TSEValueMap(P).Get2(I);
+  Result := P^.Get2(I);
 end;
 
-function SEMapGetJITResolve(P: Pointer; I: NativeInt; CacheSite: PSEValue): TSEValue; sysv_abi_default;
+function SEMapGetJITResolve(P: PSEValueMap; I: NativeInt; CacheSite: PSEValue): TSEValue; sysv_abi_default;
 var
   CacheValue: TSECacheValue;
 begin
@@ -8346,12 +8402,12 @@ begin
   {$else}
   QWord(CacheValue) := CacheSite^.VarData;
   {$endif}
-  if (CacheValue.ID = Cardinal(Pointer(TSEValueMap(P).Shape))) and (CacheValue.Index >= 0) then
+  if (CacheValue.ID = Cardinal(Pointer(P^.Shape))) and (CacheValue.Index >= 0) then
   begin
-    Result := TSEValueMap(P)[CacheValue.Index];
+    Result := P^.Items[CacheValue.Index];
   end else
   begin
-    Result := TSEValueMap(P).Get2(ConstStrings.Ptr(I)^.VarString, CacheValue);
+    Result := P^.Get2(ConstStrings.Ptr(I)^.VarString, CacheValue);
     {$ifdef SE_THREADS}
     InterlockedExchange64(CacheSite^.VarData, QWord(CacheValue));
     {$else}
@@ -8360,12 +8416,12 @@ begin
   end;
 end;
 
-procedure SEMapSetJIT(P: Pointer; I, V: Double); sysv_abi_default;
+procedure SEMapSetJIT(P: PSEValueMap; I, V: Double); sysv_abi_default;
 begin
-  TSEValueMap(P).Set2(Round(I), V);
+  P^.Set2(Round(I), V);
 end;
 
-procedure SEMapSetJITResolve(P: Pointer; I, V: Double; CacheSite: PSEValue); sysv_abi_default;
+procedure SEMapSetJITResolve(P: PSEValueMap; I, V: Double; CacheSite: PSEValue); sysv_abi_default;
 var
   CacheValue: TSECacheValue;
 begin
@@ -8374,12 +8430,12 @@ begin
   {$else}
   QWord(CacheValue) := CacheSite^.VarData;
   {$endif}
-  if (CacheValue.ID = Cardinal(Pointer(TSEValueMap(P).Shape))) and (CacheValue.Index >= 0) then
+  if (CacheValue.ID = Cardinal(Pointer(P^.Shape))) and (CacheValue.Index >= 0) then
   begin
-    TSEValueMap(P)[CacheValue.Index] := V;
+    P^.Items[CacheValue.Index] := V;
   end else
   begin
-    TSEValueMap(P).Set2(ConstStrings.Ptr(Round(I))^.VarString, V, CacheValue);
+    P^.Set2(ConstStrings.Ptr(Round(I))^.VarString, V, CacheValue);
     {$ifdef SE_THREADS}
     InterlockedExchange64(CacheSite^.VarData, QWord(CacheValue));
     {$else}
@@ -8462,22 +8518,22 @@ var
           begin
             if SEMapIsValidArray(AValue^) then
             begin
-              for I := 0 to TSEValueMap(AValue^.VarMap).Count - 1 do
+              for I := 0 to AValue^.VarMap^.Count - 1 do
               begin
                 V := SEMapGet(AValue^, I);
                 AddChildNode(Node, IntToStr(I), @V);
               end;
             end else
             begin
-              TSEValueMap(AValue^.VarMap).Lock;
+              AValue^.VarMap^.Lock;
               try
-                for Key in TSEValueMap(AValue^.VarMap).Shape.GetKeys do
+                for Key in AValue^.VarMap^.Shape.GetKeys do
                 begin
                   V := SEMapGet(AValue^, Key);
                   AddChildNode(Node, Key, @V);
                 end;
               finally
-                TSEValueMap(AValue^.VarMap).Unlock;
+                AValue^.VarMap^.Unlock;
               end;
             end;
           end;
@@ -8879,9 +8935,9 @@ var
   begin
     case A.Kind of
       sevkNumber:
-        Result := TSEValueMap(B.VarMap).Get2(Round(A.VarNumber));
+        Result := B.VarMap^.Get2(Round(A.VarNumber));
       sevkString:
-        Result := TSEValueMap(B.VarMap).Get2(@A.VarString^.Data);
+        Result := B.VarMap^.Get2(@A.VarString^.Data);
       sevkConstString:
         begin
           {$ifdef SE_THREADS}
@@ -8889,12 +8945,12 @@ var
           {$else}
           QWord(CacheValue) := CacheSite^.VarData;
           {$endif}
-          if (CacheValue.ID = Cardinal(Pointer(TSEValueMap(B.VarMap).Shape))) and (CacheValue.Index >= 0) then
+          if (CacheValue.ID = Cardinal(Pointer(B.VarMap^.Shape))) and (CacheValue.Index >= 0) then
           begin
-            Result := TSEValueMap(B.VarMap)[CacheValue.Index];
+            Result := B.VarMap^.Items[CacheValue.Index];
           end else
           begin
-            Result := TSEValueMap(B.VarMap).Get2(ConstStrings.Ptr(A.VarConstStringIndex)^.VarString, CacheValue);
+            Result := B.VarMap^.Get2(ConstStrings.Ptr(A.VarConstStringIndex)^.VarString, CacheValue);
             {$ifdef SE_THREADS}
             InterlockedExchange64(CacheSite^.VarData, QWord(CacheValue));
             {$else}
@@ -8911,9 +8967,9 @@ var
   begin
     case C.Kind of
       sevkNumber:
-        TSEValueMap(TV.VarMap).Set2(Round(C.VarNumber), B);
+        TV.VarMap^.Set2(Round(C.VarNumber), B);
       sevkString:
-        TSEValueMap(TV.VarMap).Set2(@C.VarString^.Data, B);
+        TV.VarMap^.Set2(@C.VarString^.Data, B);
       sevkConstString:
         begin
           {$ifdef SE_THREADS}
@@ -8921,12 +8977,12 @@ var
           {$else}
           QWord(CacheValue) := CacheSite^.VarData;
           {$endif}
-          if (CacheValue.ID = Cardinal(Pointer(TSEValueMap(TV.VarMap).Shape))) and (CacheValue.Index >= 0) then
+          if (CacheValue.ID = Cardinal(Pointer(TV.VarMap^.Shape))) and (CacheValue.Index >= 0) then
           begin
-            TSEValueMap(TV.VarMap)[CacheValue.Index] := B;
+            TV.VarMap^.Items[CacheValue.Index] := B;
           end else
           begin
-            TSEValueMap(TV.VarMap).Set2(ConstStrings.Ptr(C.VarConstStringIndex)^.VarString, B, CacheValue);
+            TV.VarMap^.Set2(ConstStrings.Ptr(C.VarConstStringIndex)^.VarString, B, CacheValue);
             {$ifdef SE_THREADS}
             InterlockedExchange64(CacheSite^.VarData, QWord(CacheValue));
             {$else}
@@ -9214,7 +9270,7 @@ var
       {$ifdef SE_DISABLE_AGGRESSIVE_JIT}
       if AValue.Kind <> sevkMap then
         Exit([AValue.Kind]);
-      Result := TSEValueMap(AValue.VarMap).PossibleKinds;
+      Result := AValue.VarMap^.PossibleKinds;
       {$else}
       Exit([sevkNumber]);
       {$endif}
