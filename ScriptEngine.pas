@@ -9355,7 +9355,17 @@ var
             // movsd xmm0, qword ptr [r14 + .VarNumber]
             E.MovSDXMMFromMem(regXMM0, E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)));
 
+              E.PushReg(regR15);
+              E.PushReg(regR14);
+              E.PushReg(regR13);
+              E.PushReg(regR12);
+              E.PushReg(regR10);
             E.CallAbsolute(regRCX, @SEMapSetJIT);
+              E.PopReg(regR10);
+              E.PopReg(regR12);
+              E.PopReg(regR13);
+              E.PopReg(regR14);
+              E.PopReg(regR15);
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
           end;
@@ -9382,7 +9392,17 @@ var
             { CacheSite }
             E.MovRegImm64(regRSI, NativeUInt(@JitCodePtrLocal[BIndex + 3]));
 
+              E.PushReg(regR15);
+              E.PushReg(regR14);
+              E.PushReg(regR13);
+              E.PushReg(regR12);
+              E.PushReg(regR10);
             E.CallAbsolute(regRCX, @SEMapSetJITResolve);
+              E.PopReg(regR10);
+              E.PopReg(regR12);
+              E.PopReg(regR13);
+              E.PopReg(regR14);
+              E.PopReg(regR15);
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
           end;
@@ -9420,7 +9440,17 @@ var
             // movsd xmm0, qword ptr [r14 + .VarNumber]
             E.MovSDXMMFromMem(regXMM0, E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)));
 
+              E.PushReg(regR15);
+              E.PushReg(regR14);
+              E.PushReg(regR13);
+              E.PushReg(regR12);
+              E.PushReg(regR10);
             E.CallAbsolute(regRCX, @SEMapSetJIT);
+              E.PopReg(regR10);
+              E.PopReg(regR12);
+              E.PopReg(regR13);
+              E.PopReg(regR14);
+              E.PopReg(regR15);
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
           end;
@@ -9460,7 +9490,17 @@ var
             { CacheSite }
             E.MovRegImm64(regRSI, NativeUInt(@JitCodePtrLocal[BIndex + 4]));
 
+              E.PushReg(regR15);
+              E.PushReg(regR14);
+              E.PushReg(regR13);
+              E.PushReg(regR12);
+              E.PushReg(regR10);
             E.CallAbsolute(regRCX, @SEMapSetJITResolve);
+              E.PopReg(regR10);
+              E.PopReg(regR12);
+              E.PopReg(regR13);
+              E.PopReg(regR14);
+              E.PopReg(regR15);
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
           end;
@@ -9482,7 +9522,17 @@ var
             E.MovRegImm64(regRDX, NativeUInt(@JitCodePtrLocal[BIndex + 2]));
             //
 
+              E.PushReg(regR15);
+              E.PushReg(regR14);
+              E.PushReg(regR13);
+              E.PushReg(regR12);
+              E.PushReg(regR10);
             E.CallAbsolute(regRCX, @SEMapGetJITResolve);
+              E.PopReg(regR10);
+              E.PopReg(regR12);
+              E.PopReg(regR13);
+              E.PopReg(regR14);
+              E.PopReg(regR15);
 
             { Kind }
             E.ShrRegImm(regRAX, 32);
@@ -9510,7 +9560,17 @@ var
             Dec(XMMStackPtr);
             //
 
+              E.PushReg(regR15);
+              E.PushReg(regR14);
+              E.PushReg(regR13);
+              E.PushReg(regR12);
+              E.PushReg(regR10);
             E.CallAbsolute(regRCX, @SEMapGetJIT);
+              E.PopReg(regR10);
+              E.PopReg(regR12);
+              E.PopReg(regR13);
+              E.PopReg(regR14);
+              E.PopReg(regR15);
 
             { Kind }
             E.ShrRegImm(regRAX, 32);
