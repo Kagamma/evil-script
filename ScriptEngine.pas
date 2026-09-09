@@ -7217,7 +7217,9 @@ begin
     //
     Self.Count := Self.Shape.SlotCount;
     Self.Capacity := Self.Count + Self.IncSize;
+    Self.Lock;
     Self.Items := NewValues;
+    Self.Unlock;
   end;
 end;
 
@@ -7227,9 +7229,11 @@ var
 begin
   if Index <= Self.Count - 1 then
   begin
-    for I := Index to Count - 2 do
-      Self.Items[I] := Self.Items[I + 1];
-    Dec(Self.Count);
+    Self.Lock;
+      for I := Index to Count - 2 do
+        Self.Items[I] := Self.Items[I + 1];
+      Dec(Self.Count);
+    Self.Unlock;
   end;
 end;
 
