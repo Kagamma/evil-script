@@ -9215,54 +9215,56 @@ var
     LastOpKindInRBX: Boolean = False;
     NewCodePtr: PSEValue;
 
-    procedure GenGetGlobalVariable(IsValue, IsAddress: Boolean);
+    procedure GenGetGlobalVariable(IsValue, IsAddress: Boolean; AddressReg: TX64Reg = regRDX);
     begin
       { Load global variable index to edx }
-      // mov rdx, qword ptr [r15 + code[1].VarPointer]
-      E.MovRegImm64(regRDX, SizeOf(TSEValue) * NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
+      // mov rdx, qword ptr [code[1].VarPointer]
+      E.MovRegImm64(AddressReg, SizeOf(TSEValue) * NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
       { Load global variable to stack }
         // movsd xmm?, qword ptr [r12 + rdx + .VarNumber]
       if IsValue then
-        E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.MemIndex(regR12, regRDX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
+        E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.MemIndex(regR12, AddressReg, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
       if IsAddress then
         { We get the address of the local variable }
-        E.LeaRegMem(regRDX, E.MemIndex(regR12, regRDX, 1, 0));
+        E.LeaRegMem(AddressReg, E.MemIndex(regR12, AddressReg, 1, 0));
       Inc(XMMStackPtr);
     end;
 
-    procedure GenGetLocalVariable(IsValue, IsAddress: Boolean);
+    procedure GenGetLocalVariable(IsValue, IsAddress: Boolean; AddressReg: TX64Reg = regRDX);
     begin
       { RDX = current frame }
       // mov rdx, r11
-      E.MovRegReg64(regRDX, regR11);
+      E.MovRegReg64(AddressReg, regR11);
       if NativeUInt(JitCodePtrLocal[BIndex + 2].VarPointer) <> 0 then
       begin
         { RDX = current frame - relative index }
         // sub rdx, frame
-        E.SubRegImm32(regRDX, NativeUInt(JitCodePtrLocal[BIndex + 2].VarPointer) * SizeOf(TSEFrame));
+        E.SubRegImm32(AddressReg, NativeUInt(JitCodePtrLocal[BIndex + 2].VarPointer) * SizeOf(TSEFrame));
       end;
       { Load local vraiable index to RAX }
       // mov rax, code[1].VarPointer
       E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer) * SizeOf(TSEValue));
       { RDX = current frame's stack pointer }
       // mov rdx, qword ptr [rdx + .StackPtr]
-      E.MovRegMem64(regRDX, E.Mem(regRDX, NativeUInt(@TSEFrame(nil^).StackPtr)));
+      E.MovRegMem64(AddressReg, E.Mem(AddressReg, NativeUInt(@TSEFrame(nil^).StackPtr)));
       { XMM? = local variable }
       // movsd xmm?, qword ptr [rdx + rax + .VarNumber]
       if IsValue then
-        E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.MemIndex(regRDX, regRAX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
+      begin
+        E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.MemIndex(AddressReg, regRAX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
+        Inc(XMMStackPtr);
+      end;
       if IsAddress then
         { We get the address of the local variable }
-        E.LeaRegMem(regRDX, E.MemIndex(regRDX, regRAX, 1, 0));
-      Inc(XMMStackPtr);
+        E.LeaRegMem(AddressReg, E.MemIndex(AddressReg, regRAX, 1, 0));
     end;
 
-    procedure GenGetVariable(IsValue, IsAddress: Boolean);
+    procedure GenGetVariable(IsValue, IsAddress: Boolean; AddressReg: TX64Reg = regRDX);
     begin
       if JitCodePtrLocal[BIndex + 2].VarPointer = Pointer(SE_REG_GLOBAL) then
-        GenGetGlobalVariable(IsValue, IsAddress)
+        GenGetGlobalVariable(IsValue, IsAddress, AddressReg)
       else
-        GenGetLocalVariable(IsValue, IsAddress);
+        GenGetLocalVariable(IsValue, IsAddress, AddressReg);
     end;
 
     function TypeChecker(constref AValue: TSEValue): TSEValueKindSet;
@@ -9343,14 +9345,14 @@ var
             // mov rdi, qword ptr [r12 + rdi + .VarNumber]
             E.MovRegMem64(regRDI, E.MemIndex(regR12, regRDI, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
             { B, Load from stack }
-            // movq xmm1,xmm?
+            // movsd xmm1,xmm?
             E.MovSDXMM(regXMM1, TXMMReg(XMMStackPtr - 1));
             Dec(XMMStackPtr);
             { Decrease stack by 1 }
             E.SubRegImm32(regR14, SizeOf(TSEValue));
             E.MovMemReg64(E.Mem(regR13, 0), regR14);
             { C, Load from actual stack }
-            // movq xmm0, qword ptr [r14 + .VarNumber]
+            // movsd xmm0, qword ptr [r14 + .VarNumber]
             E.MovSDXMMFromMem(regXMM0, E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)));
 
             E.CallAbsolute(regRCX, @SEMapSetJIT);
@@ -9368,14 +9370,14 @@ var
             // mov rdi, qword ptr [r12 + rdi + .VarNumber]
             E.MovRegMem64(regRDI, E.MemIndex(regR12, regRDI, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
             { B, Load from stack }
-            // movq xmm1,xmm?
+            // movsd xmm1,xmm?
             E.MovSDXMM(regXMM1, TXMMReg(XMMStackPtr - 1));
             Dec(XMMStackPtr);
             { Decrease stack by 1 }
             E.SubRegImm32(regR14, SizeOf(TSEValue));
             E.MovMemReg64(E.Mem(regR13, 0), regR14);
             { C, Load from actual stack }
-            // movq xmm0, qword ptr [r14 + .VarNumber]
+            // movsd xmm0, qword ptr [r14 + .VarNumber]
             E.MovSDXMMFromMem(regXMM0, E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)));
             { CacheSite }
             E.MovRegImm64(regRSI, NativeUInt(@JitCodePtrLocal[BIndex + 3]));
@@ -9408,14 +9410,14 @@ var
             E.MovRegMem64(regRDI, E.MemIndex(regRDI, regRAX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
 
             { B, Load from stack }
-            // movq xmm1,xmm?
+            // movsd xmm1,xmm?
             E.MovSDXMM(regXMM1, TXMMReg(XMMStackPtr - 1));
             Dec(XMMStackPtr);
             { Decrease stack by 1 }
             E.SubRegImm32(regR14, SizeOf(TSEValue));
             E.MovMemReg64(E.Mem(regR13, 0), regR14);
             { C, Load from actual stack }
-            // movq xmm0, qword ptr [r14 + .VarNumber]
+            // movsd xmm0, qword ptr [r14 + .VarNumber]
             E.MovSDXMMFromMem(regXMM0, E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)));
 
             E.CallAbsolute(regRCX, @SEMapSetJIT);
@@ -9446,14 +9448,14 @@ var
             E.MovRegMem64(regRDI, E.MemIndex(regRDI, regRAX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
 
             { B, Load from stack }
-            // movq xmm1,xmm?
+            // movsd xmm1,xmm?
             E.MovSDXMM(regXMM1, TXMMReg(XMMStackPtr - 1));
             Dec(XMMStackPtr);
             { Decrease stack by 1 }
             E.SubRegImm32(regR14, SizeOf(TSEValue));
             E.MovMemReg64(E.Mem(regR13, 0), regR14);
             { C, Load from actual stack }
-            // movq xmm0, qword ptr [r14 + .VarNumber]
+            // movsd xmm0, qword ptr [r14 + .VarNumber]
             E.MovSDXMMFromMem(regXMM0, E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)));
             { CacheSite }
             E.MovRegImm64(regRSI, NativeUInt(@JitCodePtrLocal[BIndex + 4]));
@@ -9824,7 +9826,7 @@ var
           begin
             // mov rax, code[1].VarPointer
             E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
-            // movq xmm, rax
+            // movsd xmm, rax
             E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
             Inc(XMMStackPtr);
             { Add }
@@ -9840,7 +9842,7 @@ var
           begin
             // mov rax, code[1].VarPointer
             E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
-            // movq xmm, rax
+            // movsd xmm, rax
             E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
             Inc(XMMStackPtr);
             { Mul }
@@ -9856,7 +9858,7 @@ var
           begin
             // mov rax, code[1].VarPointer
             E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
-            // movq xmm, rax
+            // movsd xmm, rax
             E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
             Inc(XMMStackPtr);
             { Div }
