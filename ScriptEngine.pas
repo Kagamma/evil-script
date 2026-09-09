@@ -12800,6 +12800,7 @@ var
     P: Pointer;
     OpInfoPrev1,
     OpInfoPrev2: PSEOpcodeInfo;
+    Op: TSEOpcode;
   begin
     Result := False;
     if not Self.OptimizePeephole then
@@ -12812,11 +12813,12 @@ var
     OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushConst]);
     if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
     begin
+      Op := OpInfoPrev1^.Op;
       Size := OpInfoPrev1^.Size + OpInfoPrev2^.Size;
       A := Self.Binary[OpInfoPrev2^.Pos + 1];
       Self.Binary.DeleteRange(Self.Binary.Count - Size, Size);
       Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 2);
-      if OpInfoPrev1^.Op = opLoadMapItem then
+      if Op = opLoadMapItem then
         Emit([Pointer(opLoadMapItem), A, Pointer(1)])
       else
         Emit([Pointer(opLoadMapAttr), A, Pointer(1)]);
