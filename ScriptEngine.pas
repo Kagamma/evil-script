@@ -431,7 +431,7 @@ type
     IncSize: NativeInt;
     Shape: TSEShape;
     {$ifdef SE_THREADS}
-    FLock: TRTLCriticalSection;
+    FLock: Cardinal;
     {$endif}
     PossibleKinds: TSEValueKindSet;
   end;
@@ -441,7 +441,6 @@ type
     procedure Done;
     procedure Lock; inline;
     procedure Unlock; inline;
-    function TryLock: Boolean; inline;
     procedure ToMap;
     procedure Insert(const Index: NativeInt; constref AValue: TSEValue);
     procedure Resize(const NewSize: NativeInt);
@@ -5362,7 +5361,10 @@ begin
   if SEMapIsValidArray(Args[0]) then
   begin
     for I := 0 to Args[0].VarMap^.Count - 1 do
+    begin
       Args[0].VarMap^.Items[I] := Args[1];
+    end;
+    Args[0].VarMap^.PossibleKinds := Args[0].VarMap^.PossibleKinds + [Args[1].Kind];
   end;
   Result := Args[0];
 end;
@@ -7043,8 +7045,8 @@ begin
   Self.Count := 0;
   Self.IncSize := 4;
   Self.Capacity := 4;
+  Self.FLock := 0;
   SetLength(Self.Items, Capacity);
-  InitCriticalSection(Self.FLock);
 end;
 
 procedure TSEValueMapHelper.Done;
@@ -7052,30 +7054,22 @@ begin
   Self.Capacity := 0;
   Self.Count := 0;
   Self.Shape := nil;
+  Self.FLock := 0;
   SetLength(Self.Items, 0);
-  DoneCriticalSection(Self.FLock);
 end;
 
 procedure TSEValueMapHelper.Lock;
 begin
   {$ifdef SE_THREADS}
-  EnterCriticalSection(Self.FLock);
+  while InterlockedExchange(Self.FLock, 1) > 0 do
+    Sleep(0);
   {$endif}
 end;
 
 procedure TSEValueMapHelper.Unlock;
 begin
   {$ifdef SE_THREADS}
-  LeaveCriticalSection(Self.FLock);
-  {$endif}
-end;
-
-function TSEValueMapHelper.TryLock: Boolean;
-begin
-  {$ifdef SE_THREADS}
-  Result := System.TryEnterCriticalSection(Self.FLock) <> 0;
-  {$else}
-  Result := True;
+  InterlockedExchange(Self.FLock, 0);
   {$endif}
 end;
 
@@ -7114,39 +7108,43 @@ procedure TSEValueMapHelper.Resize(const NewSize: NativeInt);
 begin
   if NewSize < 0 then
     Exit;
-  Self.Count := NewSize;
-  if Self.Capacity > 127 then
-    Self.IncSize := Self.Capacity shr 2
-  else
-  if Self.Capacity > 8 then
-    Inc(IncSize, 8)
-  else
-  if Self.Capacity > 3 then
-    Inc(IncSize, 4);
-  Self.Capacity := NewSize + Self.IncSize;
-  SetLength(Self.Items, Self.Capacity);
-  if NewSize = 0 then
-    Self.PossibleKinds := [];
+  Self.Lock;
+    Self.Count := NewSize;
+    if Self.Capacity > 127 then
+      Self.IncSize := Self.Capacity shr 2
+    else
+    if Self.Capacity > 8 then
+      Inc(IncSize, 8)
+    else
+    if Self.Capacity > 3 then
+      Inc(IncSize, 4);
+    Self.Capacity := NewSize + Self.IncSize;
+    SetLength(Self.Items, Self.Capacity);
+    if NewSize = 0 then
+      Self.PossibleKinds := [];
+  Self.Unlock;
 end;
 
 procedure TSEValueMapHelper.ExpandArray(const NewSize: NativeInt);
 begin
   if NewSize > Self.Count - 1 then
   begin
-    Self.Count := NewSize + 1;
-    if Self.Count > Self.Capacity then
-    begin
-      if Self.Capacity > 127 then
-        Self.IncSize := Self.Capacity shr 2
-      else
-      if Self.Capacity > 8 then
-        Inc(IncSize, 8)
-      else
-      if Self.Capacity > 3 then
-        Inc(IncSize, 4);
-      Self.Capacity := Self.Count + Self.IncSize;
-      SetLength(Self.Items, Self.Capacity);
-    end;
+    Self.Lock;
+      Self.Count := NewSize + 1;
+      if Self.Count > Self.Capacity then
+      begin
+        if Self.Capacity > 127 then
+          Self.IncSize := Self.Capacity shr 2
+        else
+        if Self.Capacity > 8 then
+          Inc(IncSize, 8)
+        else
+        if Self.Capacity > 3 then
+          Inc(IncSize, 4);
+        Self.Capacity := Self.Count + Self.IncSize;
+        SetLength(Self.Items, Self.Capacity);
+      end;
+    Self.Unlock;
   end;
 end;
 
@@ -7605,35 +7603,42 @@ begin
         begin
           if PValue^.VarMap <> nil then
           begin
-            if SEMapIsValidArray(PValue^) then
+            {if (sevkMap in PValue^.VarMap^.PossibleKinds) or
+               (sevkString in PValue^.VarMap^.PossibleKinds) or
+               (sevkBuffer in PValue^.VarMap^.PossibleKinds) or
+               (sevkPascalObject in PValue^.VarMap^.PossibleKinds) then}
             begin
-              PValue^.VarMap^.Lock;
-              try
-                VArray := PValue^.VarMap^.Items;
-                for I := 0 to Length(VArray) - 1 do
-                begin
-                  RValue := VArray[I];
-                  if (RValue.Kind <> sevkMap) and (RValue.Kind <> sevkString) and (RValue.Kind <> sevkBuffer) and (RValue.Kind <> sevkPascalObject) then
-                    Continue;
-                  Mark(@RValue);
+              if SEMapIsValidArray(PValue^) then
+              begin
+                PValue^.VarMap^.Lock;
+                try
+                  VArray := PValue^.VarMap^.Items;
+                  for I := 0 to Length(VArray) - 1 do
+                  begin
+                    RValue := VArray[I];
+                    if (RValue.Kind <> sevkMap) and (RValue.Kind <> sevkString) and (RValue.Kind <> sevkBuffer) and (RValue.Kind <> sevkPascalObject) then
+                      Continue;
+                    Mark(@RValue);
+                  end;
+                finally
+                  PValue^.VarMap^.Unlock;
                 end;
-              finally
-                PValue^.VarMap^.Unlock;
-              end;
-            end else
-            begin
-              PValue^.VarMap^.Lock;
-              try
-                ShapeManager.Mark(PValue^.VarMap^.Shape);
-                for Key in PValue^.VarMap^.Shape.GetKeys do
-                begin
-                  RValue := SEMapGet(PValue^, Key);
-                  if (RValue.Kind <> sevkMap) and (RValue.Kind <> sevkString) and (RValue.Kind <> sevkBuffer) and (RValue.Kind <> sevkPascalObject) then
-                    Continue;
-                  Mark(@RValue);
+              end else
+              begin
+                PValue^.VarMap^.Lock;
+                try
+                  VArray := PValue^.VarMap^.Items;
+                  ShapeManager.Mark(PValue^.VarMap^.Shape);
+                  for Key in PValue^.VarMap^.Shape.GetKeys do
+                  begin
+                    RValue := SEMapGet(PValue^, Key);
+                    if (RValue.Kind <> sevkMap) and (RValue.Kind <> sevkString) and (RValue.Kind <> sevkBuffer) and (RValue.Kind <> sevkPascalObject) then
+                      Continue;
+                    Mark(@RValue);
+                  end;
+                finally
+                  PValue^.VarMap^.Unlock;
                 end;
-              finally
-                PValue^.VarMap^.Unlock;
               end;
             end;
           end;
@@ -8950,6 +8955,7 @@ var
           if (CacheValue.ID = Cardinal(Pointer(TV.VarMap^.Shape))) and (CacheValue.Index >= 0) then
           begin
             TV.VarMap^.Items[CacheValue.Index] := B;
+            TV.VarMap^.PossibleKinds := TV.VarMap^.PossibleKinds + [B.Kind];
           end else
           begin
             TV.VarMap^.Set2(ConstStrings.Ptr(C.VarConstStringIndex)^.VarString, B, CacheValue);
