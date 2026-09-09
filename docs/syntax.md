@@ -67,6 +67,10 @@ Control flow can be achieved using while, for, do / while, if / else, and switch
 Evil script is a dynamic language. This means that a variable can point
 to any type at runtime.
 
+The language is strongly typed. So if you try to add a string to a number, for example `'5' + 3`, this will result in undefined behavior.
+
+The language however does perform implicitly conversion between numbers and booleans during conditional expressions. For example `if 2 & 2` returns true,  `if 1 & 2` returns false.
+
 ### Types
 
 ```
@@ -127,7 +131,7 @@ Bitwise operator     Description
  ~                    xor
 ```
 
-Evil script does not support "and", "or" logic operators, thus it does not distinguish between =, &, | and ==, &&, ||, allowing them to be used interchangeably.
+Evil script does not support logic operator "and" and "or", thus it does not distinguish between =, &, | and ==, &&, ||, allowing them to be used interchangeably.
 
 ### Variable declarations
 
