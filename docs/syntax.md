@@ -64,14 +64,13 @@ Evil Script supports structured programming in the style of C. It supports funct
 Control flow can be achieved using while, for, do / while, if / else, and switch / case statements. Functions are weakly typed and can accept and return any type.
 
 ### Dynamic
-Evil script is a dynamic language. This means that a variable can point
-to any type at runtime.
+Evil script is a dynamic language. This means that a variable can point to any type at runtime.
 
 The language is strongly typed. So if you try to add a string to a number, for example `'5' + 3`, this will result in undefined behavior.
 
 The language however performs implicit conversion between numbers and booleans, for example `a = 2 & 2 = true` will returns true.
 
-The language also performs implicit conversion between numbers and booleans in if statements. For example `if 2 & 2` returns true,  `if 1 & 2` returns false.
+The language also performs implicit conversion between numbers and booleans in if statements. For example `if 2 & 2` returns true, `if 1 & 2` returns false.
 
 ### Types
 
