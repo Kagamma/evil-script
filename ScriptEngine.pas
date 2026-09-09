@@ -11745,10 +11745,6 @@ begin
         end;
       '~':
         begin
-          if PeekAtNextChar = '~' then
-          begin
-            NextChar;
-          end;
           Token.Kind := tkXor;
         end;
       '!':

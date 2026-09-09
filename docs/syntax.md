@@ -69,7 +69,9 @@ to any type at runtime.
 
 The language is strongly typed. So if you try to add a string to a number, for example `'5' + 3`, this will result in undefined behavior.
 
-The language however does perform implicitly conversion between numbers and booleans during conditional expressions. For example `if 2 & 2` returns true,  `if 1 & 2` returns false.
+The language however performs implicit conversion between numbers and booleans, for example `a = 2 & 2 = true` will returns true.
+
+The language also performs implicit conversion between numbers and booleans in if statements. For example `if 2 & 2` returns true,  `if 1 & 2` returns false.
 
 ### Types
 
