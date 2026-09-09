@@ -453,9 +453,9 @@ type
     procedure Set2(const Index: NativeInt; constref AValue: TSEValue); overload; inline;
     function Get2(const Key: PString): TSEValue; overload; inline;
     function Get2(const Key: PSEString; var CacheValue: TSECacheValue): TSEValue;
-    function Get2(const Index: NativeInt): TSEValue; overload; inline;
+    function Get2(const Index: NativeUInt): TSEValue; overload; inline;
     procedure Del2(const Key: PString); overload; inline;
-    procedure Del2(const Index: NativeInt); overload; inline;
+    procedure Del2(const Index: NativeUInt); overload; inline;
     procedure Reset;
   end;
 
@@ -7251,7 +7251,7 @@ begin
   end;
 end;
 
-procedure TSEValueMapHelper.Del2(const Index: NativeInt);
+procedure TSEValueMapHelper.Del2(const Index: NativeUInt);
 var
   I: Integer;
 begin
@@ -7297,7 +7297,7 @@ begin
   end;
 end;
 
-function TSEValueMapHelper.Get2(const Index: NativeInt): TSEValue;
+function TSEValueMapHelper.Get2(const Index: NativeUInt): TSEValue;
 begin
   if Index <= Self.Count - 1 then
     Result := Self.Items[Index]
