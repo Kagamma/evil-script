@@ -9524,13 +9524,13 @@ var
 
               E.PushReg(regR15);
               E.PushReg(regR14);
-              E.PushReg(regR13);
-              E.PushReg(regR12);
+              //E.PushReg(regR13);
+              //E.PushReg(regR12);
               E.PushReg(regR10);
             E.CallAbsolute(regRCX, @SEMapGetJITResolve);
               E.PopReg(regR10);
-              E.PopReg(regR12);
-              E.PopReg(regR13);
+              //E.PopReg(regR12);
+              //E.PopReg(regR13);
               E.PopReg(regR14);
               E.PopReg(regR15);
 
@@ -9562,13 +9562,13 @@ var
 
               E.PushReg(regR15);
               E.PushReg(regR14);
-              E.PushReg(regR13);
-              E.PushReg(regR12);
+              //E.PushReg(regR13);
+              //E.PushReg(regR12);
               E.PushReg(regR10);
             E.CallAbsolute(regRCX, @SEMapGetJIT);
               E.PopReg(regR10);
-              E.PopReg(regR12);
-              E.PopReg(regR13);
+              //E.PopReg(regR12);
+              //E.PopReg(regR13);
               E.PopReg(regR14);
               E.PopReg(regR15);
 
