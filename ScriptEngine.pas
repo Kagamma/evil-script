@@ -134,8 +134,8 @@ type
     opGreaterOrEqual0,
     opEqual0,
     opNotEqual0,
-    opAnd0,
-    opOr0,
+    //opAnd0,
+    //opOr0,
 
     opLesser,
     opLesserOrEqual,
@@ -913,9 +913,9 @@ const
     2, // opGreaterOrEqual0,
     2, // opEqual0,
     2, // opNotEqual0,
-    2, // opAnd0,
-    2, // opOr0,
-  
+    //2, // opAnd0,
+    //2, // opOr0,
+
     1, // opLesser,
     1, // opLesserOrEqual,
     1, // opGreater,
@@ -9131,8 +9131,8 @@ var
     @labelGreaterOrEqual0,
     @labelEqual0,
     @labelNotEqual0,
-    @labelAnd0,
-    @labelOr0,
+    //@labelAnd0,
+    //@labelOr0,
 
     @labelLesser,
     @labelLesserOrEqual,
@@ -9901,7 +9901,7 @@ var
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
-        opAnd0:
+        {opAnd0:
           begin
             // mov rax, code[1].VarNumber
             E.MovRegImm64(regRAX, Trunc(JitCodePtrLocal[BIndex + 1].VarNumber));
@@ -9928,7 +9928,7 @@ var
             LastOpKind := sevkNumber;
             if LastOpKindInRBX then
               E.MovRegImm32(regRBX, Cardinal(sevkNumber));
-          end;
+          end;}
         opEqual0:
           begin
             LabelDone := E.CreateLabel;
@@ -10532,10 +10532,11 @@ labelStart:
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opAnd0:{$endif}
+     { {$ifndef SE_COMPUTED_GOTO}opAnd0:{$endif}
         begin
         labelAnd0:
-          StackPtrLocal^.VarNumber := NativeInt(Pop^) and NativeInt(CodePtrLocal[1]);
+          A := Pop;
+          StackPtrLocal^ := Round(A^) and Round(CodePtrLocal[1]);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal);
           DispatchGoto;
@@ -10543,11 +10544,12 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opOr0:{$endif}
         begin
         labelOr0:
-          StackPtrLocal^.VarNumber := NativeInt(Pop^) or NativeInt(CodePtrLocal[1]);
+          A := Pop;
+          StackPtrLocal^ := Round(A^) or Round(CodePtrLocal[1]);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal);
           DispatchGoto;
-        end;
+        end;}
 
       {$ifndef SE_COMPUTED_GOTO}opNegative:{$endif}
         begin
@@ -12683,7 +12685,7 @@ var
             opEqual, opNotEqual, opGreater, opLesser, opGreaterOrEqual, opLesserOrEqual,
             opEqual0, opNotEqual0, opGreater0, opLesser0, opGreaterOrEqual0, opLesserOrEqual0,
             opAnd, opOr, opXor,
-            opAnd0, opOr0,
+           // opAnd0, opOr0,
             opJumpUnconditionalRel,
             opShiftLeft, opShiftRight
           ]) then
@@ -12795,10 +12797,10 @@ var
         Result := opMul0;
       opDiv:
         Result := opDiv0;
-      opAnd:
+     { opAnd:
         Result := opAnd0;
       opOr:
-        Result := opOr0;
+        Result := opOr0;}
       opEqual:
         Result := opEqual0;
       opNotEqual:
@@ -12932,7 +12934,7 @@ var
             opAdd1, opSub1, opMul1, opDiv1,
             opAdd, opSub, opMul, opDiv,
             opGreater, opGreaterOrEqual, opLesser, opLesserOrEqual,
-            opEqual, opNotEqual, opAnd, opOr, opXor, opNot,
+            opEqual, opNotEqual, {opAnd, opOr, opXor,} opNot,
             opInc, opNegative,
             opCallScript, opCallNative, opCallImport
           ]);
@@ -13019,9 +13021,7 @@ var
       opGreater,
       opGreaterOrEqual,
       opLesser,
-      opLesserOrEqual,
-      opAnd,
-      opOr:
+      opLesserOrEqual:
         begin
           OpInfoPrev1 := PeekAtPrevOpExpected(0, [opPushConst]);
           OpInfoPrev2 := PeekAtPrevOpExpected(1, [
