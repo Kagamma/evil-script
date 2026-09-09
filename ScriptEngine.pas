@@ -12676,10 +12676,14 @@ var
   begin
     Result := APossibleKinds;
     {$ifndef SE_HAS_JIT}
+    Self.FLastVerifyJITBlockResult := True;
     Exit;
     {$endif}
     if not Self.OptimizeJIT then
+    begin
+      Self.FLastVerifyJITBlockResult := True;
       Exit;
+    end;
     Sig := Self.JITBlockSignatureStack.Pop;
     BIndex := 0;
     while BIndex <= Self.Binary.Count - 1 do
