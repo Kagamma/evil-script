@@ -7088,19 +7088,14 @@ var
   I: NativeInt;
   S: String;
 begin
-  Self.Lock;
-  try
-    if Self.Shape = nil then
+  if Self.Shape = nil then
+  begin
+    Self.Shape := ShapeManager.Root;
+    for I := 0 to Self.Count - 1 do
     begin
-      Self.Shape := ShapeManager.Root;
-      for I := 0 to Self.Count - 1 do
-      begin
-        S := IntToStr(I);
-        Self.Set2(@S, Self.Items[I]);
-      end;
+      S := IntToStr(I);
+      Self.Set2(@S, Self.Items[I]);
     end;
-  finally
-    Self.Unlock;
   end;
 end;
 
@@ -7108,19 +7103,14 @@ procedure TSEValueMapHelper.Insert(const Index: NativeInt; constref AValue: TSEV
 var
   I: NativeInt;
 begin
-  Self.Lock;
-  try
-    if Self.Shape = nil then
+  if Self.Shape = nil then
+  begin
+    Self.ExpandArray(Self.Count);
+    for I := Self.Count - 1 downto Index + 1 do
     begin
-      Self.ExpandArray(Self.Count);
-      for I := Self.Count - 1 downto Index + 1 do
-      begin
-        Self.Items[I] := Self.Items[I - 1];
-      end;
-      Self.Items[Index] := AValue;
+      Self.Items[I] := Self.Items[I - 1];
     end;
-  finally
-    Self.Unlock;
+    Self.Items[Index] := AValue;
   end;
 end;
 
@@ -7168,25 +7158,20 @@ procedure TSEValueMapHelper.Set2(const Key: PSEString; constref AValue: TSEValue
 begin
   if Self.Shape = nil then
     Self.ToMap;
-  Self.Lock;
-  try
-    if Key^.Hash = 0 then
-      Key^.Hash := SEHashString(Key^.Data);
-    if Self.Shape.TryGetOffsetHash(Key^.Hash, Key^.Data, CacheValue.Index) then
-    begin
-      Self.Items[CacheValue.Index] := AValue;
-    end else
-    begin
-      Self.Shape := ShapeManager.AddProperty(Self.Shape, Key^.Data);
-      CacheValue.Index := Self.Shape.PropertyOffset;
-      Self.ExpandArray(CacheValue.Index);
-      Self.Items[CacheValue.Index] := AValue;
-      Self.PossibleKinds := Self.PossibleKinds + [AValue.Kind];
-    end;
-    CacheValue.ID := Cardinal(Pointer(Self.Shape));
-  finally
-    Self.Unlock;
+  if Key^.Hash = 0 then
+    Key^.Hash := SEHashString(Key^.Data);
+  if Self.Shape.TryGetOffsetHash(Key^.Hash, Key^.Data, CacheValue.Index) then
+  begin
+    Self.Items[CacheValue.Index] := AValue;
+  end else
+  begin
+    Self.Shape := ShapeManager.AddProperty(Self.Shape, Key^.Data);
+    CacheValue.Index := Self.Shape.PropertyOffset;
+    Self.ExpandArray(CacheValue.Index);
+    Self.Items[CacheValue.Index] := AValue;
+    Self.PossibleKinds := Self.PossibleKinds + [AValue.Kind];
   end;
+  CacheValue.ID := Cardinal(Pointer(Self.Shape));
 end;
 
 procedure TSEValueMapHelper.Set2(const Key: PString; constref AValue: TSEValue);
@@ -7195,34 +7180,24 @@ var
 begin
   if Self.Shape = nil then
     Self.ToMap;
-  Self.Lock;
-  try
-    if Self.Shape.TryGetOffset(Key^, Index) then
-    begin
-      Self.Items[Index] := AValue;
-    end else
-    begin
-      Self.Shape := ShapeManager.AddProperty(Self.Shape, Key^);
-      Index := Self.Shape.PropertyOffset;
-      Self.ExpandArray(Index);
-      Self.Items[Index] := AValue;
-      Self.PossibleKinds := Self.PossibleKinds + [AValue.Kind];
-    end;
-  finally
-    Self.Unlock;
+  if Self.Shape.TryGetOffset(Key^, Index) then
+  begin
+    Self.Items[Index] := AValue;
+  end else
+  begin
+    Self.Shape := ShapeManager.AddProperty(Self.Shape, Key^);
+    Index := Self.Shape.PropertyOffset;
+    Self.ExpandArray(Index);
+    Self.Items[Index] := AValue;
+    Self.PossibleKinds := Self.PossibleKinds + [AValue.Kind];
   end;
 end;
 
 procedure TSEValueMapHelper.Set2(const Index: NativeInt; constref AValue: TSEValue);
 begin
-  Self.Lock;
-  try
-    Self.ExpandArray(Index);
-    Self.Items[Index] := AValue;
-    Self.PossibleKinds := Self.PossibleKinds + [AValue.Kind];
-  finally
-    Self.Unlock;
-  end;
+  Self.ExpandArray(Index);
+  Self.Items[Index] := AValue;
+  Self.PossibleKinds := Self.PossibleKinds + [AValue.Kind];
 end;
 
 procedure TSEValueMapHelper.Del2(const Key: PString);
@@ -7231,23 +7206,18 @@ var
   NewValues: array of TSEValue;
   I: Integer;
 begin
-  Self.Lock;
-  try
-    Self.Shape := ShapeManager.RemoveProperty(Self.Shape, Key^);
-    if Self.Shape.NeedsCompaction then
-    begin
-      Self.Shape := ShapeManager.Compact(Self.Shape, Remap);
-      SetLength(NewValues, Self.Shape.SlotCount + Self.IncSize);
-      for I := 0 to High(Remap) do
-        if Remap[I] >= 0 then
-          NewValues[Remap[I]] := Self.Items[I];
-      //
-      Self.Count := Self.Shape.SlotCount;
-      Self.Capacity := Self.Count + Self.IncSize;
-      Self.Items := NewValues;
-    end;
-  finally
-    Self.Unlock;
+  Self.Shape := ShapeManager.RemoveProperty(Self.Shape, Key^);
+  if Self.Shape.NeedsCompaction then
+  begin
+    Self.Shape := ShapeManager.Compact(Self.Shape, Remap);
+    SetLength(NewValues, Self.Shape.SlotCount + Self.IncSize);
+    for I := 0 to High(Remap) do
+      if Remap[I] >= 0 then
+        NewValues[Remap[I]] := Self.Items[I];
+    //
+    Self.Count := Self.Shape.SlotCount;
+    Self.Capacity := Self.Count + Self.IncSize;
+    Self.Items := NewValues;
   end;
 end;
 
@@ -7255,16 +7225,11 @@ procedure TSEValueMapHelper.Del2(const Index: NativeUInt);
 var
   I: Integer;
 begin
-  Self.Lock;
-  try
-    if Index <= Self.Count - 1 then
-    begin
-      for I := Index to Count - 2 do
-        Self.Items[I] := Self.Items[I + 1];
-      Dec(Self.Count);
-    end;
-  finally
-    Self.Unlock;
+  if Index <= Self.Count - 1 then
+  begin
+    for I := Index to Count - 2 do
+      Self.Items[I] := Self.Items[I + 1];
+    Dec(Self.Count);
   end;
 end;
 
@@ -7624,6 +7589,7 @@ var
   RValue: TSEValue;
   Key: String;
   I: NativeInt;
+  VArray: TSEValueArray;
 begin
   if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) and (PValue^.Kind <> sevkPascalObject) then
     Exit;
@@ -7643,9 +7609,10 @@ begin
             begin
               PValue^.VarMap^.Lock;
               try
-                for I := 0 to PValue^.VarMap^.Count - 1 do
+                VArray := PValue^.VarMap^.Items;
+                for I := 0 to Length(VArray) - 1 do
                 begin
-                  RValue := SEMapGet(PValue^, I);
+                  RValue := VArray[I];
                   if (RValue.Kind <> sevkMap) and (RValue.Kind <> sevkString) and (RValue.Kind <> sevkBuffer) and (RValue.Kind <> sevkPascalObject) then
                     Continue;
                   Mark(@RValue);
