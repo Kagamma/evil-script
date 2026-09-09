@@ -134,8 +134,6 @@ type
     opGreaterOrEqual0,
     opEqual0,
     opNotEqual0,
-    //opAnd0,
-    //opOr0,
 
     opLesser,
     opLesserOrEqual,
@@ -913,8 +911,6 @@ const
     2, // opGreaterOrEqual0,
     2, // opEqual0,
     2, // opNotEqual0,
-    //2, // opAnd0,
-    //2, // opOr0,
 
     1, // opLesser,
     1, // opLesserOrEqual,
@@ -9049,8 +9045,6 @@ label
   labelGreaterOrEqual0,
   labelEqual0,
   labelNotEqual0,
-  labelAnd0,
-  labelOr0,
 
   labelLesser,
   labelLesserOrEqual,
@@ -9131,8 +9125,6 @@ var
     @labelGreaterOrEqual0,
     @labelEqual0,
     @labelNotEqual0,
-    //@labelAnd0,
-    //@labelOr0,
 
     @labelLesser,
     @labelLesserOrEqual,
@@ -10532,24 +10524,6 @@ labelStart:
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
-     { {$ifndef SE_COMPUTED_GOTO}opAnd0:{$endif}
-        begin
-        labelAnd0:
-          A := Pop;
-          StackPtrLocal^ := Round(A^) and Round(CodePtrLocal[1]);
-          Inc(StackPtrLocal);
-          Inc(CodePtrLocal);
-          DispatchGoto;
-        end;
-      {$ifndef SE_COMPUTED_GOTO}opOr0:{$endif}
-        begin
-        labelOr0:
-          A := Pop;
-          StackPtrLocal^ := Round(A^) or Round(CodePtrLocal[1]);
-          Inc(StackPtrLocal);
-          Inc(CodePtrLocal);
-          DispatchGoto;
-        end;}
 
       {$ifndef SE_COMPUTED_GOTO}opNegative:{$endif}
         begin
@@ -12685,7 +12659,6 @@ var
             opEqual, opNotEqual, opGreater, opLesser, opGreaterOrEqual, opLesserOrEqual,
             opEqual0, opNotEqual0, opGreater0, opLesser0, opGreaterOrEqual0, opLesserOrEqual0,
             opAnd, opOr, opXor,
-           // opAnd0, opOr0,
             opJumpUnconditionalRel,
             opShiftLeft, opShiftRight
           ]) then
@@ -12797,10 +12770,6 @@ var
         Result := opMul0;
       opDiv:
         Result := opDiv0;
-     { opAnd:
-        Result := opAnd0;
-      opOr:
-        Result := opOr0;}
       opEqual:
         Result := opEqual0;
       opNotEqual:
