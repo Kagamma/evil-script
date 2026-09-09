@@ -125,10 +125,9 @@ Bitwise operator     Description
  &                    and
  |                    or
  ~                    xor
- !                    not
 ```
 
-Evil script does not support logic operators, thus it does not distinguish between =, &, | and ==, &&, ||, allowing them to be used interchangeably.
+Evil script does not support "and", "or" logic operators, thus it does not distinguish between =, &, | and ==, &&, ||, allowing them to be used interchangeably.
 
 ### Variable declarations
 
