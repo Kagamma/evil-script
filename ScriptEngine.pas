@@ -12865,17 +12865,17 @@ var
     Result := False;
     if not Self.OptimizePeephole then
       Exit;
-    {$ifdef SE_HAS_JIT}
-    if Self.OptimizeJIT then
-      Exit;
-    {$endif}
+    //{$ifdef SE_HAS_JIT}
+    //if Self.OptimizeJIT then
+    //  Exit;
+    //{$endif}
     OpInfoPrev1 := PeekAtPrevOpExpected(0, [opLoadMapItem, opLoadMapAttr]);
     OpInfoPrev2 := PeekAtPrevOpExpected(1, [opPushConst]);
     if (OpInfoPrev1 <> nil) and (OpInfoPrev2 <> nil) then
     begin
       Op := OpInfoPrev1^.Op;
       Size := OpInfoPrev1^.Size + OpInfoPrev2^.Size;
-      A := Self.Binary[OpInfoPrev2^.Pos + 1];
+      A := Self.Binary[Self.Binary.Count - 4];
       Self.Binary.DeleteRange(Self.Binary.Count - Size, Size);
       Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 2);
       if Op = opLoadMapItem then
