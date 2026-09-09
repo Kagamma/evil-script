@@ -14492,7 +14492,11 @@ var
         end;
       end;
       ParseBlock;
+      MarkJITBlock;
       JumpBlock := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
+      VerifyJITBlock([sevkNumber]);
+      if not Self.FLastVerifyJITBlockResult then
+        JumpBlock := JumpBlock - 2;
       EndBlock := Self.Binary.Count;
       ContinueList := ContinueStack.Pop;
       BreakList := BreakStack.Pop;
