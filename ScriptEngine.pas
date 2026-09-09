@@ -10313,6 +10313,7 @@ var
          // Writeln('REJECTED!!!! ', Result);
          // Writeln;
           JitCodePtrBase[1] := nil;
+          E.Free;
         end else
         begin
          // Writeln('WRITE CODE');
