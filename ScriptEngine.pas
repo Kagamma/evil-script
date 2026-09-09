@@ -10276,7 +10276,7 @@ var
       Inc(OpCount);
       Inc(BIndex, OpcodeSizes[Op]);
     end;
-    if (OpCount <= 2) or (not IsCodePtrAssigned) and (not (LastOpKind in [sevkBoolean, sevkNumber])) then
+    if (OpCount <= 1) or (not IsCodePtrAssigned) and (not (LastOpKind in [sevkBoolean, sevkNumber])) then
     begin
      // Writeln('Rejected: ', LastOpKind, ', ', OpCount, ', ', IsCodePtrAssigned);
       Result := STATUS_INVALID;
@@ -15081,7 +15081,7 @@ var
             PeepholeIncOptimization;
             if Ident^.PossibleKinds = [sevkString] then
               PeepholeStringConcatOptimization(FirstExprOpIndex);
-            VerifyJITBlock(Ident^.PossibleKinds);
+            VerifyJITBlock(Ident^.PossibleKinds, 1);
           end;
           //Writeln(Ident^.Name);
           //DebugShowPossibleKinds(Ident^.PossibleKinds);
