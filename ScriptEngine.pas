@@ -311,14 +311,14 @@ type
     procedure AllocMap; inline;
     procedure AllocString(const S: String); inline;
     procedure AllocPascalObject(const Obj: TObject; const IsManaged: Boolean); inline;
-    function GetValue(constref I: NativeInt): TSEValue; inline; overload;
+    function GetValue(I: NativeInt): TSEValue; inline; overload;
     function GetValue(constref S: String): TSEValue; inline; overload;
     function GetValue(constref I: TSEValue): TSEValue; inline; overload;
-    procedure SetValue(constref I: NativeInt; const A: TSEValue); inline; overload;
-    procedure SetValue(constref S: String; const A: TSEValue); inline; overload;
-    procedure SetValue(I: TSEValue; const A: TSEValue); inline; overload;
-    function GetProp(I: TSEValue): TSEValue;
-    procedure SetProp(I: TSEValue; const A: TSEValue);
+    procedure SetValue(I: NativeInt; constref A: TSEValue); inline; overload;
+    procedure SetValue(constref S: String; constref A: TSEValue); inline; overload;
+    procedure SetValue(constref I: TSEValue; constref A: TSEValue); inline; overload;
+    function GetProp(constref I: TSEValue): TSEValue;
+    procedure SetProp(constref I: TSEValue; constref A: TSEValue);
     function Invoke(constref MethodName: String; const Args: PSEValue; const ArgCount: NativeInt): TSEValue;
     function ContainsKey(constref S: String): Boolean; inline; overload;
     procedure UnManaged; inline;
@@ -684,7 +684,7 @@ type
     IsDone: Boolean;
     IsRequestForSuspendByGC: Boolean;
     VM: TSEVM;
-    constructor Create(const AVM: TSEVM; const Fn: TSEValue; const Args: PSEValue; const ArgCount, AStackSize: Cardinal);
+    constructor Create(const AVM: TSEVM; constref Fn: TSEValue; const Args: PSEValue; const ArgCount, AStackSize: Cardinal);
     destructor Destroy; override;
     procedure Execute; override;
   end;
@@ -698,10 +698,10 @@ type
     IsExecuting: Boolean;
     IsTerminated: Boolean;
     VM: TSEVM;
-    constructor Create(const AVM: TSEVM; const Fn: TSEValue; const Args: PSEValue; const ArgCount, AStackSize: Cardinal);
+    constructor Create(const AVM: TSEVM; constref Fn: TSEValue; const Args: PSEValue; const ArgCount, AStackSize: Cardinal);
     destructor Destroy; override;
     function Execute: TSEValue;
-    procedure Reset(const Fn: TSEValue; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue);
+    procedure Reset(constref Fn: TSEValue; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue);
   end;
   TSEVMCoroutineList = specialize TList<TSEVMCoroutine>;
 
@@ -782,9 +782,9 @@ type
     procedure Exec;
     procedure BinaryClear;
     function Fork(const AStackSize: Cardinal; const AName: String): TSEVM;
-    procedure SetGlobalVariable(const AName: String; const AValue: TSEValue);
+    procedure SetGlobalVariable(const AName: String; constref AValue: TSEValue);
     function GetGlobalVariable(const AName: String): PSEValue;
-    procedure ModifyGlobalVariable(const AName: String; const AValue: TSEValue);
+    procedure ModifyGlobalVariable(const AName: String; constref AValue: TSEValue);
   end;
 
   TSETokenKind = (
@@ -1056,7 +1056,7 @@ type
     function FindFuncScript(const Name: String; var Ind: Cardinal): PSEFuncScriptInfo; inline;
     function FindFuncImport(const Name: String; var Ind: Cardinal): PSEFuncImportInfo; inline;
     function FindFunc(const Name: String; var Kind: TSEFuncKind; var Ind: Cardinal): Pointer; inline; overload;
-    procedure SetConst(const Name: String; const Value: TSEValue); inline; overload;
+    procedure SetConst(const Name: String; constref Value: TSEValue); inline; overload;
 
     property IsPaused: Boolean read GetIsPaused write SetIsPaused;
     property Source: String read FSource write SetSource;
@@ -1500,7 +1500,7 @@ type
   end;
   {$endif}
 
-function SEValueToText(const Value: TSEValue; const IsRoot: Boolean = True): String;
+function SEValueToText(constref Value: TSEValue; const IsRoot: Boolean = True): String;
 function SESize(constref Value: TSEValue): SizeInt; inline;
 procedure SEValidateType(V: PSEValue; Expected: TSEValueKind; At: DWord; const FuncName: String); inline;
 procedure SEMapDelete(constref V: TSEValue; const I: NativeInt); inline; overload;
@@ -1516,7 +1516,7 @@ procedure SEMapSet(constref V, I: TSEValue; constref A: TSEValue); inline; overl
 function SEMapIsValidArray(constref V: TSEValue): Boolean; inline;
 procedure SEDisAsm(const VM: TSEVM; var Res: String);
 function SEGet(const AName: String): TSEValue;
-procedure SESet(const AName: String; const AValue: TSEValue);
+procedure SESet(const AName: String; constref AValue: TSEValue);
 
 operator := (V: TSENumber) R: TSEValue;
 operator := (V: String) R: TSEValue;
@@ -4199,7 +4199,7 @@ begin
   {$endif}
 end;
 
-function SEValueToText(const Value: TSEValue; const IsRoot: Boolean = True): String;
+function SEValueToText(constref Value: TSEValue; const IsRoot: Boolean = True): String;
 var
   Key, S: String;
   I: NativeInt = 0;
@@ -4472,7 +4472,7 @@ begin
   end;
 end;
 
-procedure SESet(const AName: String; const AValue: TSEValue);
+procedure SESet(const AName: String; constref AValue: TSEValue);
 begin
   {$ifdef SE_THREADS}
   EnterCriticalSection(CS);
@@ -4579,7 +4579,7 @@ begin
   GC.AllocPascalObject(@Self, Obj, IsManaged);
 end;
 
-function TSEValueHelper.GetValue(constref I: NativeInt): TSEValue; inline; overload;
+function TSEValueHelper.GetValue(I: NativeInt): TSEValue; inline; overload;
 begin
   Result := SEMapGet(Self, I);
 end;
@@ -4594,22 +4594,22 @@ begin
   Result := SEMapGet(Self, I);
 end;
 
-procedure TSEValueHelper.SetValue(constref I: NativeInt; const A: TSEValue); inline; overload;
+procedure TSEValueHelper.SetValue(I: NativeInt; constref A: TSEValue); inline; overload;
 begin
   SEMapSet(Self, I, A);
 end;
 
-procedure TSEValueHelper.SetValue(constref S: String; const A: TSEValue); inline; overload;
+procedure TSEValueHelper.SetValue(constref S: String; constref A: TSEValue); inline; overload;
 begin
   SEMapSet(Self, S, A);
 end;
 
-procedure TSEValueHelper.SetValue(I: TSEValue; const A: TSEValue); inline; overload;
+procedure TSEValueHelper.SetValue(constref I: TSEValue; constref A: TSEValue); inline; overload;
 begin
   SEMapSet(Self, I, A);
 end;
 
-function TSEValueHelper.GetProp(I: TSEValue): TSEValue;
+function TSEValueHelper.GetProp(constref I: TSEValue): TSEValue;
 var
   Obj: TObject;
   Ctx: TRttiContext;
@@ -4640,7 +4640,7 @@ begin
   end;
 end;
 
-procedure TSEValueHelper.SetProp(I: TSEValue; const A: TSEValue);
+procedure TSEValueHelper.SetProp(constref I: TSEValue; constref A: TSEValue);
 var
   Obj: TObject;
   Ctx: TRttiContext;
@@ -6211,10 +6211,10 @@ end;
 
 class function TBuiltInFunction.SEJSONStringify(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 
-  procedure DecodeJSONArray(SB: TStringBuilder; const Map: TSEValue); forward;
-  procedure DecodeJSONObject(SB: TStringBuilder; const Map: TSEValue); forward;
+  procedure DecodeJSONArray(SB: TStringBuilder; constref Map: TSEValue); forward;
+  procedure DecodeJSONObject(SB: TStringBuilder; constref Map: TSEValue); forward;
 
-  procedure Decide(SB: TStringBuilder; const Map: TSEValue);
+  procedure Decide(SB: TStringBuilder; constref Map: TSEValue);
   begin
     if SEMapIsValidArray(Map) then
       DecodeJSONArray(SB, Map)
@@ -6222,7 +6222,7 @@ class function TBuiltInFunction.SEJSONStringify(const VM: TSEVM; const Args: PSE
       DecodeJSONObject(SB, Map);
   end;
 
-  procedure DecodeJSONArray(SB: TStringBuilder; const Map: TSEValue);
+  procedure DecodeJSONArray(SB: TStringBuilder; constref Map: TSEValue);
   var
     I: NativeInt = 0;
     J: NativeInt = 0;
@@ -6259,7 +6259,7 @@ class function TBuiltInFunction.SEJSONStringify(const VM: TSEVM; const Args: PSE
     SB.Append(']');
   end;
 
-  procedure DecodeJSONObject(SB: TStringBuilder; const Map: TSEValue);
+  procedure DecodeJSONObject(SB: TStringBuilder; constref Map: TSEValue);
   var
     I: NativeInt = 0;
     V: TSEValue;
@@ -8314,12 +8314,12 @@ begin
   Result.Binaries := Self.Binaries.Ref;
 end;
 
-procedure TSEVM.ModifyGlobalVariable(const AName: String; const AValue: TSEValue);
+procedure TSEVM.ModifyGlobalVariable(const AName: String; constref AValue: TSEValue);
 begin
   Self.SetGlobalVariable(AName, AValue);
 end;
 
-procedure TSEVM.SetGlobalVariable(const AName: String; const AValue: TSEValue);
+procedure TSEVM.SetGlobalVariable(const AName: String; constref AValue: TSEValue);
 var
   I: NativeInt;
 begin
@@ -8895,7 +8895,7 @@ var
     {$endif}
   end;
 
-  procedure StringSet(TV: PSEValue; C, B: TSEValue);
+  procedure StringSet(TV: PSEValue; constref C, B: TSEValue);
   var
     S1, S2, S: String;
   begin
@@ -8932,7 +8932,7 @@ var
     end;
   end;
 
-  function ResolveMapGet(const B, A: TSEValue; const CacheSite: PSEValue): TSEValue; inline;
+  function ResolveMapGet(constref B, A: TSEValue; const CacheSite: PSEValue): TSEValue; inline;
   var
     CacheValue: TSECacheValue;
   begin
@@ -8964,7 +8964,7 @@ var
     end;
   end;
 
-  procedure ResolveMapSet(const TV, C, B: TSEValue; const CacheSite: PSEValue); inline;
+  procedure ResolveMapSet(constref TV, C, B: TSEValue; const CacheSite: PSEValue); inline;
   var
     CacheValue: TSECacheValue;
   begin
@@ -9265,7 +9265,7 @@ var
         GenGetLocalVariable(IsValue, IsAddress);
     end;
 
-    function TypeChecker(const AValue: TSEValue): TSEValueKindSet;
+    function TypeChecker(constref AValue: TSEValue): TSEValueKindSet;
     var
       I: Integer;
       Key: String;
@@ -11192,7 +11192,7 @@ labelStart:
 end;
 
 {$ifdef SE_THREADS}
-constructor TSEVMThread.Create(const AVM: TSEVM; const Fn: TSEValue; const Args: PSEValue; const ArgCount, AStackSize: Cardinal);
+constructor TSEVMThread.Create(const AVM: TSEVM; constref Fn: TSEValue; const Args: PSEValue; const ArgCount, AStackSize: Cardinal);
 var
   I: NativeInt;
 begin
@@ -11245,7 +11245,7 @@ begin
 end;
 {$endif}
 
-constructor TSEVMCoroutine.Create(const AVM: TSEVM; const Fn: TSEValue; const Args: PSEValue; const ArgCount, AStackSize: Cardinal);
+constructor TSEVMCoroutine.Create(const AVM: TSEVM; constref Fn: TSEValue; const Args: PSEValue; const ArgCount, AStackSize: Cardinal);
 var
   I: NativeInt;
 begin
@@ -11286,7 +11286,7 @@ begin
   end;
 end;
 
-procedure TSEVMCoroutine.Reset(const Fn: TSEValue; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue);
+procedure TSEVMCoroutine.Reset(constref Fn: TSEValue; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue);
 var
   I: NativeInt;
 begin
@@ -12292,7 +12292,7 @@ begin
     Kind := sefkScript;
 end;
 
-procedure TEvilC.SetConst(const Name: String; const Value: TSEValue);
+procedure TEvilC.SetConst(const Name: String; constref Value: TSEValue);
 var
   Index: NativeInt;
 begin
@@ -12706,7 +12706,7 @@ var
     end;
   end;
 
-  procedure Patch(const Addr: NativeInt; const Data: TSEValue); inline;
+  procedure Patch(const Addr: NativeInt; constref Data: TSEValue); inline;
   begin
     Self.Binary[Addr] := Data;
   end;
