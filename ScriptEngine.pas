@@ -228,7 +228,7 @@ type
   PSEPascalObject = ^TSEPascalObject;
   TSEString = record
     Data: RawByteString;
-    Hash: Cardinal;
+    Hash: NativeUInt;
   end;
   PSEString = ^TSEString;
 
@@ -340,7 +340,7 @@ type
   TSEShapeManager = class;
 
   TSEStringShapeDictionary = specialize TSEDictionary<String, TSEShape>;
-  TSEHashShapeDictionary = specialize TDictionary<Cardinal, TSEShape>;
+  TSEHashShapeDictionary = specialize TDictionary<NativeUInt, TSEShape>;
   TSEShapeList = specialize TList<TSEShape>;
 
   TSEShape = class
@@ -348,7 +348,7 @@ type
     FID: Integer;
     FParent: TSEShape;
     FPropertyName: String;
-    FPropertyHash: Cardinal;
+    FPropertyHash: NativeUInt;
     FPropertyOffset: Integer;
     FSlotCount: Integer;
     FLiveCount: Integer;
@@ -373,9 +373,9 @@ type
     procedure RemoveActiveTransition(const Name: String);
     procedure RemoveDeleteTransition(const Name: String);
     function TryGetOffset(const Name: String; out Offset: Integer): Boolean;
-    function TryGetOffsetHash(Hash: Cardinal; const Name: String; out Offset: Integer): Boolean;
+    function TryGetOffsetHash(Hash: NativeUInt; const Name: String; out Offset: Integer): Boolean;
     function GetOffset(const Name: String): Integer;
-    function GetOffsetHash(Hash: Cardinal; const Name: String): Integer;
+    function GetOffsetHash(Hash: NativeUInt; const Name: String): Integer;
     function HasProperty(const Name: String): Boolean;
     function GetKeys: TStringDynArray;
     function NeedsCompaction: Boolean;
@@ -383,7 +383,7 @@ type
     property ID: Integer read FID;
     property Parent: TSEShape read FParent;
     property PropertyName: String read FPropertyName;
-    property PropertyHash: Cardinal read FPropertyHash;
+    property PropertyHash: NativeUInt read FPropertyHash;
     property PropertyOffset: Integer read FPropertyOffset;
     property SlotCount: Integer read FSlotCount;
     property LiveCount: Integer read FLiveCount;
@@ -3559,7 +3559,7 @@ end;
 
 { ===================================================================== }
 
-function SEHashString(const S: String): Cardinal; inline;
+function SEHashString(const S: String): NativeUInt; inline;
 {$ifdef SE_MAP_AVK959}
 begin
   {$ifdef CPU64}
@@ -3569,18 +3569,35 @@ begin
   {$endif}
 end;
 {$else}
+const
+  FNVOffset: NativeUInt = {$ifdef CPU64}14695981039346656037{$else}2166136261{$endif};
+  FNVPrime:  NativeUInt = {$ifdef CPU64}1099511628211{$else}16777619{$endif};
 var
   P: PByte;
-  I: Integer;
+  L: Integer;
 begin
-  Result := 2166136261;
-  if Length(S) = 0 then
+  Result := FNVOffset;
+  L := Length(S);
+  if L = 0 then
     Exit;
-  P := PByte(PChar(S));
-  for I := 1 to Length(S) do
+
+  P := PByte(Pointer(S));
+
+  while L >= 4 do
   begin
-    Result := (Result xor P^) * 16777619;
+    Result := (Result xor P[0]) * FNVPrime;
+    Result := (Result xor P[1]) * FNVPrime;
+    Result := (Result xor P[2]) * FNVPrime;
+    Result := (Result xor P[3]) * FNVPrime;
+    Inc(P, 4);
+    Dec(L, 4);
+  end;
+
+  while L > 0 do
+  begin
+    Result := (Result xor P^) * FNVPrime;
     Inc(P);
+    Dec(L);
   end;
 end;
 {$endif}
@@ -3702,7 +3719,7 @@ begin
   Result := TryGetOffsetHash(SEHashString(Name), Name, Offset);
 end;
 
-function TSEShape.TryGetOffsetHash(Hash: Cardinal; const Name: String; out Offset: Integer): Boolean;
+function TSEShape.TryGetOffsetHash(Hash: NativeUInt; const Name: String; out Offset: Integer): Boolean;
 var
   CachedShape: TSEShape;
   Current: TSEShape;
@@ -3766,7 +3783,7 @@ begin
   Result := GetOffsetHash(SEHashString(Name), Name);
 end;
 
-function TSEShape.GetOffsetHash(Hash: Cardinal; const Name: String): Integer;
+function TSEShape.GetOffsetHash(Hash: NativeUInt; const Name: String): Integer;
 begin
   if not TryGetOffsetHash(Hash, Name, Result) then
     raise Exception.CreateFmt('Property "%s" does not exist in shape %d', [Name, FID]);
@@ -3783,13 +3800,13 @@ procedure TSEShape.BuildKeys;
 var
   Current: TSEShape;
   Count, I: Integer;
-  Seen: specialize TDictionary<Cardinal, Boolean>;
+  Seen: specialize TDictionary<NativeUInt, Boolean>;
   Temp: array of String;
 begin
   if FKeysBuilt then
     Exit;
 
-  Seen := specialize TDictionary<Cardinal, Boolean>.Create;
+  Seen := specialize TDictionary<NativeUInt, Boolean>.Create;
   try
     SetLength(Temp, FLiveCount);
     Count := 0;
