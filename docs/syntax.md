@@ -138,6 +138,7 @@ Logic operator       Description
  &&                   and
  >>                   or
  !                    not
+```
 
 ### Variable declarations
 
