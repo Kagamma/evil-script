@@ -110,15 +110,15 @@ Users can invoke the garbage collector manually by calling the mem_gc() function
 ### Operators
 
 ```
-Operator                                        Precedence
-==============================================  ==========
- !, sign "-"                                     1
- *, /                                            2
- +, subtract "-"                                 3
- bitshift <<, >>                                 4
- equal "=", !=, <, <=, >, >=, &, |, ~, pow "^"   5
- ternary                                         6
- assign "=", +=, -=, *=, /=                      7
+Operator                                                Precedence
+======================================================  ==========
+ !, sign "-"                                             1
+ *, /                                                    2
+ +, subtract "-"                                         3
+ bitshift <<, >>                                         4
+ equal "=", !=, <, <=, >, >=, &, &&, |, ||, ~, pow "^"   5
+ ternary                                                 6
+ assign "=", +=, -=, *=, /=                              7
 
 ```
 
@@ -132,7 +132,15 @@ Bitwise operator     Description
  ~                    xor
 ```
 
-Evil script does not support logic operator "and" and "or", thus it does not distinguish between =, &, | and ==, &&, ||, allowing them to be used interchangeably.
+```
+Logic operator       Description
+==================== =============
+ &&                   and
+ >>                   or
+ !                    not
+```
+
+Important note: Logic operator "&&" and "||" only work with if statements for short-circuit evaluation. For normal expressions, it is behaved like bitwise operator "&" and "|".
 
 ### Variable declarations
 
