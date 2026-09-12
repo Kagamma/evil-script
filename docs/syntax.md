@@ -70,8 +70,6 @@ The language is strongly typed. So if you try to add a string to a number, for e
 
 The language however performs implicit conversion between numbers and booleans, for example `a = 2 & 2 = true` will returns true.
 
-The language also performs implicit conversion between numbers and booleans in if statements. For example `if 2 & 2` returns true, `if 1 & 2` returns false.
-
 ### Types
 
 ```
