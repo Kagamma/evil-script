@@ -237,6 +237,7 @@ if (a < b) & (c < d) {
 ```
 
 `&&` guarantees short-circuit evaluation, meaning that the second operand is not evaluated if the first operand is `false`.
+
 `||` guarantees short-circuit evaluation, meaning that the second operand is not evaluated if the first operand is `true`.
 
 For example:
