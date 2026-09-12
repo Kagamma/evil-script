@@ -232,10 +232,16 @@ type
   end;
   PSEString = ^TSEString;
 
+  TSEShortCircuitJump = record
+    Op: TSEOpcode;
+    Jump: Cardinal;
+  end;
+
   TSEListStack = specialize TStack<TList>;
   TSEScopeStack = specialize TStack<NativeInt>;
   TSEIntegerList = specialize TList<NativeInt>;
   TSECardinalList = specialize TList<Cardinal>;
+  TSEShortCircuitJumpList = specialize TList<TSEShortCircuitJump>;
   TSEVM = class;
   TSEVMList = specialize TList<TSEVM>;
 
@@ -830,6 +836,8 @@ type
     tkYield,
     tkSquareBracketOpen,
     tkSquareBracketClose,
+    tkAndLogic,
+    tkOrLogic,
     tkAnd,
     tkOr,
     tkXor,
@@ -857,7 +865,7 @@ const
     '>', '<=', '>=', '{', '}', ':', '?', '(', ')', 'neg', 'number', 'string',
     ',', 'if', 'switch', 'case', 'default', 'identity', 'function', 'fn', 'variable', 'const', 'local',
     'unknown', 'else', 'while', 'break', 'continue', 'yield',
-    '[', ']', 'and', 'or', 'xor', 'not', 'for', 'in', 'to', 'downto', 'step', 'return',
+    '[', ']', 'and', 'or', 'and (&&)', 'or (||)', 'xor', 'not', 'for', 'in', 'to', 'downto', 'step', 'return',
     'atom', 'import', 'do', 'var', 'try', 'catch', 'throw', 'override'
   );
   ValueKindNames: array[TSEValueKind] of RawByteString = (
@@ -11755,16 +11763,18 @@ begin
           if PeekAtNextChar = '&' then
           begin
             NextChar;
-          end;
-          Token.Kind := tkAnd;
+            Token.Kind := tkAndLogic;
+          end else
+            Token.Kind := tkAnd;
         end;
       '|':
         begin
           if PeekAtNextChar = '|' then
           begin
             NextChar;
-          end;
-          Token.Kind := tkOr;
+            Token.Kind := tkOrLogic;
+          end else
+            Token.Kind := tkOr;
         end;
       '~':
         begin
@@ -13161,7 +13171,7 @@ var
     end;
   end;
 
-  function ParseExpr(const IsParsedAtFuncCall: Boolean): TSEValueKindSet;
+  function ParseExpr(const IsParsedAtFuncCall: Boolean; const AJumpList: TSEShortCircuitJumpList = nil): TSEValueKindSet;
   type
     TProc = TSENestedProc;
   var
@@ -13397,7 +13407,35 @@ var
       NextToken;
       PeekAtNextTokenExpected([tkBracketOpen, tkSquareBracketOpen, tkDot, tkNumber, tkString, tkNegative, tkIdent]);
       Func;
-      EmitExpr([Pointer({$ifdef CPU64}Int64(Op){$else}Op{$endif})]);
+      EmitExpr([Pointer(NativeUInt(Op))]);
+    end;
+
+    procedure BinaryAndLogic(const Func: TProc); inline;
+    var
+      Circuit: TSEShortCircuitJump;
+    begin
+      // We reject JIT, and baked the deleted opcount into JumpBlock
+      Circuit.Jump := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]) - 2;
+      Circuit.Op := opAnd;
+      AJumpList.Add(Circuit);
+      NextToken;
+      PeekAtNextTokenExpected([tkBracketOpen, tkSquareBracketOpen, tkDot, tkNumber, tkString, tkNegative, tkIdent]);
+      Func;
+      Result := Result + [sevkFunction];
+    end;
+
+    procedure BinaryOrLogic(const Func: TProc); inline;
+    var
+      Circuit: TSEShortCircuitJump;
+    begin
+      // We reject JIT, and baked the deleted opcount into JumpBlock
+      Circuit.Jump := Emit([Pointer(opJumpEqual1Rel), True, Pointer(0)]) - 2;
+      Circuit.Op := opOr;
+      AJumpList.Add(Circuit);
+      NextToken;
+      PeekAtNextTokenExpected([tkBracketOpen, tkSquareBracketOpen, tkDot, tkNumber, tkString, tkNegative, tkIdent]);
+      Func;
+      Result := Result + [sevkFunction];
     end;
 
     procedure Tail;
@@ -13776,6 +13814,16 @@ var
             BinaryOp(opOr, @Bitwise);
           tkXor:
             BinaryOp(opXor, @Bitwise);
+          tkAndLogic:
+            if AJumpList = nil then
+              BinaryOp(opAnd, @Bitwise)
+            else
+              BinaryAndLogic(@Bitwise);
+          tkOrLogic:
+            if AJumpList = nil then
+              BinaryOp(opOr, @Bitwise)
+            else
+              BinaryOrLogic(@Bitwise);
           else
             Exit;
         end;
@@ -14777,28 +14825,44 @@ var
     JumpBlock1,
     JumpBlock2,
     JumpEnd: NativeInt;
+    Circuit: TSEShortCircuitJump;
+    JumpList: TSEShortCircuitJumpList;
+    I: Integer;
   begin
-    Self.FLastVerifiedJITBlockLastPlace := -1;
-    MarkJITBlock;
-    VerifyJITBlock(ParseExpr(False));
-    JumpBlock1 := Emit([Pointer(opJumpEqual1Rel), True, Pointer(0)]);
-    JumpBlock2 := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
-    StartBlock1 := Self.Binary.Count;
-    ParseBlock;
-    StartBlock2 := Self.Binary.Count;
-    JumpEnd := -1;
-    if PeekAtNextToken.Kind = tkElse then
-    begin
-      JumpEnd := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
-      StartBlock2 := Self.Binary.Count;
-      NextToken;
+    JumpList := TSEShortCircuitJumpList.Create;
+    try
+      Self.FLastVerifiedJITBlockLastPlace := -1;
+      MarkJITBlock;
+      VerifyJITBlock(ParseExpr(False, JumpList));
+      JumpBlock1 := Emit([Pointer(opJumpEqual1Rel), True, Pointer(0)]);
+      JumpBlock2 := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
+      StartBlock1 := Self.Binary.Count;
       ParseBlock;
+      StartBlock2 := Self.Binary.Count;
+      JumpEnd := -1;
+      if PeekAtNextToken.Kind = tkElse then
+      begin
+        JumpEnd := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
+        StartBlock2 := Self.Binary.Count;
+        NextToken;
+        ParseBlock;
+      end;
+      EndBlock2 := Self.Binary.Count;
+      Patch(JumpBlock1 - 1, Pointer(StartBlock1) - (JumpBlock1 - 3));
+      Patch(JumpBlock2 - 1, Pointer(StartBlock2) - (JumpBlock2 - 2));
+      if JumpEnd >= 0 then
+        Patch(JumpEnd - 1, Pointer(EndBlock2) - (JumpEnd - 2));
+      // Short-circuit jumps
+      for Circuit in JumpList do
+      begin
+        if Circuit.Op = opAnd then
+          Patch(Circuit.Jump - 1, Pointer(StartBlock2) - (Circuit.Jump - 3))
+        else
+          Patch(Circuit.Jump - 1, Pointer(StartBlock1) - (Circuit.Jump - 3));
+      end;
+    finally
+      JumpList.Free;
     end;
-    EndBlock2 := Self.Binary.Count;
-    Patch(JumpBlock1 - 1, Pointer(StartBlock1) - (JumpBlock1 - 3));
-    Patch(JumpBlock2 - 1, Pointer(StartBlock2) - (JumpBlock2 - 2));
-    if JumpEnd >= 0 then
-      Patch(JumpEnd - 1, Pointer(EndBlock2) - (JumpEnd - 2));
   end;
 
   procedure ParseSwitch;
