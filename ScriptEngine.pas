@@ -234,7 +234,6 @@ type
 
   TSEShortCircuitJump = record
     Output: Boolean;
-    Offset: Byte;
     Jump: Cardinal;
   end;
 
@@ -13418,7 +13417,6 @@ var
       // We reject JIT, and baked the deleted opcount into JumpBlock
       Circuit.Jump := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]) - 2;
       Circuit.Output := False;
-      Circuit.Offset := 3;
       AJumpList.Add(Circuit);
       NextToken;
       PeekAtNextTokenExpected([tkBracketOpen, tkSquareBracketOpen, tkDot, tkNumber, tkString, tkNegative, tkIdent]);
@@ -13433,7 +13431,6 @@ var
       // We reject JIT, and baked the deleted opcount into JumpBlock
       Circuit.Jump := Emit([Pointer(opJumpEqual1Rel), True, Pointer(0)]) - 2;
       Circuit.Output := True;
-      Circuit.Offset := 3;
       AJumpList.Add(Circuit);
       NextToken;
       PeekAtNextTokenExpected([tkBracketOpen, tkSquareBracketOpen, tkDot, tkNumber, tkString, tkNegative, tkIdent]);
