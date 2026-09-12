@@ -233,7 +233,8 @@ type
   PSEString = ^TSEString;
 
   TSEShortCircuitJump = record
-    Op: TSEOpcode;
+    Output: Boolean;
+    Offset: Byte;
     Jump: Cardinal;
   end;
 
@@ -13171,7 +13172,7 @@ var
     end;
   end;
 
-  function ParseExpr(const IsParsedAtFuncCall: Boolean; const AJumpList: TSEShortCircuitJumpList = nil): TSEValueKindSet;
+  function ParseExpr(const IsParsedAtFuncCall: Boolean; AJumpList: TSEShortCircuitJumpList = nil): TSEValueKindSet;
   type
     TProc = TSENestedProc;
   var
@@ -13416,7 +13417,8 @@ var
     begin
       // We reject JIT, and baked the deleted opcount into JumpBlock
       Circuit.Jump := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]) - 2;
-      Circuit.Op := opAnd;
+      Circuit.Output := False;
+      Circuit.Offset := 3;
       AJumpList.Add(Circuit);
       NextToken;
       PeekAtNextTokenExpected([tkBracketOpen, tkSquareBracketOpen, tkDot, tkNumber, tkString, tkNegative, tkIdent]);
@@ -13430,7 +13432,8 @@ var
     begin
       // We reject JIT, and baked the deleted opcount into JumpBlock
       Circuit.Jump := Emit([Pointer(opJumpEqual1Rel), True, Pointer(0)]) - 2;
-      Circuit.Op := opOr;
+      Circuit.Output := True;
+      Circuit.Offset := 3;
       AJumpList.Add(Circuit);
       NextToken;
       PeekAtNextTokenExpected([tkBracketOpen, tkSquareBracketOpen, tkDot, tkNumber, tkString, tkNegative, tkIdent]);
@@ -14855,10 +14858,10 @@ var
       // Short-circuit jumps
       for Circuit in JumpList do
       begin
-        if Circuit.Op = opAnd then
-          Patch(Circuit.Jump - 1, Pointer(StartBlock2) - (Circuit.Jump - 3))
+        if Circuit.Output then
+          Patch(Circuit.Jump - 1, Pointer(StartBlock1) - (Circuit.Jump - 3))
         else
-          Patch(Circuit.Jump - 1, Pointer(StartBlock1) - (Circuit.Jump - 3));
+          Patch(Circuit.Jump - 1, Pointer(StartBlock2) - (Circuit.Jump - 3));
       end;
     finally
       JumpList.Free;
