@@ -235,6 +235,22 @@ if (a < b) & (c < d) {
 }
 ```
 
+`&&` guarantees short-circuit evaluation, meaning that the second operand is not evaluated if the first operand is `false`.
+`||` guarantees short-circuit evaluation, meaning that the second operand is not evaluated if the first operand is `true`.
+
+For example:
+```
+a = false
+if a && fun() // fun() will not be evaluated, because a is false.
+```
+
+Use `&` and `|` instead of `&&` and `||` to if you want to avoid short-circuit evaluation:
+```
+a = false
+if (a == true) & fun() // fun() will be evaluated.
+```
+
+
 ### While block
 
 ```
