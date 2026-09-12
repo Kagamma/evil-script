@@ -138,9 +138,6 @@ Logic operator       Description
  &&                   and
  >>                   or
  !                    not
-```
-
-Important note: Logic operator "&&" and "||" only work with if statements for short-circuit evaluation. For normal expressions, it is behaved like bitwise operator "&" and "|".
 
 ### Variable declarations
 

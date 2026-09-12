@@ -13815,15 +13815,9 @@ var
           tkXor:
             BinaryOp(opXor, @Bitwise);
           tkAndLogic:
-            if AJumpList = nil then
-              BinaryOp(opAnd, @Bitwise)
-            else
-              BinaryAndLogic(@Bitwise);
+            BinaryAndLogic(@Bitwise);
           tkOrLogic:
-            if AJumpList = nil then
-              BinaryOp(opOr, @Bitwise)
-            else
-              BinaryOrLogic(@Bitwise);
+            BinaryOrLogic(@Bitwise);
           else
             Exit;
         end;
@@ -13833,21 +13827,57 @@ var
   var
     Expr2Block,
     EndBlock,
+    JumpBlock1,
+    JumpBlock2,
+    StartBlock1,
+    StartBlock2,
     JumpEnd,
     JumpExpr2: NativeInt;
+    HasOwnJumpList: Boolean = False;
+    Circuit: TSEShortCircuitJump;
 
   begin
-    Result := [sevkNull];
-    OpCountStart := Self.OpcodeInfoList.Count;
-    Logic;
-    //
-    if AssignReturnFuncRefCount > 0 then
+    if AJumpList = nil then
     begin
-      Self.Binary.DeleteRange(AssignReturnFuncRefStart, AssignReturnFuncRefEnd - AssignReturnFuncRefStart);
-      Self.OpcodeInfoList.DeleteRange(AssignReturnFuncRefOpStart, AssignReturnFuncRefOpEnd - AssignReturnFuncRefOpStart);
+      HasOwnJumpList := True;
+      AJumpList := TSEShortCircuitJumpList.Create;
     end;
-    if (Result - [sevkNull]) <> [] then
-      Result := Result - [sevkNull];
+    try
+      Result := [sevkNull];
+      OpCountStart := Self.OpcodeInfoList.Count;
+      Logic;
+      //
+      if AssignReturnFuncRefCount > 0 then
+      begin
+        Self.Binary.DeleteRange(AssignReturnFuncRefStart, AssignReturnFuncRefEnd - AssignReturnFuncRefStart);
+        Self.OpcodeInfoList.DeleteRange(AssignReturnFuncRefOpStart, AssignReturnFuncRefOpEnd - AssignReturnFuncRefOpStart);
+      end;
+      if (Result - [sevkNull]) <> [] then
+        Result := Result - [sevkNull];
+      if HasOwnJumpList and (AJumpList.Count > 0) then
+      begin
+        JumpBlock1 := Emit([Pointer(opJumpEqual1Rel), True, Pointer(0)]);
+        JumpBlock2 := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
+        StartBlock1 := Self.Binary.Count;
+        Emit([Pointer(opPushConst), True]);
+        Emit([Pointer(opJumpUnconditionalRel), Pointer(4)]);
+        StartBlock2 := Self.Binary.Count;
+        Emit([Pointer(opPushConst), False]);
+        Patch(JumpBlock1 - 1, Pointer(StartBlock1) - (JumpBlock1 - 3));
+        Patch(JumpBlock2 - 1, Pointer(StartBlock2) - (JumpBlock2 - 2));
+        for Circuit in AJumpList do
+        begin
+          // We restore baked JIT offset
+          if Circuit.Output then
+            Patch(Circuit.Jump - 1 + 2, Pointer(StartBlock1) - (Circuit.Jump - 3 + 2))
+          else
+            Patch(Circuit.Jump - 1 + 2, Pointer(StartBlock2) - (Circuit.Jump - 3 + 2));
+        end;
+      end;
+    finally
+      if HasOwnJumpList then
+        AJumpList.Free;
+    end;
     // Handle ternary
     if PeekAtNextToken.Kind = tkQuestion then
     begin
