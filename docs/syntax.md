@@ -246,7 +246,9 @@ a = false
 if a && fun() // fun() will not be evaluated, because a is false.
 ```
 
-Use `&` and `|` instead of `&&` and `||` to if you want to avoid short-circuit evaluation:
+Use `&` and `|` instead of `&&` and `||` if you want to avoid short-circuit evaluation:
+
+For example:
 ```
 a = false
 if (a == true) & fun() // fun() will be evaluated.
