@@ -568,7 +568,9 @@ type
   TSECallingConvention = (
     seccAuto,
     seccStdcall,
-    seccCdecl
+    seccCdecl,
+    seccWin64,
+    seccSysV
   );
 
   TSEAtomKind = (
@@ -8847,8 +8849,11 @@ var
       {$ifdef CPUI386}
       seccStdcall:
         ffiAbi := FFI_STDCALL;
-      seccCdecl:
+      seccCdecl,
+      seccWin64:
         ffiAbi := FFI_MS_CDECL;
+      seccSysV:
+        ffiAbi := FFI_SYSV;
       {$endif}
       else
         ffiAbi := FFI_DEFAULT_ABI;
@@ -14470,6 +14475,8 @@ var
             CC := seccStdcall;
           'cdecl':
             CC := seccCdecl;
+          'systemv':
+            CC := seccSysV;
           else
             Error(Format('Unsupported calling convention "%s"', [Token.Value]), Token);
         end;
