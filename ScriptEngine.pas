@@ -15252,8 +15252,8 @@ var
 
   procedure ParseIdent(const Token: TSEToken; const IsConst, IsLocal: Boolean);
   var
-    OpCountBefore,
-    OpCountAfter: NativeInt;
+    //OpCountBefore,
+    //OpCountAfter: NativeInt;
     Ident: TSEIdent;
   begin
     case IdentifyIdent(Token.Value, IsLocal) of
@@ -15261,12 +15261,12 @@ var
         begin
           NextToken;
           CreateIdent(ikVariable, Token, False, IsConst);
-          OpCountBefore := Self.OpcodeInfoList.Count;
+          //OpCountBefore := Self.OpcodeInfoList.Count;
           ParseVarAssign(Token.Value, True);
-          OpCountAfter := Self.OpcodeInfoList.Count;
-          if (IsConst) and
+          //OpCountAfter := Self.OpcodeInfoList.Count;
+          {if (IsConst) and
             (Self.OptimizePeephole) and
-            ((OpCountAfter - OpCountBefore) = 2) and
+            ((OpCountAfter - OpCountBefore) = 3) and
             (Self.OpcodeInfoList[OpCountAfter - 2].Op = opPushConst) and
             ((Self.OpcodeInfoList[OpCountAfter - 1].Op = opAssignLocalVar) or (Self.OpcodeInfoList[OpCountAfter - 1].Op = opAssignGlobalVar)) and
             (Self.Binary[Self.OpcodeInfoList[OpCountAfter - 2].Pos + 1].Kind = sevkNumber) then
@@ -15274,12 +15274,13 @@ var
             Ident := Self.VarList[Self.VarList.Count - 1];
             Ident.ConstValue := Self.Binary[Self.OpcodeInfoList[OpCountAfter - 2].Pos + 1];
             Self.VarList[Self.VarList.Count - 1] := Ident;
-            if Self.OpcodeInfoList[OpCountAfter - 1].Op = opAssignLocalVar then
-              Self.Binary.DeleteRange(Self.Binary.Count - 5, 5)
-            else
-              Self.Binary.DeleteRange(Self.Binary.Count - 4, 4);
+            Self.Binary.DeleteRange(
+              Self.Binary.Count - OpcodeSizes[Self.OpcodeInfoList[OpCountAfter - 1].Op] - OpcodeSizes[Self.OpcodeInfoList[OpCountAfter - 2].Op],
+              OpcodeSizes[Self.OpcodeInfoList[OpCountAfter - 1].Op] + OpcodeSizes[Self.OpcodeInfoList[OpCountAfter - 2].Op]
+            );
+
             Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 2);
-          end;
+          end;}
         end;
       tkVariable:
         begin
