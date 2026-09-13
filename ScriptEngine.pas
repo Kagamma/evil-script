@@ -78,7 +78,7 @@ uses
   base64,
   fpjson, jsonparser
   {$ifdef SE_HAS_FILEUTIL}, FileUtil{$endif}
-  {$ifdef SE_LIBFFI}, ffi{$endif}
+  {$ifdef SE_LIBFFI}, ffi, FFI.Manager{$endif}
   {$ifdef SE_STRING_UTF8},LazUTF8{$endif}{$ifdef SE_DYNLIBS}, dynlibs{$endif};
 
 const
@@ -695,6 +695,7 @@ type
   {$endif}
 
   TSEVMCoroutine = class
+  public
     FStackPtr: PSEValue;
     FBinaryPtr: NativeInt;
     IsDone: Boolean;
@@ -4727,20 +4728,23 @@ var
   MethodArgs: array of TValue;
   Ctx: TRttiContext;
   RttiType: TRttiType;
-  Method: TRttiMethod;
+ // Method: TRttiMethod;
+  MethodCode: CodePointer;
   I: NativeInt;
 begin
   Obj := Self.VarPascalObject^.Value;
   Ctx := TRttiContext.Create;
   try
     RttiType := Ctx.GetType(Obj.ClassType);
-    Method := RttiType.GetMethod(MethodName);
-    if Method <> nil then
+   // Method := RttiType.GetMethod(MethodName);
+    MethodCode := Obj.MethodAddress(MethodName);
+    if MethodCode <> nil then
     begin
       SetLength(MethodArgs, ArgCount);
       for I := 0 to ArgCount - 1 do
         MethodArgs[I] := Args[I];
-      Result := Method.Invoke(Obj, MethodArgs);
+     // Result := Method.Invoke(Obj, MethodArgs);
+      Result := Rtti.Invoke(MethodCode, MethodArgs, ccReg, nil, False, False);
     end else
       raise Exception.Create('Method "' + MethodName + '" not found!');
   finally
