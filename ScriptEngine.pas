@@ -4740,9 +4740,10 @@ begin
     MethodCode := Obj.MethodAddress(MethodName);
     if MethodCode <> nil then
     begin
-      SetLength(MethodArgs, ArgCount);
+      SetLength(MethodArgs, ArgCount + 1);
+      MethodArgs[0] := Obj;
       for I := 0 to ArgCount - 1 do
-        MethodArgs[I] := Args[I];
+        MethodArgs[I + 1] := Args[I];
      // Result := Method.Invoke(Obj, MethodArgs);
       Result := Rtti.Invoke(MethodCode, MethodArgs, ccReg, nil, False, False);
     end else
