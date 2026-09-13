@@ -993,16 +993,17 @@ type
     JITBlockCount: NativeInt;
     FLastVerifyJITBlockResult: Boolean;
     FLastVerifiedJITBlockLastPlace: NativeInt;
+    FOptimizeJIT: Boolean;    // True = enable JIT optimization, default is true
     procedure SetSource(V: String);
     function InternalIdent: String;
     procedure InternalLex(ASource: String; const ATokenList: TSETokenList; const IsIncluded: Boolean = False);
+    procedure SetOptimizeJIT(V: Boolean);
   public
     Owner: TObject;
     OptimizeConstants,        // True = enable optimization for constant values stored in ConstList
     OptimizePeephole,         // True = enable peephole optimization, default is true
     OptimizeConstantFolding,  // True = enable constant folding optimization, default is true
     OptimizeAsserts: Boolean; // True = ignore assert, default is true
-    OptimizeJIT: Boolean;     // True = enable JIT optimization, default is true
     ErrorLn, ErrorCol: NativeInt;
     VM: TSEVM;
     {$ifdef SE_THREADS}
@@ -1063,6 +1064,7 @@ type
 
     property IsPaused: Boolean read GetIsPaused write SetIsPaused;
     property Source: String read FSource write SetSource;
+    property OptimizeJIT: Boolean read FOptimizeJIT write SetOptimizeJIT;
   end;
 
   TScriptEngine = TEvilC;
@@ -12346,6 +12348,11 @@ begin
   end;
 end;
 
+procedure TEvilC.SetOptimizeJIT(V: Boolean);
+begin
+  Self.FOptimizeJIT := {$ifdef CPUx86_64}V{$else}False{$endif};
+end;
+
 function TokenTypeString(const Kinds: TSETokenKindSet): String; inline;
 var
   Kind: TSETokenKind;
@@ -15252,8 +15259,8 @@ var
 
   procedure ParseIdent(const Token: TSEToken; const IsConst, IsLocal: Boolean);
   var
-    //OpCountBefore,
-    //OpCountAfter: NativeInt;
+    OpCountBefore,
+    OpCountAfter: NativeInt;
     Ident: TSEIdent;
   begin
     case IdentifyIdent(Token.Value, IsLocal) of
@@ -15261,26 +15268,51 @@ var
         begin
           NextToken;
           CreateIdent(ikVariable, Token, False, IsConst);
-          //OpCountBefore := Self.OpcodeInfoList.Count;
+          OpCountBefore := Self.OpcodeInfoList.Count;
           ParseVarAssign(Token.Value, True);
-          //OpCountAfter := Self.OpcodeInfoList.Count;
-          {if (IsConst) and
-            (Self.OptimizePeephole) and
-            ((OpCountAfter - OpCountBefore) = 3) and
-            (Self.OpcodeInfoList[OpCountAfter - 2].Op = opPushConst) and
-            ((Self.OpcodeInfoList[OpCountAfter - 1].Op = opAssignLocalVar) or (Self.OpcodeInfoList[OpCountAfter - 1].Op = opAssignGlobalVar)) and
-            (Self.Binary[Self.OpcodeInfoList[OpCountAfter - 2].Pos + 1].Kind = sevkNumber) then
+          OpCountAfter := Self.OpcodeInfoList.Count;
+          if Self.OptimizeJIT then
           begin
-            Ident := Self.VarList[Self.VarList.Count - 1];
-            Ident.ConstValue := Self.Binary[Self.OpcodeInfoList[OpCountAfter - 2].Pos + 1];
-            Self.VarList[Self.VarList.Count - 1] := Ident;
-            Self.Binary.DeleteRange(
-              Self.Binary.Count - OpcodeSizes[Self.OpcodeInfoList[OpCountAfter - 1].Op] - OpcodeSizes[Self.OpcodeInfoList[OpCountAfter - 2].Op],
-              OpcodeSizes[Self.OpcodeInfoList[OpCountAfter - 1].Op] + OpcodeSizes[Self.OpcodeInfoList[OpCountAfter - 2].Op]
-            );
+            if (IsConst) and
+              (Self.OptimizePeephole) and
+              (Self.OptimizeConstants) and
+              ((OpCountAfter - OpCountBefore) = 3) and
+              (Self.OpcodeInfoList[OpCountAfter - 3].Op = opJITBlockPotential) and
+              (Self.OpcodeInfoList[OpCountAfter - 2].Op = opPushConst) and
+              ((Self.OpcodeInfoList[OpCountAfter - 1].Op = opAssignLocalVar) or (Self.OpcodeInfoList[OpCountAfter - 1].Op = opAssignGlobalVar)) and
+              (Self.Binary[Self.OpcodeInfoList[OpCountAfter - 2].Pos + 1].Kind = sevkNumber) then
+            begin
+              Ident := Self.VarList[Self.VarList.Count - 1];
+              Ident.ConstValue := Self.Binary[Self.OpcodeInfoList[OpCountAfter - 2].Pos + 1];
+              Self.VarList[Self.VarList.Count - 1] := Ident;
+              Self.Binary.DeleteRange(
+                Self.Binary.Count - OpcodeSizes[Self.OpcodeInfoList[OpCountAfter - 1].Op] - OpcodeSizes[Self.OpcodeInfoList[OpCountAfter - 2].Op] - OpcodeSizes[Self.OpcodeInfoList[OpCountAfter - 3].Op],
+                OpcodeSizes[Self.OpcodeInfoList[OpCountAfter - 1].Op] + OpcodeSizes[Self.OpcodeInfoList[OpCountAfter - 2].Op] + OpcodeSizes[Self.OpcodeInfoList[OpCountAfter - 3].Op]
+              );
 
-            Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 2);
-          end;}
+              Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 3, 3);
+            end;
+          end else
+          begin
+            if (IsConst) and
+              (Self.OptimizePeephole) and
+              (Self.OptimizeConstants) and
+              ((OpCountAfter - OpCountBefore) = 2) and
+              (Self.OpcodeInfoList[OpCountAfter - 2].Op = opPushConst) and
+              ((Self.OpcodeInfoList[OpCountAfter - 1].Op = opAssignLocalVar) or (Self.OpcodeInfoList[OpCountAfter - 1].Op = opAssignGlobalVar)) and
+              (Self.Binary[Self.OpcodeInfoList[OpCountAfter - 2].Pos + 1].Kind = sevkNumber) then
+            begin
+              Ident := Self.VarList[Self.VarList.Count - 1];
+              Ident.ConstValue := Self.Binary[Self.OpcodeInfoList[OpCountAfter - 2].Pos + 1];
+              Self.VarList[Self.VarList.Count - 1] := Ident;
+              Self.Binary.DeleteRange(
+                Self.Binary.Count - OpcodeSizes[Self.OpcodeInfoList[OpCountAfter - 1].Op] - OpcodeSizes[Self.OpcodeInfoList[OpCountAfter - 2].Op],
+                OpcodeSizes[Self.OpcodeInfoList[OpCountAfter - 1].Op] + OpcodeSizes[Self.OpcodeInfoList[OpCountAfter - 2].Op]
+              );
+
+              Self.OpcodeInfoList.DeleteRange(Self.OpcodeInfoList.Count - 2, 2);
+            end;
+          end;
         end;
       tkVariable:
         begin
