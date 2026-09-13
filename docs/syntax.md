@@ -623,7 +623,12 @@ List of supported data types:
 - wbuffer: wchar*
 - void: This simply tell the app the function does not return any value.
 
-By default, `import` supports `Microsoft x64 calling convention` on Windows, and `System V AMD64 ABI` on Linux. There's no way to change calling convention at the moment.
+List of possible calling conventions:
+- stdcall
+- cdecl
+- systemv
+
+To use it, put the calling convention before function name, for example: `import 'test.dll' fn stdcall Add(i32, i32): i32`
 
 ### Assert
 ```
