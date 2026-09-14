@@ -1664,6 +1664,7 @@ type
     class function SELerp(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SESLerp(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SESign(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+    class function SELn(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SESin(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SECos(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SETan(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -5663,6 +5664,11 @@ end;
 class function TBuiltInFunction.SEStringExtractExt(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   Result := ExtractFileExt(Args[0].VarString^.Data);
+end;
+
+class function TBuiltInFunction.SELn(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+begin
+  Exit(Ln(TSENumber(Args[0])));
 end;
 
 class function TBuiltInFunction.SESin(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -11518,6 +11524,7 @@ begin
     Self.RegisterFunc('floor', @TBuiltInFunction(nil).SEFloor, 1, [sevkNumber]);
     Self.RegisterFunc('ceil', @TBuiltInFunction(nil).SECeil, 1, [sevkNumber]);
     Self.RegisterFunc('trunc', @TBuiltInFunction(nil).SETrunc, 1, [sevkNumber]);
+    Self.RegisterFunc('ln', @TBuiltInFunction(nil).SELn, 1, [sevkNumber]);
     Self.RegisterFunc('sin', @TBuiltInFunction(nil).SESin, 1, [sevkNumber]);
     Self.RegisterFunc('cos', @TBuiltInFunction(nil).SECos, 1, [sevkNumber]);
     Self.RegisterFunc('tan', @TBuiltInFunction(nil).SETan, 1, [sevkNumber]);
@@ -14125,6 +14132,9 @@ var
       end;
     end;
 
+  var
+    StartAddr: Integer;
+
   begin
     FuncNativeInfo := FindFuncNative(Name, Ind);
     if FuncNativeInfo <> nil then
@@ -14162,14 +14172,18 @@ var
       begin
         for I := 0 to DefinedArgCount - 1 do
         begin
+          StartAddr := Self.Binary.Count;
           MarkJITBlock;
           VerifyJITBlock(ParseExpr(True));
           if I < DefinedArgCount - 1 then
             NextTokenExpected([tkComma]);
-          Inc(ArgCount);
+          if StartAddr <> Self.Binary.Count then
+            Inc(ArgCount);
         end;
       end;
       NextTokenExpected([tkBracketClose]);
+      if DefinedArgCount <> ArgCount then
+        Error('Wrong number of arguments', PeekAtNextToken);
     end else
     if DefinedArgCount < 0 then
     begin
