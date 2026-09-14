@@ -14178,12 +14178,12 @@ var
           if I < DefinedArgCount - 1 then
             NextTokenExpected([tkComma]);
           if StartAddr <> Self.Binary.Count then
-            Inc(ArgCount);
+            Inc(ArgCount)
+          else
+            Error('Wrong number of arguments', PeekAtNextToken);
         end;
       end;
       NextTokenExpected([tkBracketClose]);
-      if DefinedArgCount <> ArgCount then
-        Error('Wrong number of arguments', PeekAtNextToken);
     end else
     if DefinedArgCount < 0 then
     begin
