@@ -14175,12 +14175,11 @@ var
           StartAddr := Self.Binary.Count;
           MarkJITBlock;
           VerifyJITBlock(ParseExpr(True));
+          if CanEmit and (I = 0) and (StartAddr >= Self.Binary.Count) then
+            Error('Wrong number of arguments', PeekAtNextToken);
           if I < DefinedArgCount - 1 then
             NextTokenExpected([tkComma]);
-          if StartAddr <> Self.Binary.Count then
-            Inc(ArgCount)
-          else
-            Error('Wrong number of arguments', PeekAtNextToken);
+          Inc(ArgCount);
         end;
       end;
       NextTokenExpected([tkBracketClose]);
