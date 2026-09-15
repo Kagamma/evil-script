@@ -15,7 +15,7 @@
 				},
 				{
 					"name": "variable.language",
-					"match": "\\b(const|local|var|number|map|boolean|string|pasobject)\\b"
+					"match": "\\b(const|local|var|any|number|map|boolean|string|pasobject)\\b"
 				},
 				{
 					"name": "comment.line",
