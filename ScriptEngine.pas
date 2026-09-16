@@ -1655,6 +1655,7 @@ type
     class function SEMapCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEMapClone(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEMapKeyDelete(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+    class function SEMapKeyExists(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEMapKeysGet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEMapClear(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEArrayResize(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -3842,7 +3843,7 @@ begin
       end;
       Current := Current.FParent;
     end;
-    SetLength(FKeys,Count);
+    SetLength(FKeys, Count);
     for I := 0 to Count-1 do
       FKeys[I] := Temp[Count - I - 1];
 
@@ -5331,11 +5332,35 @@ end;
 
 class function TBuiltInFunction.SEMapClone(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
+  SEValidateType(@Args[0], sevkMap, 1, {$I %CURRENTROUTINE%});
   Exit(SEClone(Args[0]));
+end;
+
+class function TBuiltInFunction.SEMapKeyExists(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+var
+  Keys: TStringDynArray;
+  Key: String;
+begin
+  SEValidateType(@Args[0], sevkMap, 1, {$I %CURRENTROUTINE%});
+  SEValidateType(@Args[1], sevkString, 2, {$I %CURRENTROUTINE%});
+  if SEMapIsValidArray(Result) then
+  begin
+    Keys := Args[0].VarMap^.Shape.GetKeys;
+    for Key in Keys do
+    begin
+      if Key = Args[1].VarString^.Data then
+      begin
+        Result := True;
+        Exit;
+      end;
+    end;
+  end;
+  Result := False;
 end;
 
 class function TBuiltInFunction.SEMapKeyDelete(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
+  SEValidateType(@Args[0], sevkMap, 1, {$I %CURRENTROUTINE%});
   Result := Args[0];
   SEMapDelete(Result, Args[1]);
 end;
@@ -5370,11 +5395,13 @@ end;
 
 class function TBuiltInFunction.SEMapClear(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
+  SEValidateType(@Args[0], sevkMap, 1, {$I %CURRENTROUTINE%});
   Args[0].VarMap^.Reset;
 end;
 
 class function TBuiltInFunction.SEArrayResize(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
+  SEValidateType(@Args[0], sevkMap, 1, {$I %CURRENTROUTINE%});
   if SEMapIsValidArray(Args[0]) then
   begin
     Args[0].VarMap^.Resize(Round(Args[1].VarNumber));
@@ -5393,6 +5420,7 @@ class function TBuiltInFunction.SEArrayFill(const VM: TSEVM; const Args: PSEValu
 var
   I: NativeInt;
 begin
+  SEValidateType(@Args[0], sevkMap, 1, {$I %CURRENTROUTINE%});
   if SEMapIsValidArray(Args[0]) then
   begin
     for I := 0 to Args[0].VarMap^.Count - 1 do
@@ -5406,6 +5434,7 @@ end;
 
 class function TBuiltInFunction.SEArrayInsert(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
+  SEValidateType(@Args[0], sevkMap, 1, {$I %CURRENTROUTINE%});
   if SEMapIsValidArray(Args[0]) then
   begin
     Args[0].VarMap^.Insert(Round(Args[1].VarNumber), Args[2]);
@@ -7312,6 +7341,7 @@ procedure TSEValueMapHelper.Reset;
 begin
   if Self.Shape <> nil then
     Self.Shape := ShapeManager.Root;
+  Self.Count := 0;
   Self.IncSize := 4;
   Self.Capacity := 4;
   Self.PossibleKinds := [];
@@ -11466,6 +11496,7 @@ begin
     Self.RegisterFunc('map_create', @TBuiltInFunction(nil).SEMapCreate, -1, [sevkMap]);
     Self.RegisterFunc('___map_create', @TBuiltInFunction(nil).SEMapCreate, -1, [sevkMap]);
     Self.RegisterFunc('map_clone', @TBuiltInFunction(nil).SEMapClone, 1);
+    Self.RegisterFunc('map_key_exists', @TBuiltInFunction(nil).SEMapKeyExists, 2);
     Self.RegisterFunc('map_key_delete', @TBuiltInFunction(nil).SEMapKeyDelete, 2);
     Self.RegisterFunc('map_keys_get', @TBuiltInFunction(nil).SEMapKeysGet, 1);
     Self.RegisterFunc('map_clear', @TBuiltInFunction(nil).SEMapClear, 1);
@@ -13439,13 +13470,16 @@ var
       Circuit: TSEShortCircuitJump;
     begin
       // We reject JIT, and baked the deleted opcount into JumpBlock
-      Circuit.Jump := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]) - 2;
+      if Self.OptimizeJIT then
+        Circuit.Jump := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]) - OpcodeSizes[opJITBlockPotential]
+      else
+        Circuit.Jump := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]);
       Circuit.Output := False;
       AJumpList.Add(Circuit);
       NextToken;
       PeekAtNextTokenExpected([tkBracketOpen, tkSquareBracketOpen, tkDot, tkNumber, tkString, tkNegative, tkIdent]);
       Func;
-      Result := Result + [sevkFunction];
+      Result := Result + [sevkFunction, sevkPascalObject];
     end;
 
     procedure BinaryOrLogic(const Func: TProc); inline;
@@ -13453,13 +13487,16 @@ var
       Circuit: TSEShortCircuitJump;
     begin
       // We reject JIT, and baked the deleted opcount into JumpBlock
-      Circuit.Jump := Emit([Pointer(opJumpEqual1Rel), True, Pointer(0)]) - 2;
+      if Self.OptimizeJIT then
+        Circuit.Jump := Emit([Pointer(opJumpEqual1Rel), True, Pointer(0)]) - OpcodeSizes[opJITBlockPotential]
+      else
+        Circuit.Jump := Emit([Pointer(opJumpEqual1Rel), True, Pointer(0)]);
       Circuit.Output := True;
       AJumpList.Add(Circuit);
       NextToken;
       PeekAtNextTokenExpected([tkBracketOpen, tkSquareBracketOpen, tkDot, tkNumber, tkString, tkNegative, tkIdent]);
       Func;
-      Result := Result + [sevkFunction];
+      Result := Result + [sevkFunction, sevkPascalObject];
     end;
 
     procedure Tail;
@@ -13892,10 +13929,19 @@ var
         for Circuit in AJumpList do
         begin
           // We restore baked JIT offset
-          if Circuit.Output then
-            Patch(Circuit.Jump - 1 + 2, Pointer(StartBlock1) - (Circuit.Jump - 3 + 2))
-          else
-            Patch(Circuit.Jump - 1 + 2, Pointer(StartBlock2) - (Circuit.Jump - 3 + 2));
+          if Self.OptimizeJIT then
+          begin
+            if Circuit.Output then
+              Patch(Circuit.Jump - 1 + OpcodeSizes[opJITBlockPotential], Pointer(StartBlock1) - (Circuit.Jump - 3 + OpcodeSizes[opJITBlockPotential]))
+            else
+              Patch(Circuit.Jump - 1 + OpcodeSizes[opJITBlockPotential], Pointer(StartBlock2) - (Circuit.Jump - 3 + OpcodeSizes[opJITBlockPotential]));
+          end else
+          begin
+            if Circuit.Output then
+              Patch(Circuit.Jump - 1, Pointer(StartBlock1) - (Circuit.Jump - 3))
+            else
+              Patch(Circuit.Jump - 1, Pointer(StartBlock2) - (Circuit.Jump - 3));
+          end;
         end;
       end;
     finally
