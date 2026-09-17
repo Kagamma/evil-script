@@ -6505,7 +6505,11 @@ end;
 procedure SEValueNot(out R: TSEValue; constref V: TSEValue); inline;
 begin
   case V.Kind of
-    sevkNumber, sevkBoolean:
+    sevkNumber:
+      begin
+        R := (not Round(V.VarNumber));
+      end;
+    sevkBoolean:
       begin
         R := not (V.VarNumber <> 0);
       end;

@@ -128,13 +128,14 @@ Bitwise operator     Description
  &                    and
  |                    or
  ~                    xor
+ !                    not
 ```
 
 ```
 Logic operator       Description
 ==================== =============
  &&                   and
- >>                   or
+ ||                   or
  !                    not
 ```
 
