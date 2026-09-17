@@ -5619,7 +5619,7 @@ begin
   Result := Args[0].VarString^.Data;
   for I := 1 to ArgCount do
   begin
-    Result.VarString^.Data := StringReplace(Result.VarString^.Data, '{' + IntToStr(I - 1) + '}', SEValueToText(Args[1]), [rfReplaceAll]);
+    Result.VarString^.Data := StringReplace(Result.VarString^.Data, '{' + IntToStr(I - 1) + '}', SEValueToText(Args[I]), [rfReplaceAll]);
   end;
 end;
 
