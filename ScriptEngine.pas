@@ -11093,7 +11093,7 @@ labelStart:
             sevkPascalObject:
               TV.SetProp(C^, B^);
             sevkString:
-              StringSet(GetGlobalInt(NativeInt(A^)), C^, B^);
+              StringSet(GetGlobalInt(NativeInt(A^.VarPointer)), C^, B^);
           end;
           Inc(CodePtrLocal, 4);
           DispatchGoto;
@@ -11125,7 +11125,7 @@ labelStart:
             sevkPascalObject:
               TV.SetProp(C^, B^);
             sevkString:
-              StringSet(GetLocalInt(NativeInt(A^), NativeInt(CodePtrLocal[3].VarPointer)), C^, B^);
+              StringSet(GetLocalInt(NativeInt(A^.VarPointer), NativeInt(CodePtrLocal[3].VarPointer)), C^, B^);
           end;
           Inc(CodePtrLocal, 5);
           DispatchGoto;
