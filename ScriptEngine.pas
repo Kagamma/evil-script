@@ -8492,8 +8492,12 @@ begin
   end else
   begin
     Result := P^.Get2(ConstStrings.Ptr(I)^.VarString, CacheValue);
-    {$ifdef SE_THREADS}
-    InterlockedExchange64(CacheSite^.VarData, QWord(CacheValue));
+    {$ifdef CPU32}
+      {$ifdef SE_THREADS}
+      InterlockedExchange64(CacheSite^.VarData, QWord(CacheValue));
+      {$else}
+      CacheSite^.VarData := QWord(CacheValue);
+      {$endif}
     {$else}
     CacheSite^.VarData := QWord(CacheValue);
     {$endif}
@@ -8516,8 +8520,12 @@ begin
   end else
   begin
     P^.Set2(ConstStrings.Ptr(Round(I))^.VarString, V, CacheValue);
-    {$ifdef SE_THREADS}
-    InterlockedExchange64(CacheSite^.VarData, QWord(CacheValue));
+    {$ifdef CPU32}
+      {$ifdef SE_THREADS}
+      InterlockedExchange64(CacheSite^.VarData, QWord(CacheValue));
+      {$else}
+      CacheSite^.VarData := QWord(CacheValue);
+      {$endif}
     {$else}
     CacheSite^.VarData := QWord(CacheValue);
     {$endif}
@@ -9030,8 +9038,12 @@ var
           end else
           begin
             Result := B.VarMap^.Get2(ConstStrings.Ptr(A.VarConstStringIndex)^.VarString, CacheValue);
-            {$ifdef SE_THREADS}
-            InterlockedExchange64(CacheSite^.VarData, QWord(CacheValue));
+            {$ifdef CPU32}
+              {$ifdef SE_THREADS}
+              InterlockedExchange64(CacheSite^.VarData, QWord(CacheValue));
+              {$else}
+              CacheSite^.VarData := QWord(CacheValue);
+              {$endif}
             {$else}
             CacheSite^.VarData := QWord(CacheValue);
             {$endif}
@@ -9059,8 +9071,12 @@ var
           end else
           begin
             TV.VarMap^.Set2(ConstStrings.Ptr(C.VarConstStringIndex)^.VarString, B, CacheValue);
-            {$ifdef SE_THREADS}
-            InterlockedExchange64(CacheSite^.VarData, QWord(CacheValue));
+            {$ifdef CPU32}
+              {$ifdef SE_THREADS}
+              InterlockedExchange64(CacheSite^.VarData, QWord(CacheValue));
+              {$else}
+              CacheSite^.VarData := QWord(CacheValue);
+              {$endif}
             {$else}
             CacheSite^.VarData := QWord(CacheValue);
             {$endif}
