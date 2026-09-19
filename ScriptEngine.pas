@@ -8485,11 +8485,7 @@ function SEMapGetJITResolve(P: PSEValueMap; I: NativeInt; CacheSite: PSEValue): 
 var
   CacheValue: TSECacheValue;
 begin
-  {$ifdef SE_THREADS}
-  InterlockedExchange64(QWord(CacheValue), CacheSite^.VarData);
-  {$else}
   QWord(CacheValue) := CacheSite^.VarData;
-  {$endif}
   if (CacheValue.ID = Cardinal(Pointer(P^.Shape))) and (CacheValue.Index >= 0) then
   begin
     Result := P^.Items[CacheValue.Index];
@@ -8513,11 +8509,7 @@ procedure SEMapSetJITResolve(P: PSEValueMap; I, V: Double; CacheSite: PSEValue);
 var
   CacheValue: TSECacheValue;
 begin
-  {$ifdef SE_THREADS}
-  InterlockedExchange64(QWord(CacheValue), CacheSite^.VarData);
-  {$else}
   QWord(CacheValue) := CacheSite^.VarData;
-  {$endif}
   if (CacheValue.ID = Cardinal(Pointer(P^.Shape))) and (CacheValue.Index >= 0) then
   begin
     P^.Items[CacheValue.Index] := V;
@@ -9031,11 +9023,7 @@ var
         Result := B.VarMap^.Get2(@A.VarString^.Data);
       sevkConstString:
         begin
-          {$ifdef SE_THREADS}
-          InterlockedExchange64(QWord(CacheValue), CacheSite^.VarData);
-          {$else}
           QWord(CacheValue) := CacheSite^.VarData;
-          {$endif}
           if (CacheValue.ID = Cardinal(Pointer(B.VarMap^.Shape))) and (CacheValue.Index >= 0) then
           begin
             Result := B.VarMap^.Items[CacheValue.Index];
@@ -9063,11 +9051,7 @@ var
         TV.VarMap^.Set2(@C.VarString^.Data, B);
       sevkConstString:
         begin
-          {$ifdef SE_THREADS}
-          InterlockedExchange64(QWord(CacheValue), CacheSite^.VarData);
-          {$else}
           QWord(CacheValue) := CacheSite^.VarData;
-          {$endif}
           if (CacheValue.ID = Cardinal(Pointer(TV.VarMap^.Shape))) and (CacheValue.Index >= 0) then
           begin
             TV.VarMap^.Items[CacheValue.Index] := B;
