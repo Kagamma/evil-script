@@ -1,0 +1,70 @@
+fn hello(a, b, c) {
+  for i = 0 to c {
+    a['x'] = a['x'] + b
+  }
+}
+
+fn hello2(a, b, c) {
+  for i = 0 to c {
+    a.x = a.x + b
+  }
+}
+
+//hello([x:0,y:0], 1)
+//hello2([x:0,y:0], 2)
+
+a1 = [x:0,y:0]
+a2 = [x:0,y:0]
+a3 = [y:0,x:0]
+a4 = [y:0,x:0]
+
+t1 = thread_create(hello, a1, 1, 9999999)
+t2 = thread_create(hello, a2, 2, 9999999)
+t3 = thread_create(hello, a3, 3, 9999999)
+t4 = thread_create(hello, a4, 4, 9999999)
+
+thread_start(t1)
+thread_start(t2)
+thread_start(t3)
+thread_start(t4)
+                
+t = ticks()
+thread_wait(t1)
+thread_wait(t2)
+thread_wait(t3)
+thread_wait(t4)
+
+writeln('Time: ', ticks() - t, 'ms')
+writeln('Result:')
+writeln('a1: ', a1)
+writeln('a2: ', a2) 
+writeln('a3: ', a3)
+writeln('a4: ', a4)
+
+a1 = [x:0,y:0]
+a2 = [x:0,y:0]
+a3 = [y:0,x:0]
+a4 = [y:0,x:0]
+
+t1 = thread_create(hello2, a1, 1, 9999999)
+t2 = thread_create(hello2, a2, 2, 9999999)
+t3 = thread_create(hello2, a3, 3, 9999999)
+t4 = thread_create(hello2, a4, 4, 9999999)
+
+thread_start(t1)
+thread_start(t2)
+thread_start(t3)
+thread_start(t4)
+
+t = ticks()
+thread_wait(t1)
+thread_wait(t2)
+thread_wait(t3)
+thread_wait(t4)
+
+writeln('Time: ', ticks() - t, 'ms')
+writeln('Result:')
+writeln('a1: ', a1)
+writeln('a2: ', a2)
+writeln('a3: ', a3)
+writeln('a4: ', a4)
