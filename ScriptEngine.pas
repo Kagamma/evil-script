@@ -1657,6 +1657,7 @@ type
     class function SEMapKeyDelete(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEMapKeyExists(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEMapKeysGet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+    class function SEMapIndicesGet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEMapClear(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEArrayResize(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEArrayToMap(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -5369,6 +5370,7 @@ class function TBuiltInFunction.SEMapKeysGet(const VM: TSEVM; const Args: PSEVal
 var
   Key: String;
   I: NativeInt = 0;
+  Keys: TStringDynArray;
 begin
   SEValidateType(@Args[0], sevkMap, 1, {$I %CURRENTROUTINE%});
   GC.AllocMap(@Result);
@@ -5376,7 +5378,9 @@ begin
   begin
     Args[0].VarMap^.Lock;
     try
-      for Key in Args[0].VarMap^.Shape.GetKeys do
+      Keys := Args[0].VarMap^.Shape.GetKeys;
+      Result.VarMap^.Resize(Length(Keys));
+      for Key in Keys do
       begin
         SEMapSet(Result, I, Key);
         Inc(I);
@@ -5386,6 +5390,41 @@ begin
     end;
   end else
   begin
+    Result.VarMap^.Resize(Args[0].VarMap^.Count);
+    for I := 0 to Args[0].VarMap^.Count - 1 do
+    begin
+      SEMapSet(Result, I, I);
+    end;
+  end;
+end;
+
+class function TBuiltInFunction.SEMapIndicesGet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+var
+  Key: String;
+  I: NativeInt = 0;
+  J: LongInt;
+  Keys: TStringDynArray;
+begin
+  SEValidateType(@Args[0], sevkMap, 1, {$I %CURRENTROUTINE%});
+  GC.AllocMap(@Result);
+  if not SEMapIsValidArray(Args[0]) then
+  begin
+    Args[0].VarMap^.Lock;
+    try
+      Keys := Args[0].VarMap^.Shape.GetKeys;
+      Result.VarMap^.Resize(Length(Keys));
+      for Key in Keys do
+      begin
+        Args[0].VarMap^.Shape.TryGetOffset(Key, J);
+        SEMapSet(Result, I, J);
+        Inc(I);
+      end;
+    finally
+      Args[0].VarMap^.Unlock;
+    end;
+  end else
+  begin
+    Result.VarMap^.Resize(Args[0].VarMap^.Count);
     for I := 0 to Args[0].VarMap^.Count - 1 do
     begin
       SEMapSet(Result, I, I);
@@ -11502,7 +11541,8 @@ begin
     Self.RegisterFunc('map_clone', @TBuiltInFunction(nil).SEMapClone, 1);
     Self.RegisterFunc('map_key_exists', @TBuiltInFunction(nil).SEMapKeyExists, 2);
     Self.RegisterFunc('map_key_delete', @TBuiltInFunction(nil).SEMapKeyDelete, 2);
-    Self.RegisterFunc('map_keys_get', @TBuiltInFunction(nil).SEMapKeysGet, 1);
+    Self.RegisterFunc('map_keys_get', @TBuiltInFunction(nil).SEMapKeysGet, 1, [sevkString]);
+    Self.RegisterFunc('map_indices_get', @TBuiltInFunction(nil).SEMapIndicesGet, 1, [sevkNumber]);
     Self.RegisterFunc('map_clear', @TBuiltInFunction(nil).SEMapClear, 1);
     Self.RegisterFunc('array_resize', @TBuiltInFunction(nil).SEArrayResize, 2);
     Self.RegisterFunc('array_to_map', @TBuiltInFunction(nil).SEArrayToMap, 1);
@@ -14777,7 +14817,7 @@ var
     ContinueList: TList;
     I: NativeInt;
     Token: TSEToken;
-    PIdent: PSEIdent;
+    PIdent, PIdentFirst: PSEIdent;
     VarIdent,
     VarHiddenTargetIdent,
     VarHiddenCountIdent,
@@ -14800,10 +14840,10 @@ var
       // FIXME: tkVariable?
       if Token.Kind = tkIdent then
       begin
-        PIdent := CreateIdent(ikVariable, Token, True, False);
-        VarIdent := PIdent^;
-        PIdent^.IsForcedKind := True;
-        PIdent^.PossibleKinds := [sevkNumber];
+        PIdentFirst := CreateIdent(ikVariable, Token, True, False);
+        VarIdent := PIdentFirst^;
+        PIdentFirst^.IsForcedKind := True;
+        PIdentFirst^.PossibleKinds := [sevkNumber];
       end else
       begin
         VarIdent := FindVar(Token.Value)^;
@@ -14862,7 +14902,7 @@ var
       end else
       begin
         // Changed to any instead
-        PIdent^.PossibleKinds := [sevkString, sevkNumber, sevkMap, sevkFunction, sevkBoolean, sevkNull];
+        //PIdentFirst^.PossibleKinds := [sevkString, sevkNumber, sevkMap, sevkFunction, sevkBoolean, sevkNull];
         if Token.Kind = tkComma then
         begin
           Token := NextTokenExpected([tkIdent]);
@@ -14883,7 +14923,10 @@ var
         VarHiddenArrayIdent := PIdent^;
 
         MarkJITBlock;
-        VerifyJITBlock(ParseExpr(False));
+        // We look for it again in case the pointer changed
+        PIdentFirst := FindVar(VarIdent.Name);
+        PIdentFirst^.PossibleKinds := ParseExpr(False);
+        VerifyJITBlock(PIdentFirst^.PossibleKinds);
 
         EmitAssignVar(VarHiddenArrayIdent);
         Emit([Pointer(opPushConst), 0]);
