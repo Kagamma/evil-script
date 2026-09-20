@@ -12625,7 +12625,7 @@ var
     begin
       ConstStrings.Add(S);
       V := ConstStrings.Ptr(ConstStrings.Count - 1);
-      V^.VarString^.Hash := SEHashString(S);
+     // V^.VarString^.Hash := SEHashString(S);
       GC.UnManaged(V);
       Result := ConstStrings.Count - 1;
       ConstStringsLookup.Add(S, Result);
