@@ -26,7 +26,7 @@ unit ScriptEngine;
 {$endif}
 {$ifdef CPUx86_64}
   {$define SE_HAS_JIT}
-  {.$define SE_DISABLE_AGGRESSIVE_JIT} // Enable this if you want stable, but slower JIT behavior
+  {$define SE_DISABLE_AGGRESSIVE_JIT} // Enable this if you want stable, but slower JIT behavior
 {$endif}
 // enable this if you have access to LCL's FileUtil
 {.$define SE_HAS_FILEUTIL}
