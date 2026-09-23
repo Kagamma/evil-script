@@ -26,7 +26,7 @@ unit ScriptEngine;
 {$endif}
 {$ifdef CPUx86_64}
   {$define SE_HAS_JIT}
-  {$define SE_ENABLE_AGGRESSIVE_JIT} // Disable this if you want stable, but slower JIT behavior
+  {$define SE_DISABLE_RUNTIME_TYPE_CHECKS} // Rely on static type check is fine in most cases
 {$endif}
 // enable this if you have access to LCL's FileUtil
 {.$define SE_HAS_FILEUTIL}
@@ -9358,7 +9358,7 @@ var
       I: Integer;
       Key: String;
     begin
-      {$ifndef SE_ENABLE_AGGRESSIVE_JIT}
+      {$ifndef SE_DISABLE_RUNTIME_TYPE_CHECKS}
       if AValue.Kind <> sevkMap then
         Exit([AValue.Kind]);
       Result := AValue.VarMap^.PossibleKinds;
