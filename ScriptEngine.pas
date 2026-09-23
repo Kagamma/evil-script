@@ -13641,7 +13641,7 @@ var
             begin
               PeekAtNextTokenExpected([tkNegative, tkNot, tkBracketOpen, tkNumber, tkIdent, tkFunctionDecl]);
               MarkJITBlock;
-              Result := VerifyJITBlock(ParseExpr(False));
+              Result := Result + VerifyJITBlock(ParseExpr(False));
               NextTokenExpected([tkBracketClose]);
             end;
           end;
@@ -13691,6 +13691,7 @@ var
                     if Ident^.IsConst and (Ident^.ConstValue.Kind <> sevkNull) then
                     begin
                       EmitExpr([Pointer(opPushConst), Ident^.ConstValue]);
+                      Result := Result + [Ident^.ConstValue.Kind];
                     end else
                     begin
                       case PeekAtNextToken.Kind of
@@ -13723,7 +13724,9 @@ var
                             FuncTail;
                           end;
                         else
-                          EmitPushVar(Ident^);
+                          begin
+                            EmitPushVar(Ident^);
+                          end;
                       end;
                     end;
                   end;
@@ -13761,7 +13764,7 @@ var
                   end;
                   if PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] then
                   begin
-                    Result := Result + [sevkMap];
+                    Result := Result + [sevkFunction];
                     FuncRefToken.Value := '___f' + Self.InternalIdent;
                     FuncRefToken.Kind := tkIdent;
                     FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False)^;
@@ -13940,6 +13943,7 @@ var
     JumpExpr2: NativeInt;
     HasOwnJumpList: Boolean = False;
     Circuit: TSEShortCircuitJump;
+    QResult: TSEValueKindSet;
 
   begin
     if AJumpList = nil then
@@ -14000,20 +14004,20 @@ var
       JumpExpr2 := Emit([Pointer(opJumpEqual1Rel), False, Pointer(0)]);
 
       MarkJITBlock;
-      Result := [sevkNull] + ParseExpr(False);
-      if (Result - [sevkNull]) <> [] then
-        Result := Result - [sevkNull];
-      VerifyJITBlock(Result);
+      QResult := [sevkNull] + ParseExpr(False);
+      if (QResult - [sevkNull]) <> [] then
+        QResult := QResult - [sevkNull];
+      VerifyJITBlock(QResult);
 
       NextTokenExpected([tkColon]);
       JumpEnd := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
       Expr2Block := Self.Binary.Count;
 
       MarkJITBlock;
-      Result := [sevkNull] + ParseExpr(False);
-      if (Result - [sevkNull]) <> [] then
-        Result := Result - [sevkNull];
-      VerifyJITBlock(Result);
+      QResult := [sevkNull] + ParseExpr(False);
+      if (QResult - [sevkNull]) <> [] then
+        QResult := QResult - [sevkNull];
+      VerifyJITBlock(QResult);
 
       EndBlock := Self.Binary.Count;
       Patch(JumpExpr2 - 1, Pointer(Expr2Block) - (JumpExpr2 - 3));
