@@ -9595,8 +9595,9 @@ var
             { A, either from code, or from stack }
             if JitCodePtrLocal[BIndex + 1].Kind <> sevkNull then
             begin
-              E.MovRegImm64(regRSI, Trunc(JitCodePtrLocal[BIndex + 1].VarNumber))
+              E.MovRegImm64(regRSI, JitCodePtrLocal[BIndex + 1].VarConstStringIndex);
             end else
+            // TODO: Remove the below branch, because for attr, the index value always come from code
             begin
               E.CvttSD2SI(regRSI, TXMMReg(XMMStackPtr - 1));
               Dec(XMMStackPtr);
