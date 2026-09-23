@@ -7158,6 +7158,7 @@ begin
   Self.IncSize := 4;
   Self.Capacity := 4;
   Self.FLock := 0;
+  Self.PossibleKinds := [];
   SetLength(Self.Items, Capacity);
 end;
 
