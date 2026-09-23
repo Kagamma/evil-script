@@ -9358,7 +9358,7 @@ var
       I: Integer;
       Key: String;
     begin
-      {$ifdef SE_ENABLE_AGGRESSIVE_JIT}
+      {$ifndef SE_ENABLE_AGGRESSIVE_JIT}
       if AValue.Kind <> sevkMap then
         Exit([AValue.Kind]);
       Result := AValue.VarMap^.PossibleKinds;
