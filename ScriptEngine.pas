@@ -12191,7 +12191,7 @@ begin
               Error('Unhandled directive ' + C);
           end;
         end;
-      'A'..'Z', 'a'..'z', '_':
+      'A'..'Z', 'a'..'z', '_', '$':
         begin
           Token.Value := C;
           C := PeekAtNextChar;
