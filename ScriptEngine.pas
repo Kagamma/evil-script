@@ -1653,6 +1653,7 @@ type
     class function SENumber(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SELength(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEMapCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+    class function SEMapCreateEmpty(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEMapClone(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEMapKeyDelete(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEMapKeyExists(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -5329,6 +5330,14 @@ begin
       SEMapSet(Result, Round(Args[I].VarNumber), Args[I + 1]);
     Inc(I, 2);
   end;
+end;
+
+class function TBuiltInFunction.SEMapCreateEmpty(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+var
+  I: NativeInt = 0;
+begin
+  GC.AllocMap(@Result);
+  Result.VarMap^.ToMap;
 end;
 
 class function TBuiltInFunction.SEMapClone(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -11540,6 +11549,7 @@ begin
     Self.RegisterFunc('length', @TBuiltInFunction(nil).SELength, 1, [sevkNumber]);
     Self.RegisterFunc('map_create', @TBuiltInFunction(nil).SEMapCreate, -1, [sevkMap]);
     Self.RegisterFunc('___map_create', @TBuiltInFunction(nil).SEMapCreate, -1, [sevkMap]);
+    Self.RegisterFunc('___map_create_empty', @TBuiltInFunction(nil).SEMapCreateEmpty, 0, [sevkMap]);
     Self.RegisterFunc('map_clone', @TBuiltInFunction(nil).SEMapClone, 1);
     Self.RegisterFunc('map_key_exists', @TBuiltInFunction(nil).SEMapKeyExists, 2);
     Self.RegisterFunc('map_key_delete', @TBuiltInFunction(nil).SEMapKeyDelete, 2);
@@ -13616,12 +13626,23 @@ var
         end;
       end;
 
+      function ParseMapAssign: TSEValueKindSet;
+      var
+        FuncNativeInfo: PSEFuncNativeInfo;
+        I: NativeInt;
+        Ind: Cardinal;
+      begin
+        FuncNativeInfo := FindFuncNative('___map_create_empty', Ind);
+        Emit([Pointer(opCallNative), Pointer(Ind), Pointer(0), Pointer(0)]);
+        Result := [sevkMap];
+      end;
+
     var
       Kinds: TSEValueKindSet;
 
     begin
       Token := PeekAtNextTokenExpected([
-        tkBracketOpen, tkBracketClose, tkSquareBracketOpen, tkDot, tkNumber, tkEOF,
+        tkBracketOpen, tkBracketClose, tkSquareBracketOpen, tkDot, tkNumber, tkEOF, tkBegin,
         tkNegative, tkNot, tkString, tkIdent, tkFunctionDecl]);
       case Token.Kind of
         tkBracketOpen:
@@ -13657,6 +13678,12 @@ var
               ParseFuncAnonDecl(2)
             else
               ParseFuncAnonDecl;
+          end;
+        tkBegin:
+          begin
+            NextToken;
+            NextTokenExpected([tkEnd]);
+            Result := Result + ParseMapAssign;
           end;
         tkSquareBracketOpen:
           begin
@@ -15795,13 +15822,14 @@ function TEvilC.ExecFuncOnly(const Name: String; const Args: array of TSEValue):
 var
   I: NativeInt;
 begin
-  for I := Self.FuncScriptList.Count - 1 downto 0 do
-  begin
-    if Name = Self.FuncScriptList[I].Name then
+  if Name <> '' then
+    for I := Self.FuncScriptList.Count - 1 downto 0 do
     begin
-      Exit(Self.ExecFuncOnly(I, Args));
+      if Name = Self.FuncScriptList[I].Name then
+      begin
+        Exit(Self.ExecFuncOnly(I, Args));
+      end;
     end;
-  end;
   Exit(SENull);
 end;
 
@@ -15861,13 +15889,14 @@ function TEvilC.ExecFunc(const Name: String; const Args: array of TSEValue): TSE
 var
   I: NativeInt;
 begin
-  for I := Self.FuncScriptList.Count - 1 downto 0 do
-  begin
-    if Name = Self.FuncScriptList[I].Name then
+  if Name <> '' then
+    for I := Self.FuncScriptList.Count - 1 downto 0 do
     begin
-      Exit(Self.ExecFunc(I, Args));
+      if Name = Self.FuncScriptList[I].Name then
+      begin
+        Exit(Self.ExecFunc(I, Args));
+      end;
     end;
-  end;
   Exit(SENull);
 end;
 

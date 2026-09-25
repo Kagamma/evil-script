@@ -169,6 +169,10 @@ c = []
 // A nice trick to create array with size is to set the last index, for example: c[99] = null
 // This will increase array size to 100
 
+c = {}
+// Create an empty map. This will mark c as an invalid array.
+// Technically, it is equivalent to c = array_to_map([])
+
 c = [ name: 'Satania', race: 'Demon' ]
 // Create a map with 2 entries and store its reference in 'c'
 
