@@ -12195,7 +12195,7 @@ begin
         begin
           Token.Value := C;
           C := PeekAtNextChar;
-          while C in ['0'..'9', 'A'..'Z', 'a'..'z', '_'] do
+          while C in ['0'..'9', 'A'..'Z', 'a'..'z', '_', '$'] do
           begin
             Token.Value := Token.Value + NextChar;
             C := PeekAtNextChar;
