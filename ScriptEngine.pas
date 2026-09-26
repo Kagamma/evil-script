@@ -54,6 +54,7 @@ unit ScriptEngine;
 {$packenum 4}
 {$optimization REGVAR}
 {$R-}
+{$Q-}
 
 interface
 
@@ -4299,7 +4300,9 @@ begin
     sevkConstString:
       Result := ConstStrings.Ptr(Value.VarConstStringIndex)^.VarString^.Data;
     else
-      Result := Value;
+      begin
+        raise Exception.Create('Invalid kind during SEValueToText call! ' + IntToStr(Cardinal(Value.Kind)));
+      end;
   end;
 end;
 
@@ -7846,7 +7849,7 @@ var
       begin
         VM := VMList[I];
         P := @VM.Stack[0];
-        while P < VM.StackPtr do
+        while P <= VM.StackPtr do
         begin
           Self.FReachableValueList.Add(P^);
           Inc(P);
@@ -9000,7 +9003,7 @@ var
     case B.Kind of
       sevkString:
         begin
-          if StringRefCount(TV^.VarString^.Data) > 1 then
+          if (StringRefCount(TV^.VarString^.Data) > 1) or (TV^.VarString^.Data = '') then
             GC.AllocString(TV, TV^.VarString^.Data);
           {$ifdef SE_STRING_UTF8}
             S1 := TV^.VarString^.Data;
@@ -9015,7 +9018,7 @@ var
         end;
       sevkNumber:
         begin
-          if StringRefCount(TV^.VarString^.Data) > 1 then
+          if (StringRefCount(TV^.VarString^.Data) > 1) or (TV^.VarString^.Data = '') then
             GC.AllocString(TV, TV^.VarString^.Data);
           {$ifdef SE_STRING_UTF8}
             S1 := TV^.VarString^.Data;
@@ -14376,38 +14379,38 @@ var
       case KindName of
         'number':
           begin
-            Ident^.IsForcedKind := True;
+           // Ident^.IsForcedKind := True;
             Ident^.PossibleKinds := [sevkNumber];
           end;
         'map':
           begin
-            Ident^.IsForcedKind := True;
+           // Ident^.IsForcedKind := True;
             Ident^.PossibleKinds := [sevkMap];
           end;
         'string':
           begin
-            Ident^.IsForcedKind := True;
+           // Ident^.IsForcedKind := True;
             Ident^.PossibleKinds := [sevkString];
           end;
         'boolean':
           begin
-            Ident^.IsForcedKind := True;
+           // Ident^.IsForcedKind := True;
             Ident^.PossibleKinds := [sevkBoolean];
           end;
         'pasobject':
           begin
-            Ident^.IsForcedKind := True;
+           // Ident^.IsForcedKind := True;
             Ident^.PossibleKinds := [sevkPascalObject];
           end;
         'function':
           begin
-            Ident^.IsForcedKind := True;
+           // Ident^.IsForcedKind := True;
             Ident^.PossibleKinds := [sevkFunction];
           end;
         'any':
           begin
-            Ident^.IsForcedKind := True;
-            Ident^.PossibleKinds := [sevkString, sevkNumber, sevkBoolean, sevkMap, sevkFunction, sevkPascalObject];
+           // Ident^.IsForcedKind := True;
+            Ident^.PossibleKinds := [sevkNull];
           end;
         else
           Error(Format('Unknown type "%s"', [KindName]), PeekAtNextToken);
@@ -14875,7 +14878,6 @@ var
       begin
         PIdentFirst := CreateIdent(ikVariable, Token, True, False);
         VarIdent := PIdentFirst^;
-        PIdentFirst^.IsForcedKind := True;
         PIdentFirst^.PossibleKinds := [sevkNumber];
       end else
       begin
@@ -14947,7 +14949,6 @@ var
 
         Token.Value := VarHiddenCountName;
         PIdent := CreateIdent(ikVariable, Token, True, False);
-        PIdent^.IsForcedKind := True;
         PIdent^.PossibleKinds := [sevkNumber];
         VarHiddenCountIdent := PIdent^;
 
