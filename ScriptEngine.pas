@@ -16189,8 +16189,7 @@ initialization
   IsThread := 0;
   FunctionAssert := [
     Pointer(opPushLocalVar), Pointer(0), Pointer(0),
-    Pointer(opPushConst), false,
-    Pointer(opEqual),
+    Pointer(opNot),
     Pointer(opJumpEqual1Rel), true, Pointer(5),
     Pointer(opJumpUnconditionalRel), Pointer(6),
     Pointer(opPushLocalVar), Pointer(1), Pointer(0),
