@@ -542,7 +542,6 @@ type
     constructor Create;
     destructor Destroy; override;
     procedure AddToList(const PValue: PSEValue);
-    procedure CheckForGC;
     procedure CheckForGCFast;
     procedure GC(const Forced: Boolean = False);
     procedure AllocBuffer(const PValue: PSEValue; const Size: NativeInt);
@@ -553,6 +552,7 @@ type
     procedure Managed(const PValue: PSEValue);
     procedure Lock;
     procedure Unlock;
+    property Ticks: NativeUInt read FTicks write FTicks;
     property ValueList: TSEGCNodeList read FNodeList;
     property ObjectCount: Cardinal read FObjects;
     property OldObjectCount: Cardinal read FObjectsOld;
@@ -7328,6 +7328,7 @@ begin
   Self.Shape := ShapeManager.RemoveProperty(Self.Shape, Key^);
   if Self.Shape.NeedsCompaction then
   begin
+    Self.Lock;
     Self.Shape := ShapeManager.Compact(Self.Shape, Remap);
     SetLength(NewValues, Self.Shape.SlotCount + Self.IncSize);
     for I := 0 to High(Remap) do
@@ -7336,7 +7337,6 @@ begin
     //
     Self.Count := Self.Shape.SlotCount;
     Self.Capacity := Self.Count + Self.IncSize;
-    Self.Lock;
     Self.Items := NewValues;
     Self.Unlock;
   end;
@@ -7562,14 +7562,6 @@ begin
   end;
 end;
 
-procedure TSEGarbageCollector.CheckForGC; inline;
-begin
-  if GetTickCount64 - Self.FTicks > Self.Interval then
-  begin
-    Self.GC;
-  end;
-end;
-
 procedure TSEGarbageCollector.Initial;
 var
   I, J: NativeInt;
@@ -7715,7 +7707,7 @@ var
   I: NativeInt;
   VArray: TSEValueArray;
 begin
-  if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) and (PValue^.Kind <> sevkPascalObject) then
+  if not (PValue^.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
     Exit;
   Value := Self.FNodeList.Ptr(PValue^.Ref);
   if Value^.Marked >= Self.FRunCount then
@@ -7742,7 +7734,7 @@ begin
                   for I := 0 to Length(VArray) - 1 do
                   begin
                     RValue := VArray[I];
-                    if (RValue.Kind <> sevkMap) and (RValue.Kind <> sevkString) and (RValue.Kind <> sevkBuffer) and (RValue.Kind <> sevkPascalObject) then
+                    if not (RValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
                       Continue;
                     Mark(@RValue);
                   end;
@@ -7758,7 +7750,7 @@ begin
                   for Key in PValue^.VarMap^.Shape.GetKeys do
                   begin
                     RValue := SEMapGet(PValue^, Key);
-                    if (RValue.Kind <> sevkMap) and (RValue.Kind <> sevkString) and (RValue.Kind <> sevkBuffer) and (RValue.Kind <> sevkPascalObject) then
+                    if not (RValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
                       Continue;
                     Mark(@RValue);
                   end;
@@ -7849,7 +7841,7 @@ var
       begin
         VM := VMList[I];
         P := @VM.Stack[0];
-        while P <= VM.StackPtr do
+        while P < VM.StackPtr do
         begin
           Self.FReachableValueList.Add(P^);
           Inc(P);
@@ -7879,7 +7871,7 @@ var
       begin
         VM := VMList[I];
         P := @VM.Stack[0];
-        while P <= VM.StackPtr do
+        while P < VM.StackPtr do
         begin
           Self.Mark(P);
           Inc(P);
@@ -10490,6 +10482,15 @@ var
   end;
 {$endif}
 
+  procedure CheckForGCFast; inline;
+  begin
+    if GetTickCount64 - GC.Ticks > GC.Interval then
+    begin
+      Self.StackPtr := StackPtrLocal;
+      GC.GC;
+    end;
+  end;
+
 begin
   if Self.IsDone then
     Self.Reset;
@@ -10519,7 +10520,7 @@ begin
   end;
   {$endif}
 
-  GC.CheckForGC;
+  CheckForGCFast;
 
 labelStart:
   while True do
@@ -11062,7 +11063,7 @@ labelStart:
           {$ifdef SE_PROFILER}
           SEProfiler.AddReport(SEProfilerStack.Pop);
           {$endif}
-          GC.CheckForGCFast;
+          CheckForGCFast;
           Inc(CodePtrLocal, 4);
           DispatchGoto;
         end;
