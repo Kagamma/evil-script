@@ -86,8 +86,6 @@ const
   SE_STACK_RESERVED = 2;
 
 type
-  TSENumber = Double;
-
   TSEOpcode = (
     opPushConst,
     opPushConstString,
@@ -259,7 +257,7 @@ type
         );
       sevkNumber:
         (
-          VarNumber: TSENumber;
+          VarNumber: Double;
         );
       sevkString:
         (
@@ -334,6 +332,7 @@ type
     function ToJSON: String;
     function ToString: String;
     function Size: SizeInt;
+    function AsBoolean: Boolean; inline;
   end;
 
   {$ifdef SE_MAP_AVK959}
@@ -1527,39 +1526,59 @@ procedure SEDisAsm(const VM: TSEVM; var Res: String);
 function SEGet(const AName: String): TSEValue;
 procedure SESet(const AName: String; constref AValue: TSEValue);
 
-operator := (V: TSENumber) R: TSEValue;
+operator := (V: Double) R: TSEValue;
+operator := (V: Single) R: TSEValue;
 operator := (V: String) R: TSEValue;
 operator := (V: Boolean) R: TSEValue;
 operator := (V: TSEValueArray) R: TSEValue;
 operator := (V: Pointer) R: TSEValue;
-operator := (V: TSEValue) R: NativeInt;
-operator := (V: TSEValue) R: TValue;
 operator := (V: TValue) R: TSEValue;
-{$ifdef CPU64}
-operator := (V: TSEValue) R: Int64;
-{$endif}
-operator := (V: TSEValue) R: Boolean;
-operator := (V: TSEValue) R: TSENumber;
+operator := (V: NativeInt) R: TSEValue;
+operator := (V: NativeUInt) R: TSEValue;
+operator := (V: Int64) R: TSEValue;
+operator := (V: UInt64) R: TSEValue;
+operator := (V: Int32) R: TSEValue;
+operator := (V: UInt32) R: TSEValue;
+operator := (V: Int16) R: TSEValue;
+operator := (V: UInt16) R: TSEValue;
+operator := (V: Int8) R: TSEValue;
+operator := (V: UInt8) R: TSEValue;
+
+operator := (V: TSEValue) R: Double;
+operator := (V: TSEValue) R: Single;
 operator := (V: TSEValue) R: String;
+operator := (V: TSEValue) R: Boolean;
 operator := (V: TSEValue) R: TSEValueArray;
 operator := (V: TSEValue) R: Pointer;
-operator + (V1: TSEValue; V2: TSENumber) R: TSEValue;
+operator := (V: TSEValue) R: TValue;
+operator := (V: TSEValue) R: NativeInt;
+operator := (V: TSEValue) R: NativeUInt;
+operator := (V: TSEValue) R: Int64;
+operator := (V: TSEValue) R: UInt64;
+operator := (V: TSEValue) R: Int32;
+operator := (V: TSEValue) R: UInt32;
+operator := (V: TSEValue) R: Int16;
+operator := (V: TSEValue) R: UInt16;
+operator := (V: TSEValue) R: Int8;
+operator := (V: TSEValue) R: UInt8;
+
+operator + (V1: TSEValue; V2: Double) R: TSEValue;
 operator + (V1: TSEValue; V2: String) R: TSEValue;
 operator + (V1: TSEValue; V2: Pointer) R: TSEValue;
-operator - (V1: TSEValue; V2: TSENumber) R: TSEValue;
+operator - (V1: TSEValue; V2: Double) R: TSEValue;
 operator - (V1: TSEValue; V2: Pointer) R: TSEValue;
-operator * (V1: TSEValue; V2: TSENumber) R: TSEValue;
-operator / (V1: TSEValue; V2: TSENumber) R: TSEValue;
+operator * (V1: TSEValue; V2: Double) R: TSEValue;
+operator / (V1: TSEValue; V2: Double) R: TSEValue;
 operator + (V1, V2: TSEValue) R: TSEValue;
 operator - (V1, V2: TSEValue) R: TSEValue;
 operator - (V: TSEValue) R: TSEValue;
 operator * (V1, V2: TSEValue) R: TSEValue;
 operator / (V1, V2: TSEValue) R: TSEValue;
-operator < (V1: TSEValue; V2: TSENumber) R: Boolean;
-operator > (V1: TSEValue; V2: TSENumber) R: Boolean;
-operator <= (V1: TSEValue; V2: TSENumber) R: Boolean;
-operator >= (V1: TSEValue; V2: TSENumber) R: Boolean;
-operator = (V1: TSEValue; V2: TSENumber) R: Boolean;
+operator < (V1: TSEValue; V2: Double) R: Boolean;
+operator > (V1: TSEValue; V2: Double) R: Boolean;
+operator <= (V1: TSEValue; V2: Double) R: Boolean;
+operator >= (V1: TSEValue; V2: Double) R: Boolean;
+operator = (V1: TSEValue; V2: Double) R: Boolean;
 operator <> (V1: TSEValue; V2: String) R: Boolean;
 operator < (V1, V2: TSEValue) R: Boolean;
 operator > (V1, V2: TSEValue) R: Boolean;
@@ -4245,7 +4264,7 @@ begin
     sevkNumber:
       Result := PointFloatToStr(Value.VarNumber);
     sevkBoolean:
-      Result := BoolToStr(Boolean(Round(Value.VarNumber)), 'true', 'false');
+      Result := BoolToStr(Value, 'true', 'false');
     sevkMap:
       begin
         Result := '[';
@@ -4704,7 +4723,7 @@ begin
           tkFloat:
             V := A.VarNumber;
           tkBool:
-            V := Boolean(Round(A.VarNumber));
+            V := A.AsBoolean;
           tkLString,
           tkAString,
           tkWString,
@@ -4814,6 +4833,11 @@ end;
 function TSEValueHelper.Size: SizeInt;
 begin
   Result := SESize(Self);
+end;
+
+function TSEValueHelper.AsBoolean: Boolean;
+begin
+  Result := Boolean(Round(Self.VarNumber));
 end;
 
 class function TBuiltInFunction.SEBufferCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -4993,14 +5017,14 @@ class function TBuiltInFunction.SEBufferGetF32(const VM: TSEVM; const Args: PSEV
 begin
   SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   Result.Kind := sevkNumber;
-  Result.VarNumber := TSENumber(Single((Args[0].VarBuffer^.Ptr)^));
+  Result.VarNumber := Double(Single((Args[0].VarBuffer^.Ptr)^));
 end;
 
 class function TBuiltInFunction.SEBufferGetF64(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   Result.Kind := sevkNumber;
-  Result.VarNumber := TSENumber((Args[0].VarBuffer^.Ptr)^);
+  Result.VarNumber := Double((Args[0].VarBuffer^.Ptr)^);
 end;
 
 class function TBuiltInFunction.SEBufferSetU8(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -5082,7 +5106,7 @@ end;
 class function TBuiltInFunction.SEBufferSetF64(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
-  TSENumber(Args[0].VarBuffer^.Ptr^) := Args[1];
+  Double(Args[0].VarBuffer^.Ptr^) := Args[1];
   Result := SENull;
 end;
 
@@ -5188,7 +5212,7 @@ end;
 
 class function TBuiltInFunction.SEKindOf(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Result := TSENumber(NativeInt(Args[0].Kind));
+  Result := Double(NativeInt(Args[0].Kind));
 end;
 
 class function TBuiltInFunction.SEWrite(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -5495,7 +5519,7 @@ end;
 
 class function TBuiltInFunction.SELerp(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 var
-  A, B, T: TSENumber;
+  A, B, T: Double;
 begin
   A := Args[0];
   B := Args[1];
@@ -5505,7 +5529,7 @@ end;
 
 class function TBuiltInFunction.SESLerp(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 var
-  A, B, T, T2: TSENumber;
+  A, B, T, T2: Double;
 begin
   A := Args[0];
   B := Args[1];
@@ -5520,7 +5544,7 @@ begin
 end;
 
 class function TBuiltInFunction.SERange(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
-  function EpsilonRound(V: TSENumber): TSENumber;
+  function EpsilonRound(V: Double): Double;
   begin
     if Abs(Frac(V)) < 1E-12 then
       Result := Round(V)
@@ -5529,7 +5553,7 @@ class function TBuiltInFunction.SERange(const VM: TSEVM; const Args: PSEValue; c
   end;
 
 var
-  V: TSENumber;
+  V: Double;
   I: NativeInt = 0;
 begin
   GC.AllocMap(@Result);
@@ -5748,42 +5772,42 @@ end;
 
 class function TBuiltInFunction.SELn(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Exit(Ln(TSENumber(Args[0])));
+  Exit(Ln(Double(Args[0])));
 end;
 
 class function TBuiltInFunction.SESin(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Exit(Sin(TSENumber(Args[0])));
+  Exit(Sin(Double(Args[0])));
 end;
 
 class function TBuiltInFunction.SECos(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Exit(Cos(TSENumber(Args[0])));
+  Exit(Cos(Double(Args[0])));
 end;
 
 class function TBuiltInFunction.SETan(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Exit(Tan(TSENumber(Args[0])));
+  Exit(Tan(Double(Args[0])));
 end;
 
 class function TBuiltInFunction.SECot(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Exit(Cot(TSENumber(Args[0])));
+  Exit(Cot(Double(Args[0])));
 end;
 
 class function TBuiltInFunction.SESqrt(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Exit(Sqrt(TSENumber(Args[0])));
+  Exit(Sqrt(Double(Args[0])));
 end;
 
 class function TBuiltInFunction.SEAbs(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Exit(Abs(TSENumber(Args[0])));
+  Exit(Abs(Double(Args[0])));
 end;
 
 class function TBuiltInFunction.SEFrac(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Exit(Frac(TSENumber(Args[0])));
+  Exit(Frac(Double(Args[0])));
 end;
 
 class function TBuiltInFunction.SEGetTickCount(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -6017,7 +6041,7 @@ end;
 class function TBuiltInFunction.SEEventWait(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
-  Result := TSENumber(NativeInt(TEventObject(Args[0].VarPascalObject^.Value).WaitFor(Round(Args[1].VarNumber))));
+  Result := Double(NativeInt(TEventObject(Args[0].VarPascalObject^.Value).WaitFor(Round(Args[1].VarNumber))));
 end;
 
 class function TBuiltInFunction.SEEventReset(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -6129,7 +6153,7 @@ begin
   {$ifdef SE_HAS_FILEUTIL}
   SL := TStringList.Create;
   try
-    FindAllFiles(SL, Args[0], Args[1], Boolean(Round(Args[2].VarNumber)), Round(Args[3].VarNumber));
+    FindAllFiles(SL, Args[0], Args[1], Args[2], Round(Args[3].VarNumber));
     GC.AllocMap(@Result);
     for I := 0 to SL.Count - 1 do
       SEMapSet(Result, I, SL[I]);
@@ -6360,7 +6384,7 @@ class function TBuiltInFunction.SEJSONStringify(const VM: TSEVM; const Args: PSE
         sevkNumber:
           SB.Append(PointFloatToStr(V.VarNumber));
         sevkBoolean:
-          SB.Append(BoolToStr(Boolean(Round(V.VarNumber)), 'true', 'false'));
+          SB.Append(BoolToStr(V, 'true', 'false'));
         sevkMap:
           begin
             Decide(SB, V);
@@ -6400,7 +6424,7 @@ class function TBuiltInFunction.SEJSONStringify(const VM: TSEVM; const Args: PSE
           sevkNumber:
             SB.Append(PointFloatToStr(V.VarNumber));
           sevkBoolean:
-            SB.Append(BoolToStr(Boolean(Round(V.VarNumber)), 'true', 'false'));
+            SB.Append(BoolToStr(V, 'true', 'false'));
           sevkMap:
             begin
               Decide(SB, V);
@@ -6639,15 +6663,15 @@ begin
   if V2.Kind = sevkBoolean then
   case V1.Kind of
     sevkNumber:
-      R := (V1.VarNumber <> 0) = Boolean(Round(V2.VarNumber));
+      R := (V1.VarNumber <> 0) = V2.AsBoolean;
     sevkString:
-      R := (Length(V1.VarString^.Data) > 0) = Boolean(Round(V2.VarNumber));
+      R := (Length(V1.VarString^.Data) > 0) = V2.AsBoolean;
     sevkMap,
     sevkPascalObject,
     sevkFunction:
-      R := True = Boolean(Round(V2.VarNumber));
+      R := True = V2.AsBoolean;
     sevkNull:
-      R := False = Boolean(Round(V2.VarNumber));
+      R := False = V2.AsBoolean;
   end
   else
     R := V1.VarPointer = V2.VarPointer;
@@ -6673,15 +6697,15 @@ begin
   if V2.Kind = sevkBoolean then
   case V1.Kind of
     sevkNumber:
-      R := (V1.VarNumber <> 0) <> Boolean(Round(V2.VarNumber));
+      R := (V1.VarNumber <> 0) <> V2.AsBoolean;
     sevkString:
-      R := (Length(V1.VarString^.Data) > 0) <> Boolean(Round(V2.VarNumber));
+      R := (Length(V1.VarString^.Data) > 0) <> V2.AsBoolean;
     sevkMap,
     sevkPascalObject,
     sevkFunction:
-      R := True <> Boolean(Round(V2.VarNumber));
+      R := True <> V2.AsBoolean;
     sevkNull:
-      R := False <> Boolean(Round(V2.VarNumber));
+      R := False <> V2.AsBoolean;
   end
   else
     R := V1.VarPointer <> V2.VarPointer;
@@ -6737,15 +6761,15 @@ begin
   if V2.Kind = sevkBoolean then
   case V1.Kind of
     sevkNumber:
-      Result := (V1.VarNumber <> 0) = Boolean(Round(V2.VarNumber));
+      Result := (V1.VarNumber <> 0) = V2.AsBoolean;
     sevkString:
-      Result := (Length(V1.VarString^.Data) > 0) = Boolean(Round(V2.VarNumber));
+      Result := (Length(V1.VarString^.Data) > 0) = V2.AsBoolean;
     sevkMap,
     sevkPascalObject,
     sevkFunction:
-      Result := True = Boolean(Round(V2.VarNumber));
+      Result := True = V2.AsBoolean;
     sevkNull:
-      Result := False = Boolean(Round(V2.VarNumber));
+      Result := False = V2.AsBoolean;
   end
   else
     Result := V1.VarPointer = V2.VarPointer;
@@ -6769,15 +6793,15 @@ begin
   if V2.Kind = sevkBoolean then
   case V1.Kind of
     sevkNumber:
-      Result := (V1.VarNumber <> 0) <> Boolean(Round(V2.VarNumber));
+      Result := (V1.VarNumber <> 0) <> V2.AsBoolean;
     sevkString:
-      Result := (Length(V1.VarString^.Data) > 0) <> Boolean(Round(V2.VarNumber));
+      Result := (Length(V1.VarString^.Data) > 0) <> V2.AsBoolean;
     sevkMap,
     sevkPascalObject,
     sevkFunction:
-      Result := True <> Boolean(Round(V2.VarNumber));
+      Result := True <> V2.AsBoolean;
     sevkNull:
-      Result := False <> Boolean(Round(V2.VarNumber));
+      Result := False <> V2.AsBoolean;
   end
   else
     Result := V1.VarPointer <> V2.VarPointer;
@@ -6785,7 +6809,13 @@ end;
 
 // ----- TSEValue operator overloading
 
-operator := (V: TSENumber) R: TSEValue; inline;
+operator := (V: Double) R: TSEValue; inline;
+begin
+  R.Kind := sevkNumber;
+  R.VarNumber := V;
+end;
+
+operator := (V: Single) R: TSEValue; inline;
 begin
   R.Kind := sevkNumber;
   R.VarNumber := V;
@@ -6800,7 +6830,7 @@ end;
 operator := (V: Boolean) R: TSEValue; inline;
 begin
   R.Kind := sevkBoolean;
-  R.VarNumber := NativeInt(V);
+  R.VarNumber := UInt64(V);
 end;
 operator := (V: TSEValueArray) R: TSEValue; inline;
 var
@@ -6815,22 +6845,107 @@ begin
   R.Kind := sevkPointer;
   R.VarPointer := V;
 end;
+operator := (V: NativeUInt) R: TSEValue; inline;
+begin
+  R.Kind := sevkNumber;
+  R.VarNumber := V;
+end;
+operator := (V: NativeInt) R: TSEValue; inline;
+begin
+  R.Kind := sevkNumber;
+  R.VarNumber := V;
+end;
+operator := (V: UInt64) R: TSEValue; inline;
+begin
+  R.Kind := sevkNumber;
+  R.VarNumber := V;
+end;
+operator := (V: Int64) R: TSEValue; inline;
+begin
+  R.Kind := sevkNumber;
+  R.VarNumber := V;
+end;
+operator := (V: UInt32) R: TSEValue; inline;
+begin
+  R.Kind := sevkNumber;
+  R.VarNumber := V;
+end;
+operator := (V: Int32) R: TSEValue; inline;
+begin
+  R.Kind := sevkNumber;
+  R.VarNumber := V;
+end;
+operator := (V: UInt16) R: TSEValue; inline;
+begin
+  R.Kind := sevkNumber;
+  R.VarNumber := V;
+end;
+operator := (V: Int16) R: TSEValue; inline;
+begin
+  R.Kind := sevkNumber;
+  R.VarNumber := V;
+end;
+operator := (V: UInt8) R: TSEValue; inline;
+begin
+  R.Kind := sevkNumber;
+  R.VarNumber := V;
+end;
+operator := (V: Int8) R: TSEValue; inline;
+begin
+  R.Kind := sevkNumber;
+  R.VarNumber := V;
+end;
 
 operator := (V: TSEValue) R: NativeInt; inline;
 begin
   R := Round(V.VarNumber);
 end;
-{$ifdef CPU64}
+operator := (V: TSEValue) R: NativeUInt; inline;
+begin
+  R := Round(V.VarNumber);
+end;
 operator := (V: TSEValue) R: Int64; inline;
 begin
   R := Round(V.VarNumber);
 end;
-{$endif}
+operator := (V: TSEValue) R: UInt64; inline;
+begin
+  R := Round(V.VarNumber);
+end;
+operator := (V: TSEValue) R: Int32; inline;
+begin
+  R := Round(V.VarNumber);
+end;
+operator := (V: TSEValue) R: UInt32; inline;
+begin
+  R := Round(V.VarNumber);
+end;
+operator := (V: TSEValue) R: Int16; inline;
+begin
+  R := Round(V.VarNumber);
+end;
+operator := (V: TSEValue) R: UInt16; inline;
+begin
+  R := Round(V.VarNumber);
+end;
+operator := (V: TSEValue) R: Int8; inline;
+begin
+  R := Round(V.VarNumber);
+end;
+operator := (V: TSEValue) R: UInt8; inline;
+begin
+  R := Round(V.VarNumber);
+end;
+
 operator := (V: TSEValue) R: Boolean; inline;
 begin
-  R := Round(V.VarNumber) <> 0;
+  R := V.AsBoolean;
 end;
-operator := (V: TSEValue) R: TSENumber; inline;
+operator := (V: TSEValue) R: Double; inline;
+begin
+  R := V.VarNumber;
+end;
+operator := (V: TSEValue) R: Single; inline;
 begin
   R := V.VarNumber;
 end;
@@ -6860,7 +6975,7 @@ operator := (V: TSEValue) R: TValue;
 begin
   case V.Kind of
     sevkBoolean:
-      R := Boolean(Round(V.VarNumber));
+      R := V.AsBoolean;
     sevkNumber:
       R := V.VarNumber;
     sevkString:
@@ -6906,7 +7021,7 @@ begin
   end;
 end;
 
-operator + (V1: TSEValue; V2: TSENumber) R: TSEValue; inline;
+operator + (V1: TSEValue; V2: Double) R: TSEValue; inline;
 begin
   R.Kind := sevkNumber;
   R.VarNumber := V1.VarNumber + V2;
@@ -6930,7 +7045,7 @@ begin
   R.VarPointer := V1.VarPointer + V2;
 end;
 
-operator - (V1: TSEValue; V2: TSENumber) R: TSEValue; inline;
+operator - (V1: TSEValue; V2: Double) R: TSEValue; inline;
 begin
   R.Kind := sevkNumber;
   R.VarNumber := V1.VarNumber - V2;
@@ -6941,13 +7056,13 @@ begin
   R.VarPointer := V1.VarPointer + V2;
 end;
 
-operator * (V1: TSEValue; V2: TSENumber) R: TSEValue; inline;
+operator * (V1: TSEValue; V2: Double) R: TSEValue; inline;
 begin
   R.Kind := sevkNumber;
   R.VarNumber := V1.VarNumber * V2;
 end;
 
-operator / (V1: TSEValue; V2: TSENumber) R: TSEValue; inline;
+operator / (V1: TSEValue; V2: Double) R: TSEValue; inline;
 begin
   R.Kind := sevkNumber;
   R.VarNumber := V1.VarNumber / V2;
@@ -7044,23 +7159,23 @@ begin
   R.VarNumber := V1.VarNumber / V2.VarNumber;
 end;
 
-operator < (V1: TSEValue; V2: TSENumber) R: Boolean; inline;
+operator < (V1: TSEValue; V2: Double) R: Boolean; inline;
 begin
   R := V1.VarNumber < V2;
 end;
-operator > (V1: TSEValue; V2: TSENumber) R: Boolean; inline;
+operator > (V1: TSEValue; V2: Double) R: Boolean; inline;
 begin
   R := V1.VarNumber > V2;
 end;
-operator <= (V1: TSEValue; V2: TSENumber) R: Boolean; inline;
+operator <= (V1: TSEValue; V2: Double) R: Boolean; inline;
 begin
   R := V1.VarNumber <= V2;
 end;
-operator >= (V1: TSEValue; V2: TSENumber) R: Boolean; inline;
+operator >= (V1: TSEValue; V2: Double) R: Boolean; inline;
 begin
   R := V1.VarNumber >= V2;
 end;
-operator = (V1: TSEValue; V2: TSENumber) R: Boolean; inline;
+operator = (V1: TSEValue; V2: Double) R: Boolean; inline;
 begin
   R := V1.VarNumber = V2;
 end;
@@ -7070,7 +7185,7 @@ begin
   R := V1.VarString^.Data = V2;
 end;
 
-operator <> (V1: TSEValue; V2: TSENumber) R: Boolean; inline;
+operator <> (V1: TSEValue; V2: Double) R: Boolean; inline;
 begin
   R := V1.VarNumber <> V2;
 end;
@@ -7103,7 +7218,7 @@ begin
     sevkNumber:
       R := V1.VarNumber = V2.VarNumber;
     sevkBoolean:
-      R := Boolean(Round(V1.VarNumber)) = Boolean(Round(V2.VarNumber));
+      R := V1.AsBoolean = V2.AsBoolean;
     sevkString:
       R := V1.VarString^.Data = V2.VarString^.Data;
     sevkNull:
@@ -7116,15 +7231,15 @@ begin
   if V2.Kind = sevkBoolean then
   case V1.Kind of
     sevkNumber:
-      R := (V1.VarNumber <> 0) = Boolean(Round(V2.VarNumber));
+      R := (V1.VarNumber <> 0) = V2.AsBoolean;
     sevkString:
-      R := (Length(V1.VarString^.Data) > 0) = Boolean(Round(V2.VarNumber));
+      R := (Length(V1.VarString^.Data) > 0) = V2.AsBoolean;
     sevkMap,
     sevkPascalObject,
     sevkFunction:
-      R := True = Boolean(Round(V2.VarNumber));
+      R := True = V2.AsBoolean;
     sevkNull:
-      R := False = Boolean(Round(V2.VarNumber));
+      R := False = V2.AsBoolean;
   end
   else
     R := False;
@@ -7136,7 +7251,7 @@ begin
     sevkNumber:
       R := V1.VarNumber <> V2.VarNumber;
     sevkBoolean:
-      R := Boolean(Round(V1.VarNumber)) <> Boolean(Round(V2.VarNumber));
+      R := V1.AsBoolean <> V2.AsBoolean;
     sevkString:
       R := V1.VarString^.Data <> V2.VarString^.Data;
     sevkNull:
@@ -7149,15 +7264,15 @@ begin
   if V2.Kind = sevkBoolean then
   case V1.Kind of
     sevkNumber:
-      R := (V1.VarNumber <> 0) <> Boolean(Round(V2.VarNumber));
+      R := (V1.VarNumber <> 0) <> V2.AsBoolean;
     sevkString:
-      R := (Length(V1.VarString^.Data) > 0) <> Boolean(Round(V2.VarNumber));
+      R := (Length(V1.VarString^.Data) > 0) <> V2.AsBoolean;
     sevkMap,
     sevkPascalObject,
     sevkFunction:
-      R := True <> Boolean(Round(V2.VarNumber));
+      R := True <> V2.AsBoolean;
     sevkNull:
-      R := False <> Boolean(Round(V2.VarNumber));
+      R := False <> V2.AsBoolean;
   end
   else
     R := True;
@@ -8764,7 +8879,7 @@ var
     ImportBufferString: array [0..31] of String;
     ImportBufferWideString: array [0..31] of UnicodeString;
     ImportResult: NativeUInt;
-    ImportResultD: TSENumber;
+    ImportResultD: Double;
     ImportResultS: Single;
     ArgCountStack, ArgCount, ArgSize: NativeInt;
     FuncImport, P, PP: Pointer;
@@ -8845,7 +8960,7 @@ var
           end;
         seakF64:
           begin
-            TSENumber((@ImportBufferData[I * 8])^) := Pop^.VarNumber;
+            Double((@ImportBufferData[I * 8])^) := Pop^.VarNumber;
             ffiArgTypes[I] := @ffi_type_double;
             ffiArgValues[I] := @ImportBufferData[I * 8];
           end;
@@ -11728,19 +11843,19 @@ begin
   Self.SetConst('false', False);
   Self.SetConst('null', SENull);
   Self.SetConst('os', GetOS);
-  Self.SetConst('sevkNumber', TSENumber(NativeInt(sevkNumber)));
-  Self.SetConst('sevkString', TSENumber(NativeInt(sevkString)));
-  Self.SetConst('sevkPascalObject', TSENumber(NativeInt(sevkPascalObject)));
-  Self.SetConst('sevkBuffer', TSENumber(NativeInt(sevkBuffer)));
-  Self.SetConst('sevkMap', TSENumber(NativeInt(sevkMap)));
-  Self.SetConst('sevkNull', TSENumber(NativeInt(sevkNull)));
-  Self.SetConst('sevkFunction', TSENumber(NativeInt(sevkFunction)));
-  Self.SetConst('sevkPointer', TSENumber(NativeInt(sevkPointer)));
+  Self.SetConst('sevkNumber', Double(NativeInt(sevkNumber)));
+  Self.SetConst('sevkString', Double(NativeInt(sevkString)));
+  Self.SetConst('sevkPascalObject', Double(NativeInt(sevkPascalObject)));
+  Self.SetConst('sevkBuffer', Double(NativeInt(sevkBuffer)));
+  Self.SetConst('sevkMap', Double(NativeInt(sevkMap)));
+  Self.SetConst('sevkNull', Double(NativeInt(sevkNull)));
+  Self.SetConst('sevkFunction', Double(NativeInt(sevkFunction)));
+  Self.SetConst('sevkPointer', Double(NativeInt(sevkPointer)));
   {$ifdef SE_THREADS}
-  Self.SetConst('wrSignaled', TSENumber(NativeInt(wrSignaled)));
-  Self.SetConst('wrTimeout', TSENumber(NativeInt(wrTimeout)));
-  Self.SetConst('wrAbandoned', TSENumber(NativeInt(wrAbandoned)));
-  Self.SetConst('wrError', TSENumber(NativeInt(wrError)));
+  Self.SetConst('wrSignaled', Double(NativeInt(wrSignaled)));
+  Self.SetConst('wrTimeout', Double(NativeInt(wrTimeout)));
+  Self.SetConst('wrAbandoned', Double(NativeInt(wrAbandoned)));
+  Self.SetConst('wrError', Double(NativeInt(wrError)));
   {$endif}
 end;
 
@@ -13390,7 +13505,7 @@ var
             opMod:
               begin
                 Pop2;
-                Emit([Pointer(opPushConst), V1 - V2 * Int(TSENumber(V1 / V2))]);
+                Emit([Pointer(opPushConst), V1 - V2 * Int(Double(V1 / V2))]);
               end;
             opAnd:
               begin
