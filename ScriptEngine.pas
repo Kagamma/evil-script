@@ -185,7 +185,7 @@ type
     constructor Create;
     procedure TryFree;
     function Ptr(const Index: SizeInt): PTT; inline;
-    function Ref: TSEListPtr;
+    function Reference: TSEListPtr;
   end;
 
   generic TSEStackPtr<TT> = class(specialize TStack<TT>)
@@ -668,7 +668,7 @@ type
   TSEValueArrayManaged = record
     Value: PSEValueArrayManagedRecord;
     procedure Alloc(const ASize: Cardinal);
-    function Ref: TSEValueArrayManaged;
+    function Reference: TSEValueArrayManaged;
     procedure Free;
   end;
 
@@ -682,7 +682,7 @@ type
   TSEBinariesManaged = record
     Value: PSEBinariesManagedRecord;
     procedure Alloc(const ASize: Cardinal);
-    function Ref: TSEBinariesManaged;
+    function Reference: TSEBinariesManaged;
     procedure Free;
   end;
 
@@ -875,7 +875,7 @@ const
     'atom', 'import', 'do', 'var', 'try', 'catch', 'throw', 'override'
   );
   ValueKindNames: array[TSEValueKind] of RawByteString = (
-    'null', 'number', 'string', 'map', 'buffer', 'pointer', 'boolean', 'function', 'pasobject', 'packedstring', 'rawdata'
+    'null', 'number', 'string', 'map', 'buffer', 'pointer', 'boolean', 'function', 'pasobject', 'conststring', 'rawdata'
   );
   OpcodeSizes: array[TSEOpcode] of Byte = (
     2, // opPushConst,
@@ -6503,7 +6503,7 @@ begin
     Free;
 end;
 
-function TSEListPtr.Ref: TSEListPtr;
+function TSEListPtr.Reference: TSEListPtr;
 begin
   Inc(Self.RefCount);
   Result := Self;
@@ -8319,7 +8319,7 @@ begin
   end;
 end;
 
-function TSEValueArrayManaged.Ref: TSEValueArrayManaged;
+function TSEValueArrayManaged.Reference: TSEValueArrayManaged;
 begin
   Assert(Self.Value <> nil, 'Self.Value = nil');
   Inc(Self.Value^.RefCount);
@@ -8352,7 +8352,7 @@ begin
   end;
 end;
 
-function TSEBinariesManaged.Ref: TSEBinariesManaged;
+function TSEBinariesManaged.Reference: TSEBinariesManaged;
 begin
   Assert(Self.Value <> nil, 'Self.Value = nil');
   Inc(Self.Value^.RefCount);
@@ -8535,7 +8535,7 @@ begin
   Result.IsPaused := False;
   Result.IsDone := False;
   Result.Parent.IsDone := False;
-  Result.Global := Self.Global.Ref;
+  Result.Global := Self.Global.Reference;
   SetLength(Result.Stack, AStackSize);
   SetLength(Result.Frame, Result.FrameSize);
   SetLength(Result.Trap, Result.TrapSize);
@@ -8546,7 +8546,7 @@ begin
   Result.Name := AName;
   Dec(Result.TrapPtr);
   //
-  Result.Binaries := Self.Binaries.Ref;
+  Result.Binaries := Self.Binaries.Reference;
 end;
 
 procedure TSEVM.ModifyGlobalVariable(const AName: String; constref AValue: TSEValue);
@@ -16269,16 +16269,16 @@ begin
   Result.IsParsed := Self.IsParsed;
 
   Result.LineOfCodeList.Free;
-  Result.LineOfCodeList := Self.LineOfCodeList.Ref;
+  Result.LineOfCodeList := Self.LineOfCodeList.Reference;
 
   Result.FuncScriptList.Free;
-  Result.FuncScriptList := Self.FuncScriptList.Ref;
+  Result.FuncScriptList := Self.FuncScriptList.Reference;
 
   Result.FuncImportList.Free;
-  Result.FuncImportList := Self.FuncImportList.Ref;
+  Result.FuncImportList := Self.FuncImportList.Reference;
 
   Result.FuncNativeList.Free;
-  Result.FuncNativeList := Self.FuncNativeList.Ref;
+  Result.FuncNativeList := Self.FuncNativeList.Reference;
 
   Result.ConstList.Count := Self.ConstList.Count;
   for I := 0 to Self.ConstList.Count - 1 do
@@ -16298,7 +16298,7 @@ begin
   Result.VM.Binaries.Free;
   Result.VM.Name := Self.VM.Name;
   //
-  Result.VM.Binaries := Self.VM.Binaries.Ref;
+  Result.VM.Binaries := Self.VM.Binaries.Reference;
 end;
 
 var
