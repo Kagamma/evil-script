@@ -333,6 +333,9 @@ type
     function ToString: String;
     function Size: SizeInt;
     function AsBoolean: Boolean; inline;
+    function AsString: String; inline;
+    function AsNumber: Double; inline;
+    function AsPointer: Pointer; inline;
   end;
 
   {$ifdef SE_MAP_AVK959}
@@ -1526,6 +1529,7 @@ procedure SEDisAsm(const VM: TSEVM; var Res: String);
 function SEGet(const AName: String): TSEValue;
 procedure SESet(const AName: String; constref AValue: TSEValue);
 
+operator := (V: Extended) R: TSEValue;
 operator := (V: Double) R: TSEValue;
 operator := (V: Single) R: TSEValue;
 operator := (V: String) R: TSEValue;
@@ -1544,6 +1548,7 @@ operator := (V: UInt16) R: TSEValue;
 operator := (V: Int8) R: TSEValue;
 operator := (V: UInt8) R: TSEValue;
 
+operator := (V: TSEValue) R: Extended;
 operator := (V: TSEValue) R: Double;
 operator := (V: TSEValue) R: Single;
 operator := (V: TSEValue) R: String;
@@ -4840,6 +4845,21 @@ begin
   Result := Boolean(Round(Self.VarNumber));
 end;
 
+function TSEValueHelper.AsString: String;
+begin
+  Result := Self.VarString^.Data;
+end;
+
+function TSEValueHelper.AsNumber: Double;
+begin
+  Result := Self.VarNumber;
+end;
+
+function TSEValueHelper.AsPointer: Pointer;
+begin
+  Result := Self.VarPointer;
+end;
+
 class function TBuiltInFunction.SEBufferCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   SEValidateType(@Args[0], sevkNumber, 1, {$I %CURRENTROUTINE%});
@@ -6809,6 +6829,12 @@ end;
 
 // ----- TSEValue operator overloading
 
+operator := (V: Extended) R: TSEValue; inline;
+begin
+  R.Kind := sevkNumber;
+  R.VarNumber := V;
+end;
+
 operator := (V: Double) R: TSEValue; inline;
 begin
   R.Kind := sevkNumber;
@@ -6940,6 +6966,10 @@ end;
 operator := (V: TSEValue) R: Boolean; inline;
 begin
   R := V.AsBoolean;
+end;
+operator := (V: TSEValue) R: Extended; inline;
+begin
+  R := V.VarNumber;
 end;
 operator := (V: TSEValue) R: Double; inline;
 begin
