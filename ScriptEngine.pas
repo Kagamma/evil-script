@@ -8926,7 +8926,6 @@ var
     ffiAbi: ffi_abi;
     {$endif}
   begin
-    FuncImportInfo := Self.Parent.FuncImportList.Ptr(NativeInt(CodePtrLocal[1].VarPointer));
     {$ifndef SE_LIBFFI}
       raise Exception.Create('You need to enable SE_LIBFFI in order to call external function "' + FuncImportInfo^.Name + '"');
     {$else}
@@ -9341,7 +9340,7 @@ label
   labelCallNative, labelCallNativeRef,
   labelCallScript, labelCallScriptRef,
   labelCallScriptTail, labelCallScriptTailRef,
-  labelCallImport,
+  labelCallImport, labelCallImportRef,
   labelYield,
   labelHlt,
 
@@ -11187,10 +11186,9 @@ labelStart:
               end;
             sefkImport:
               begin
-                // TODO: Handle import ref
-                CodePtrLocal[1] := Pointer(A^.VarFuncIndx);
                 Pop; // import has no this
-                goto labelCallImport;
+                FuncImportInfo := Self.Parent.FuncImportList.Ptr(A^.VarFuncIndx);
+                goto labelCallImportRef;
               end;
             sefkNative:
               begin
@@ -11443,6 +11441,8 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opCallImport:{$endif}
         begin
         labelCallImport:
+          FuncImportInfo := Self.Parent.FuncImportList.Ptr(NativeInt(CodePtrLocal[1].VarPointer));
+        labelCallImportRef:
           CallImportFunc;
           DispatchGoto;
         end;
