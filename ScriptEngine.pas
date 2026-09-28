@@ -9337,9 +9337,9 @@ label
   labelPushConstFromConstList,
 
   labelCallRef,
-  labelCallNative,
-  labelCallScript,
-  labelCallScriptTail,
+  labelCallNative, labelCallNativeRef,
+  labelCallScript, labelCallScriptRef,
+  labelCallScriptTail, labelCallScriptTailRef,
   labelCallImport,
   labelYield,
   labelHlt,
@@ -11156,7 +11156,7 @@ labelStart:
               end;
             sevkMap:
               begin
-                DeepCount := NativeInt(CodePtrLocal[3].VarPointer);
+                DeepCount := NativeInt(CodePtrLocal[3].VarPointer) and $FFFF;
                 if DeepCount = 0 then
                   raise Exception.Create('Not a function reference');
                 StackPtrLocal := StackPtrLocal - DeepCount;
@@ -11172,16 +11172,22 @@ labelStart:
             else
               raise Exception.Create('Not a function reference');
           end;
-          CodePtrLocal[1] := Pointer(A^.VarFuncIndx);
+         // CodePtrLocal[1] := Pointer(A^.VarFuncIndx);
           case A^.VarFuncKind of
             sefkScript:
               begin
                 if DeepCount > 1 then
                   (StackPtrLocal - 1)^ := TV2;
-                goto labelCallScript;
+                FuncScriptInfo := @FuncScriptInfoPtrLocal[A^.VarFuncIndx];
+                if NativeInt(CodePtrLocal[3].VarPointer) and $10000 <> 0 then
+                  goto labelCallScriptTailRef
+                else
+                  goto labelCallScriptRef;
               end;
             sefkImport:
               begin
+                // TODO: Handle import ref
+                CodePtrLocal[1] := Pointer(A^.VarFuncIndx);
                 Pop; // import has no this
                 goto labelCallImport;
               end;
@@ -11190,22 +11196,25 @@ labelStart:
                 if DeepCount > 1 then
                   (StackPtrLocal - 1)^ := TV2;
                 This := Pop;
-                Dec(CodePtrLocal[2].VarPointer); // ArgCount contains this, so we minus it by 1
-                goto labelCallNative;
+                FuncNativeInfo := @FuncNativeInfoPtrLocal[A^.VarFuncIndx];
+                ArgCount := NativeInt(CodePtrLocal[2].VarPointer) - 1; // ArgCount contains this, so we minus it by 1
+                goto labelCallNativeRef;
               end;
           end;
         end;
       {$ifndef SE_COMPUTED_GOTO}opCallNative:{$endif}
         begin
         labelCallNative:
+          FuncNativeInfo := @FuncNativeInfoPtrLocal[NativeInt(CodePtrLocal[1].VarPointer)];
           ArgCount := NativeInt(CodePtrLocal[2].VarPointer);
+        labelCallNativeRef:
           StackPtrLocal := StackPtrLocal - ArgCount;
           {$ifdef SE_PROFILER}
-          SEProfileItem.FuncName := Self.Name + ':' + FuncNativeInfoPtrLocal[NativeInt(CodePtrLocal[1].VarPointer)].Name;
+          SEProfileItem.FuncName := Self.Name + ':' + FuncNativeInfo^.Name;
           SEProfileItem.TimeStartInNSec := TSEProfiler.GetTimeInNSec;
           SEProfilerStack.Push(SEProfileItem);
           {$endif}
-          TV := TSEFunc(FuncNativeInfoPtrLocal[NativeInt(CodePtrLocal[1].VarPointer)].Func)(Self, StackPtrLocal, ArgCount, This);
+          TV := TSEFunc(FuncNativeInfo^.Func)(Self, StackPtrLocal, ArgCount, This);
           if IsDone then
           begin
             Exit;
@@ -11222,6 +11231,7 @@ labelStart:
         begin
         labelCallScript:
           FuncScriptInfo := @FuncScriptInfoPtrLocal[NativeUInt(CodePtrLocal[1].VarPointer)];
+        labelCallScriptRef:
           {$ifdef SE_PROFILER}
           SEProfileItem.FuncName := Self.Name + ':' + FuncScriptInfo^.Name;
           SEProfileItem.TimeStartInNSec := TSEProfiler.GetTimeInNSec;
@@ -11243,15 +11253,16 @@ labelStart:
         begin
         labelCallScriptTail:
           FuncScriptInfo := @FuncScriptInfoPtrLocal[NativeUInt(CodePtrLocal[1].VarPointer)];
+        labelCallScriptTailRef:
           {$ifdef SE_PROFILER}
           SEProfileItem.FuncName := Self.Name + ':' + FuncScriptInfo^.Name;
           SEProfileItem.TimeStartInNSec := TSEProfiler.GetTimeInNSec;
           SEProfilerStack.Push(SEProfileItem);
           {$endif}
-          StackPtrLocalTail := StackPtrLocal - FuncScriptInfo^.ArgCount;
-          StackPtrLocal := FramePtrLocal^.StackPtr + FuncScriptInfo^.ArgCount + FuncScriptInfo^.VarCount;
-          if FuncScriptInfo^.ArgCount > 0 then
-            Move(StackPtrLocalTail[0], FramePtrLocal^.StackPtr[0], FuncScriptInfo^.ArgCount * SizeOf(TSEValue));
+          StackPtrLocalTail := StackPtrLocal - NativeInt(CodePtrLocal[2].VarPointer);
+          StackPtrLocal := FramePtrLocal^.StackPtr + NativeInt(CodePtrLocal[2].VarPointer) + FuncScriptInfo^.VarCount;
+          if NativeInt(CodePtrLocal[2].VarPointer) > 0 then
+            Move(StackPtrLocalTail[0], FramePtrLocal^.StackPtr[0], NativeInt(CodePtrLocal[2].VarPointer) * SizeOf(TSEValue));
           CodeSegmentIndexLocal := FuncScriptInfo^.CodeSegmentIndex;
           CodePtrLocal := Self.Binaries.Value^.Data[CodeSegmentIndexLocal].Ptr(0);
           DispatchGoto;
@@ -13477,14 +13488,19 @@ var
     if Self.OptimizeTailCalls then
     begin
       OpInfoPrev0 := PeekAtPrevOpExpected(0, [opAssignLocalVar]);
-      OpInfoPrev1 := PeekAtPrevOpExpected(1, [opCallScript]);
+      OpInfoPrev1 := PeekAtPrevOpExpected(1, [opCallRef, opCallScript]);
       if (OpInfoPrev0 <> nil) and (OpInfoPrev1 <> nil) and
          (Integer(Self.Binary[OpInfoPrev0^.Pos + 1].VarPointer) = -1) and
          (Integer(Self.Binary[OpInfoPrev0^.Pos + 2].VarPointer) = 0) then
       begin
         FuncIndex := NativeInt(Self.Binary[OpInfoPrev1^.Pos + 1].VarPointer);
         if (FuncIndex = Self.FuncCurrent) or (Self.FuncScriptList[FuncIndex].ArgCount <= 6) then
-          Self.Binary[OpInfoPrev1^.Pos] := Pointer(opCallScriptTail);
+        begin
+          if OpInfoPrev1^.Op = opCallRef then
+            Self.Binary[OpInfoPrev1^.Pos + 3] := Pointer(Self.Binary[OpInfoPrev1^.Pos + 3].VarData or $10000)
+          else
+            Self.Binary[OpInfoPrev1^.Pos] := Pointer(opCallScriptTail);
+        end;
       end;
     end;
     Emit([Pointer(opPopFrame)]);
