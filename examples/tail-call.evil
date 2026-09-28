@@ -1,0 +1,10 @@
+writeln('Tail call optimization')
+writeln('This example will crashes if evil is run with -do (disable optimizations) flag on')
+
+fn test(total, count) {
+  if count >= total
+    return ('Tail call works!')
+  return (test(total, count + 1))
+}
+
+writeln(test(100000, 0))
