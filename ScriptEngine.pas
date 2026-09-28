@@ -1012,7 +1012,8 @@ type
     OptimizePeephole,         // True = enable peephole optimization, default is true
     OptimizeConstantFolding,  // True = enable constant folding optimization, default is true
     OptimizeAsserts: Boolean; // True = ignore assert, default is true
-    OptimizeTailCalls: Boolean; // True = enable tail calls optimization, default is true
+    OptimizeRecursives: Boolean; // True = enable recursive optimization, default is true
+    OptimizeTailCalls: Boolean; // True = enable tail calls optimization, default is false
     ErrorLn, ErrorCol: NativeInt;
     VM: TSEVM;
     {$ifdef SE_THREADS}
@@ -11670,7 +11671,8 @@ begin
   Self.OptimizeConstantFolding := True;
   Self.OptimizePeephole := True;
   Self.OptimizeJIT := True;
-  Self.OptimizeTailCalls := True;
+  Self.OptimizeRecursives := True;
+  Self.OptimizeTailCalls := False;
   //
   Self.TokenList.Capacity := 1024;
   Self.VarList.Capacity := 256;
@@ -13485,7 +13487,7 @@ var
     OpInfoPrev0, OpInfoPrev1: PSEOpcodeInfo;
     FuncIndex: NativeInt;
   begin
-    if Self.OptimizeTailCalls then
+    if Self.OptimizeTailCalls or Self.OptimizeRecursives then
     begin
       OpInfoPrev0 := PeekAtPrevOpExpected(0, [opAssignLocalVar]);
       OpInfoPrev1 := PeekAtPrevOpExpected(1, [opCallRef, opCallScript]);
@@ -13494,7 +13496,8 @@ var
          (Integer(Self.Binary[OpInfoPrev0^.Pos + 2].VarPointer) = 0) then
       begin
         FuncIndex := NativeInt(Self.Binary[OpInfoPrev1^.Pos + 1].VarPointer);
-        if (FuncIndex = Self.FuncCurrent) or (Self.FuncScriptList[FuncIndex].ArgCount <= 6) then
+        if ((FuncIndex = Self.FuncCurrent) and Self.OptimizeRecursives) or
+           ((Self.FuncScriptList[FuncIndex].ArgCount <= 6) and Self.OptimizeTailCalls) then
         begin
           if OpInfoPrev1^.Op = opCallRef then
             Self.Binary[OpInfoPrev1^.Pos + 3] := Pointer(Self.Binary[OpInfoPrev1^.Pos + 3].VarData or $10000)
