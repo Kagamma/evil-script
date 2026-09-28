@@ -92,7 +92,7 @@ begin
   GC.EnableParallel := IsP;
   SE := TScriptEngine.Create;
   SE.OptimizeTailCalls := IsO;
-  SE.OptimizeRecursives := IsO;
+  SE.OptimizeTailRecursives := IsO;
   SE.OptimizePeephole := IsO;
   SE.OptimizeConstantFolding := IsO;
   SE.OptimizeJIT := IsJ;
