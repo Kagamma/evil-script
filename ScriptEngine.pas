@@ -152,6 +152,7 @@ type
     opCallRef,
     opCallNative,
     opCallScript,
+    opCallScriptTail,
     opCallImport,
     opYield,
     opHlt,
@@ -942,6 +943,7 @@ const
     4, // opCallRef,
     4, // opCallNative,
     4, // opCallScript,
+    4, // opCallScriptTail,
     4, // opCallImport,
     1, // opYield,
     1, // opHlt,
@@ -1010,6 +1012,7 @@ type
     OptimizePeephole,         // True = enable peephole optimization, default is true
     OptimizeConstantFolding,  // True = enable constant folding optimization, default is true
     OptimizeAsserts: Boolean; // True = ignore assert, default is true
+    OptimizeTailCalls: Boolean; // True = enable tail calls optimization, default is true
     ErrorLn, ErrorCol: NativeInt;
     VM: TSEVM;
     {$ifdef SE_THREADS}
@@ -8700,6 +8703,7 @@ var
   This: PSEValue;
   GlobalLocal: PSEValue;
   CodeSegmentIndexLocal: NativeInt;
+  StackPtrLocalTail,
   StackPtrLocal,
   CodePtrLocal: PSEValue;
   FramePtrLocal: PSEFrame;
@@ -9335,6 +9339,7 @@ label
   labelCallRef,
   labelCallNative,
   labelCallScript,
+  labelCallScriptTail,
   labelCallImport,
   labelYield,
   labelHlt,
@@ -9415,6 +9420,7 @@ var
     @labelCallRef,
     @labelCallNative,
     @labelCallScript,
+    @labelCallScriptTail,
     @labelCallImport,
     @labelYield,
     @labelHlt,
@@ -11233,6 +11239,23 @@ labelStart:
           CodePtrLocal := Self.Binaries.Value^.Data[CodeSegmentIndexLocal].Ptr(0);
           DispatchGoto;
         end;
+      {$ifndef SE_COMPUTED_GOTO}opCallScriptTail:{$endif}
+        begin
+        labelCallScriptTail:
+          FuncScriptInfo := @FuncScriptInfoPtrLocal[NativeUInt(CodePtrLocal[1].VarPointer)];
+          {$ifdef SE_PROFILER}
+          SEProfileItem.FuncName := Self.Name + ':' + FuncScriptInfo^.Name;
+          SEProfileItem.TimeStartInNSec := TSEProfiler.GetTimeInNSec;
+          SEProfilerStack.Push(SEProfileItem);
+          {$endif}
+          StackPtrLocalTail := StackPtrLocal - FuncScriptInfo^.ArgCount;
+          StackPtrLocal := FramePtrLocal^.StackPtr + FuncScriptInfo^.ArgCount + FuncScriptInfo^.VarCount;
+          if FuncScriptInfo^.ArgCount > 0 then
+            Move(StackPtrLocalTail[0], FramePtrLocal^.StackPtr[0], FuncScriptInfo^.ArgCount * SizeOf(TSEValue));
+          CodeSegmentIndexLocal := FuncScriptInfo^.CodeSegmentIndex;
+          CodePtrLocal := Self.Binaries.Value^.Data[CodeSegmentIndexLocal].Ptr(0);
+          DispatchGoto;
+        end;
       {$ifndef SE_COMPUTED_GOTO}opPopFrame:{$endif}
         begin
         labelPopFrame:
@@ -11636,6 +11659,7 @@ begin
   Self.OptimizeConstantFolding := True;
   Self.OptimizePeephole := True;
   Self.OptimizeJIT := True;
+  Self.OptimizeTailCalls := True;
   //
   Self.TokenList.Capacity := 1024;
   Self.VarList.Capacity := 256;
@@ -12907,9 +12931,10 @@ var
   function VerifyJITBlock(APossibleKinds: TSEValueKindSet; const AMinOpcodeCount: Integer = 2): TSEValueKindSet;
   var
     Sig: NativeInt;
-    BIndex, BIndex2, OpCount: NativeInt;
+    BIndex, BIndex2, OpCount, I: NativeInt;
     Op, Op2: TSEOpcode;
     IsInvalidOpcode: Boolean = False;
+    OpInfo: PSEOpcodeInfo;
   begin
     Result := APossibleKinds;
     {$ifndef SE_HAS_JIT}
@@ -12963,6 +12988,19 @@ var
         begin
           Self.FLastVerifyJITBlockResult := False;
           Self.Binary.DeleteRange(BIndex, OpcodeSizes[Op]);
+          // Relocate opcode info list
+          for I := OpcodeInfoList.Count - 1 downto 0 do
+          begin
+            OpInfo := OpcodeInfoList.Ptr(I);
+            if OpInfo^.Op <> opJITBlockPotential then
+            begin
+              OpInfo^.Pos := OpInfo^.Pos - OpcodeSizes[Op];
+            end else
+            begin
+              OpcodeInfoList.Delete(I);
+              break;
+            end;
+          end;
         end else
         begin
           Self.FLastVerifyJITBlockResult := True;
@@ -13429,6 +13467,27 @@ var
           end;
         end;
     end;
+  end;
+
+  procedure TailCallOptimization;
+  var
+    OpInfoPrev0, OpInfoPrev1: PSEOpcodeInfo;
+    FuncIndex: NativeInt;
+  begin
+    if Self.OptimizeTailCalls then
+    begin
+      OpInfoPrev0 := PeekAtPrevOpExpected(0, [opAssignLocalVar]);
+      OpInfoPrev1 := PeekAtPrevOpExpected(1, [opCallScript]);
+      if (OpInfoPrev0 <> nil) and (OpInfoPrev1 <> nil) and
+         (Integer(Self.Binary[OpInfoPrev0^.Pos + 1].VarPointer) = -1) and
+         (Integer(Self.Binary[OpInfoPrev0^.Pos + 2].VarPointer) = 0) then
+      begin
+        FuncIndex := NativeInt(Self.Binary[OpInfoPrev1^.Pos + 1].VarPointer);
+        if (FuncIndex = Self.FuncCurrent) or (Self.FuncScriptList[FuncIndex].ArgCount <= 6) then
+          Self.Binary[OpInfoPrev1^.Pos] := Pointer(opCallScriptTail);
+      end;
+    end;
+    Emit([Pointer(opPopFrame)]);
   end;
 
   function ParseExpr(const IsParsedAtFuncCall: Boolean; AJumpList: TSEShortCircuitJumpList = nil): TSEValueKindSet;
@@ -14653,7 +14712,7 @@ var
       ReturnList := ReturnStack.Pop;
       for I := 0 to ReturnList.Count - 1 do
         Patch(NativeInt(ReturnList[I]), Pointer(Self.Binary.Count) - (NativeInt(ReturnList[I]) - 2));
-      Emit([Pointer(opPopFrame)]);
+      TailCallOptimization;
 
       // The pointer may be changed due to reallocation, need to query for it again
       Func := Self.FuncScriptList.Ptr(FuncIndex);
@@ -15759,7 +15818,7 @@ var
             Emit([Pointer(opHlt)])
           else
           begin
-            Emit([Pointer(opPopFrame)])
+            TailCallOptimization;
           end;
         end;
       tkFunctionDecl:

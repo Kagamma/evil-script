@@ -44,7 +44,7 @@ writeln('Hello, World!')
 
 The compiler is a one-pass compiler. It follows Niklaus Wirth’s design, completely skips AST generation, and generates binary directly.
 
-Due to the lack of an AST, only constant folding and peephole optimizations are implemented.
+Due to the lack of an AST, only constant folding, tail call optimization and peephole optimizations are implemented.
 
 The virtual machine is stack-based, with super instructions to speed up certain operations.
 

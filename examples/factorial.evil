@@ -1,0 +1,12 @@
+fn factorial(n, acc) {
+  if n <= 1 {
+    result = acc
+  } else {
+    result = factorial(n - 1, n * acc)
+  }
+}
+
+var t = ticks()
+var f = factorial(10, 1)
+writeln('Finished in ', ticks() - t, 'ms')
+writeln('Result: ', f)
