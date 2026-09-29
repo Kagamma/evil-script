@@ -809,6 +809,7 @@ type
     tkShiftLeft,
     tkShiftRight,
     tkOpAssign,
+    tkAssign,
     tkEqual,
     tkNotEqual,
     tkSmaller,
@@ -868,7 +869,7 @@ TSETokenKindSet = set of TSETokenKind;
 
 const
   TokenNames: array[TSETokenKind] of RawByteString = (
-    'EOF', '.', '+', '-', '*', 'div', 'mod', '^', '<<', '>>', 'operator assign', '=', '!=', '<',
+    'EOF', '.', '+', '-', '*', 'div', 'mod', '^', '<<', '>>', 'operator assign', '=', '==', '!=', '<',
     '>', '<=', '>=', '{', '}', ':', '?', '(', ')', 'neg', 'number', 'string',
     ',', 'if', 'switch', 'case', 'default', 'identity', 'function', 'fn', 'variable', 'const', 'local',
     'unknown', 'else', 'while', 'break', 'continue', 'yield',
@@ -12301,9 +12302,10 @@ begin
         begin
           if PeekAtNextChar = '=' then
           begin
+            Token.Kind := tkEqual;
             NextChar;
-          end;
-          Token.Kind := tkEqual;
+          end else
+            Token.Kind := tkAssign;
         end;
       '<':
         begin
@@ -14191,6 +14193,7 @@ var
       begin
         Token := PeekAtNextToken;
         case Token.Kind of
+          tkAssign,
           tkEqual:
             BinaryOp(opEqual, @Bitwise);
           tkNotEqual:
@@ -14474,7 +14477,7 @@ var
           if ArgMap.{$ifdef SE_MAP_AVK959}Contains{$else}ContainsKey{$endif}(ArgName) then
             Error(Format('Duplicate argument "%s"', [ArgName]), Token);
           Item.Start := Self.Binary.Count;
-          NextTokenExpected([tkEqual]);
+          NextTokenExpected([tkAssign]);
           //
           MarkJITBlock;
           VerifyJITBlock(ParseExpr(True));
@@ -14673,7 +14676,7 @@ var
     end;
   end;
 
-  function ParseFuncDecl(const IsAnon: Boolean = False): TSEToken;
+  function ParseFuncDecl: TSEToken;
   var
     Token, TokenResult: TSEToken;
     Name: String;
@@ -14697,13 +14700,13 @@ var
     try
       OldFuncCurrent := Self.FuncCurrent;
       ReturnStack.Push(ReturnList);
-      if not IsAnon then
+      if PeekAtNextToken.Kind = tkOverride then
       begin
-        if PeekAtNextToken.Kind = tkOverride then
-        begin
-          NextToken;
-          HasOverride := True;
-        end;
+        NextToken;
+        HasOverride := True;
+      end;
+      if PeekAtNextToken.Kind <> tkBracketOpen then
+      begin
         Token := NextTokenExpected([tkIdent]);
         Name := Token.Value;
         if (Self.FuncTraversal = 0) and (FindFunc(Name) <> nil) then
@@ -14749,7 +14752,7 @@ var
       //
       ParseTypeAnnotation(Res);
       //
-      if PeekAtNextToken.Kind = tkEqual then
+      if PeekAtNextToken.Kind = tkAssign then
         Self.TokenList.Insert(Pos + 1, TokenResult);
       ParseBlock;
       Res := FindVar('result', true);
@@ -14766,7 +14769,7 @@ var
 
       // The pointer may be changed due to reallocation, need to query for it again
       Func := Self.FuncScriptList.Ptr(FuncIndex);
-      Func^.VarCount := Self.LocalVarCountList[Self.LocalVarCountList.Count - 1] - ArgCount + 1; // 1 pad
+      Func^.VarCount := Self.LocalVarCountList[Self.LocalVarCountList.Count - 1] - ArgCount + SE_STACK_RESERVED; // 1 pad
       Self.Binary := ParentBinary;
       Self.CodeSegmentIndex := ParentBinaryPos;
     finally
@@ -14788,7 +14791,7 @@ var
     Self.LocalVarCountList.Add(-1);
     Self.ScopeStack.Push(Self.VarList.Count);
     Self.ScopeFunc.Push(Self.FuncScriptList.Count + 1);
-    Token := ParseFuncDecl(True);
+    Token := ParseFuncDecl;
     I := Self.ScopeStack.Pop;
     Self.VarList.DeleteRange(I, Self.VarList.Count - I);
     I := Self.ScopeFunc.Pop;
@@ -15138,13 +15141,13 @@ var
       begin
         VarIdent := FindVar(Token.Value)^;
       end;
-      Token := NextTokenExpected([tkEqual, tkIn, tkComma]);
+      Token := NextTokenExpected([tkAssign, tkIn, tkComma]);
 
       VarHiddenTargetName := '___t' + VarIdent.Name;
       Token.Value := VarHiddenTargetName;
       VarHiddenTargetIdent := CreateIdent(ikVariable, Token, True, False)^;
 
-      if Token.Kind = tkEqual then
+      if Token.Kind = tkAssign then
       begin
 
         ParseExpr(False);
@@ -15549,10 +15552,10 @@ var
       end;
     end;
 
-    Token := PeekAtNextTokenExpected([tkEqual, tkOpAssign, tkBracketOpen]);
+    Token := PeekAtNextTokenExpected([tkAssign, tkOpAssign, tkBracketOpen]);
     AssignPossibleKinds := [];
     case Token.Kind of
-      tkEqual,
+      tkAssign,
       tkOpAssign:
         begin
           VarEndTokenPos := Pos;
@@ -15763,7 +15766,7 @@ var
         IsLocal := True;
         Token := PeekAtNextTokenExpected([tkIdent]);
       end;
-      if (PeekAtNextNextToken.Kind = tkEqual) or (PeekAtNextNextToken.Kind = tkColon) then
+      if (PeekAtNextNextToken.Kind = tkAssign) or (PeekAtNextNextToken.Kind = tkColon) then
       begin
         ParseIdent(Token, False, IsLocal);
       end else
@@ -15862,7 +15865,7 @@ var
           if PeekAtNextToken.Kind = tkBracketOpen then
           begin
             NextToken;
-            Token.Kind := tkEqual;
+            Token.Kind := tkAssign;
             TokenList.Insert(Pos + 1, Token); // Insert equal token
             ParseVarAssign('result', False);
             NextTokenExpected([tkBracketClose]);
@@ -15899,7 +15902,7 @@ var
           if PeekAtNextToken.Kind = tkBracketOpen then
           begin
             NextToken;
-            Token.Kind := tkEqual;
+            Token.Kind := tkAssign;
             TokenList.Insert(Pos + 1, Token); // Insert equal token
               ParseVarAssign('result', False);
             NextTokenExpected([tkBracketClose]);

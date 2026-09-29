@@ -1,0 +1,7 @@
+// Named function expression
+a = (fn test(i) {
+  if i < 10 {
+    writeln(i)
+    test(i+1)
+  }
+})(0)
