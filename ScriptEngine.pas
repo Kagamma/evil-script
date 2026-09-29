@@ -633,6 +633,7 @@ type
   TSEFuncNativeList = specialize TSEListPtr<TSEFuncNativeInfo>;
   TSEFuncScriptList = specialize TSEListPtr<TSEFuncScriptInfo>;
   TSEFuncImportList = specialize TSEListPtr<TSEFuncImportInfo>;
+  TSEFuncScriptMap = specialize TSEDictionary<String, Cardinal>;
 
   TSELineOfCode = record
     CodeIndex: NativeInt;
@@ -1033,6 +1034,7 @@ type
     GlobalVarCount: NativeInt;
     GlobalVarSymbols: TStrings;
     VarList: TSEIdentList;
+    FuncScriptMap : TSEFuncScriptMap;
     FuncNativeList: TSEFuncNativeList;
     FuncScriptList: TSEFuncScriptList;
     FuncImportList: TSEFuncImportList;
@@ -11733,6 +11735,7 @@ begin
   Self.FuncNativeList := TSEFuncNativeList.Create;
   Self.FuncScriptList := TSEFuncScriptList.Create;
   Self.FuncImportList := TSEFuncImportList.Create;
+  Self.FuncScriptMap := TSEFuncScriptMap.Create;
   Self.ConstLookup := TSEConstLookup.Create;
   Self.ConstList := TSEValueList.Create;
   Self.JITBlockSignatureStack := TSEJITBlockSignatureStack.Create;
@@ -11959,26 +11962,27 @@ begin
   {$ifdef SE_THREADS}
   for I := Self.VMThreadList.Count - 1 downto 0 do
     Self.VMThreadList[I].Terminate;
-  FreeAndNil(Self.VMThreadList);
+  Self.VMThreadList.Free;
   {$endif}
-  FreeAndNil(Self.VM);
-  FreeAndNil(Self.TokenList);
-  FreeAndNil(Self.OpcodeInfoList);
-  FreeAndNil(Self.VarList);
+  Self.VM.Free;
+  Self.TokenList.Free;
+  Self.OpcodeInfoList.Free;
+  Self.VarList.Free;
+  Self.FuncScriptMap.Free;
   Self.FuncNativeList.TryFree;
   Self.FuncScriptList.TryFree;
   Self.FuncImportList.TryFree;
   Self.LineOfCodeList.TryFree;
-  FreeAndNil(Self.ConstList);
-  FreeAndNil(Self.ConstLookup);
-  FreeAndNil(Self.ScopeStack);
-  FreeAndNil(Self.ScopeFunc);
-  FreeAndNil(Self.IncludeList);
-  FreeAndNil(Self.IncludePathList);
-  FreeAndNil(Self.CurrentFileList);
-  FreeAndNil(Self.LocalVarCountList);
-  FreeAndNil(Self.GlobalVarSymbols);
-  FreeAndNil(Self.JITBlockSignatureStack);
+  Self.ConstList.Free;
+  Self.ConstLookup.Free;
+  Self.ScopeStack.Free;
+  Self.ScopeFunc.Free;
+  Self.IncludeList.Free;
+  Self.IncludePathList.Free;
+  Self.CurrentFileList.Free;
+  Self.LocalVarCountList.Free;
+  Self.GlobalVarSymbols.Free;
+  Self.JITBlockSignatureStack.Free;
   inherited;
 end;
 
@@ -16086,6 +16090,7 @@ begin
   Self.IncludeList.Clear;
   Self.ScopeFunc.Clear;
   Self.ScopeStack.Clear;
+  Self.FuncScriptMap.Clear;
   Self.VarList.Count := Self.GlobalVarCount; // Safeguard
   Ident.Kind := ikVariable;
   Ident.Addr := 0;
@@ -16135,13 +16140,20 @@ var
   I: NativeInt;
 begin
   if Name <> '' then
-    for I := Self.FuncScriptList.Count - 1 downto 0 do
+  begin
+    if not Self.FuncScriptMap.{$ifdef SE_MAP_AVK959}Contains{$else}ContainsKey{$endif}(Name) then
     begin
-      if Name = Self.FuncScriptList[I].Name then
+      for I := Self.FuncScriptList.Count - 1 downto 0 do
       begin
-        Exit(Self.ExecFuncOnly(I, Args));
+        if Name = Self.FuncScriptList[I].Name then
+        begin
+          Self.FuncScriptMap.Add(Name, I);
+          Exit(Self.ExecFuncOnly(I, Args));
+        end;
       end;
-    end;
+    end else
+      Exit(Self.ExecFuncOnly(Self.FuncScriptMap[Name], Args));
+  end;
   Exit(SENull);
 end;
 
@@ -16202,13 +16214,20 @@ var
   I: NativeInt;
 begin
   if Name <> '' then
-    for I := Self.FuncScriptList.Count - 1 downto 0 do
+  begin
+    if not Self.FuncScriptMap.{$ifdef SE_MAP_AVK959}Contains{$else}ContainsKey{$endif}(Name) then
     begin
-      if Name = Self.FuncScriptList[I].Name then
+      for I := Self.FuncScriptList.Count - 1 downto 0 do
       begin
-        Exit(Self.ExecFunc(I, Args));
+        if Name = Self.FuncScriptList[I].Name then
+        begin
+          Self.FuncScriptMap.Add(Name, I);
+          Exit(Self.ExecFunc(I, Args));
+        end;
       end;
-    end;
+    end else
+      Exit(Self.ExecFunc(Self.FuncScriptMap[Name], Args));
+  end;
   Exit(SENull);
 end;
 
