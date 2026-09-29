@@ -960,7 +960,7 @@ const
     1, // opNop
     2, // opJITBlock
     2, // opJITBlockPotential
-    1  // opDebugDisAsm
+    2  // opDebugDisAsm
   );
 
 type
@@ -11521,7 +11521,7 @@ labelStart:
           Writeln('Stack: ', NativeUInt(StackPtrLocal));
           Writeln('Stack Frame: ', NativeUInt(Self.FramePtr^.StackPtr));
           Writeln('Difference: ', (NativeUInt(StackPtrLocal) - NativeUInt(Self.FramePtr^.StackPtr)) div SizeOf(TSEValue));
-          Inc(CodePtrLocal);
+          Inc(CodePtrLocal, NativeInt(CodePtrLocal[1].VarPointer));
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}
@@ -14803,6 +14803,7 @@ var
       //
       if PeekAtNextToken.Kind = tkAssign then
         Self.TokenList.Insert(Pos + 1, TokenResult);
+
       ParseBlock;
       Res := FindVar('result', true);
       Func^.PossibleKinds := Res^.PossibleKinds;
@@ -16011,7 +16012,7 @@ var
       tkDebugDisAsm:
         begin
           NextToken;
-          Emit([Pointer(opDebugDisAsm)]);
+          Emit([Pointer(opDebugDisAsm), Pointer(StrToInt(NextTokenExpected([tkNumber]).Value))]);
         end;
       tkEOF:
         Exit;
