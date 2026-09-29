@@ -317,18 +317,29 @@ for i = 4 downto 0 step 0.5 {
 
 ### For-in block
 
-For-in block only work correctly with valid array.
+For-in block works with both maps and arrays, but the value of iteration is different.
 
+For arrays, value will contains the value of the current element, and index will contains the index of the current element.
 ```
 for value in [1, 2, 5, 7, 9] {
   if value = 5
     break
 }
-```
 
-```
 for value, index in [1, 2, 5, 7, 9] {
   writeln(string(index) + ": " + string(value))
+}
+```
+
+For maps, value will contains the key of the current entry, and index will contains the index of the current key.
+```
+o = ['a': 1, 'b': 2, 'c': 3]
+for key in o {
+  writeln(key, ': ', o[key])
+}
+
+for key, index in o {
+  writeln(key, ': ', o[key])
 }
 ```
 
