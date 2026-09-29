@@ -5862,42 +5862,42 @@ end;
 
 class function TBuiltInFunction.SELn(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Exit(Ln(Double(Args[0])));
+  Exit(Ln(Args[0]));
 end;
 
 class function TBuiltInFunction.SESin(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Exit(Sin(Double(Args[0])));
+  Exit(Sin(Args[0]));
 end;
 
 class function TBuiltInFunction.SECos(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Exit(Cos(Double(Args[0])));
+  Exit(Cos(Args[0]));
 end;
 
 class function TBuiltInFunction.SETan(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Exit(Tan(Double(Args[0])));
+  Exit(Tan(Args[0]));
 end;
 
 class function TBuiltInFunction.SECot(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Exit(Cot(Double(Args[0])));
+  Exit(Cot(Args[0]));
 end;
 
 class function TBuiltInFunction.SESqrt(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Exit(Sqrt(Double(Args[0])));
+  Exit(Sqrt(Args[0]));
 end;
 
 class function TBuiltInFunction.SEAbs(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Exit(Abs(Double(Args[0])));
+  Exit(Abs(Args[0].VarNumber));
 end;
 
 class function TBuiltInFunction.SEFrac(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  Exit(Frac(Double(Args[0])));
+  Exit(Frac(Args[0]));
 end;
 
 class function TBuiltInFunction.SEGetTickCount(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
