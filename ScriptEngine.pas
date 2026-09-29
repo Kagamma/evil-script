@@ -8764,7 +8764,7 @@ var
       begin
         LineOfCode := Self.Parent.LineOfCodeList[I];
         CodeIndex := NativeUInt(CodePtrLocal - Self.Binaries.Value^.Data[LineOfCode.CodeSegmentIndex].Ptr(0)) div SizeOf(TSEValue);
-        if (CodeIndex < LineOfCode.CodeIndex) and (CodeSegmentIndexLocal = LineOfCode.CodeSegmentIndex) then
+        if (CodeIndex < LineOfCode.CodeIndex) and (LineOfCode.CodeSegmentIndex = CodeSegmentIndexLocal) then
           Exit;
         Inc(I);
       end;
@@ -16378,6 +16378,7 @@ begin
   Result.OptimizeConstants := Self.OptimizeConstants;
   Result.OptimizePeephole := Self.OptimizePeephole;
   Result.OptimizeJIT := Self.OptimizeJIT;
+  Result.IsLex := Self.IsLex;
   Result.IsParsed := Self.IsParsed;
 
   Result.LineOfCodeList.Free;
