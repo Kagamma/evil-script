@@ -8753,8 +8753,8 @@ var
       begin
         LineOfCode := Self.Parent.LineOfCodeList[I];
         CodeIndex := NativeUInt(CodePtrLocal - Self.Binaries.Value^.Data[LineOfCode.CodeSegmentIndex].Ptr(0)) div SizeOf(TSEValue);
-        if (CodeIndex >= LineOfCode.CodeIndex) and (LineOfCode.CodeSegmentIndex = 0) then
-          break;
+        if (CodeIndex >= LineOfCode.CodeIndex) and (LineOfCode.CodeSegmentIndex = CodeSegmentIndexLocal) then
+          Exit;
         Dec(I);
       end;
     end else
@@ -8765,10 +8765,11 @@ var
         LineOfCode := Self.Parent.LineOfCodeList[I];
         CodeIndex := NativeUInt(CodePtrLocal - Self.Binaries.Value^.Data[LineOfCode.CodeSegmentIndex].Ptr(0)) div SizeOf(TSEValue);
         if (CodeIndex < LineOfCode.CodeIndex) and (CodeSegmentIndexLocal = LineOfCode.CodeSegmentIndex) then
-          break;
+          Exit;
         Inc(I);
       end;
     end;
+    LineOfCode.Line := -1;
   end;
 
   procedure PrintEvilScriptStackTrace(Message: String);
