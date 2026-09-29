@@ -166,7 +166,8 @@ type
     opNop,
 
     opJITBlock,
-    opJITBlockPotential
+    opJITBlockPotential,
+    opDebugDisAsm
   );
   TSEOpcodeSet = set of TSEOpcode;
   TSEOpcodeInfo = record
@@ -863,7 +864,8 @@ type
     tkTry,
     tkCatch,
     tkThrow,
-    tkOverride
+    tkOverride,
+    tkDebugDisAsm
   );
 TSETokenKindSet = set of TSETokenKind;
 
@@ -874,7 +876,7 @@ const
     ',', 'if', 'switch', 'case', 'default', 'identity', 'function', 'fn', 'variable', 'const', 'local',
     'unknown', 'else', 'while', 'break', 'continue', 'yield',
     '[', ']', 'and', 'or', 'and (&&)', 'or (||)', 'xor', 'not', 'for', 'in', 'to', 'downto', 'step', 'return',
-    'atom', 'import', 'do', 'var', 'try', 'catch', 'throw', 'override'
+    'atom', 'import', 'do', 'var', 'try', 'catch', 'throw', 'override', 'debug_disasm'
   );
   ValueKindNames: array[TSEValueKind] of RawByteString = (
     'null', 'number', 'string', 'map', 'buffer', 'pointer', 'boolean', 'function', 'pasobject', 'conststring', 'rawdata'
@@ -957,7 +959,8 @@ const
     1, // opThrow
     1, // opNop
     2, // opJITBlock
-    2  // opJITBlockPotential
+    2, // opJITBlockPotential
+    1  // opDebugDisAsm
   );
 
 type
@@ -1531,6 +1534,7 @@ procedure SEMapSet(constref V: TSEValue; constref S: String; constref A: TSEValu
 procedure SEMapSet(constref V, I: TSEValue; constref A: TSEValue); inline; overload;
 function SEMapIsValidArray(constref V: TSEValue): Boolean; inline;
 procedure SEDisAsm(const VM: TSEVM; var Res: String);
+procedure SEDisAsmFunction(const VM: TSEVM; const ACodeSegment: Integer; var Res: String);
 function SEGet(const AName: String): TSEValue;
 procedure SESet(const AName: String; constref AValue: TSEValue);
 
@@ -4464,7 +4468,7 @@ begin
   Result := V.VarMap^.Shape = nil;
 end;
 
-procedure SEDisAsm(const VM: TSEVM; var Res: String);
+procedure SEDisAsmFunction(const VM: TSEVM; const ACodeSegment: Integer; var Res: String);
 var
   I, J, K: NativeInt;
   SB: TStringBuilder;
@@ -4474,7 +4478,7 @@ var
 begin
   SB := TStringBuilder.Create;
   try
-    for J := 0 to VM.Binaries.Value^.Size - 1 do
+    J := ACodeSegment;
     begin
       Binary := VM.Binaries.Value^.Data[J];
       if J > 0 then
@@ -4493,10 +4497,40 @@ begin
           if K < OpcodeSizes[Op] - 1 then
             SB.Append(',');
         end;
+        case Op of
+          opCallScript:
+            SB.Append(' (' + VM.Parent.FuncScriptList[Binary[I + 1].VarData].Name + ')');
+          opCallNative:
+            SB.Append(' (' + VM.Parent.FuncNativeList[Binary[I + 1].VarData].Name + ')');
+          opCallImport:
+            SB.Append(' (' + VM.Parent.FuncImportList[Binary[I + 1].VarData].Name + ')');
+        end;
         SB.Append(#10);
         Inc(I, OpcodeSizes[Op]);
       end;
       SB.Append(#10);
+    end;
+  finally
+    Res := SB.ToString;
+    SB.Free;
+  end;
+end;
+
+procedure SEDisAsm(const VM: TSEVM; var Res: String);
+var
+  I, J, K: NativeInt;
+  SB: TStringBuilder;
+  Binary: TSEBinary;
+  Op: TSEOpcode;
+  S: String;
+begin
+  SB := TStringBuilder.Create;
+  try
+    for J := 0 to VM.Binaries.Value^.Size - 1 do
+    begin
+      S := '';
+      SEDisAsmFunction(VM, J, S);
+      SB.Append(S);
     end;
     SB.Append('--- STRING DATA ---'#10);
     for I := 0 to ConstStrings.Count - 1 do
@@ -9383,7 +9417,8 @@ label
   labelThrow,
   labelNop,
   labelJITBlock, labelJITBlockEnd,
-  labelJITBlockPotential;
+  labelJITBlockPotential,
+  labelDebugDisAsm;
 
 var
   DispatchTable: array[TSEOpcode] of Pointer = (
@@ -9464,7 +9499,8 @@ var
     @labelThrow,
     @labelNop,
     @labelJITBlock,
-    @labelJITBlockPotential
+    @labelJITBlockPotential,
+    @labelDebugDisAsm
   );
   LabelJITBlockEndAddr: Pointer = @labelJITBlockEnd;
 
@@ -11477,6 +11513,17 @@ labelStart:
           CallImportFunc;
           DispatchGoto;
         end;
+      {$ifndef SE_COMPUTED_GOTO}opDebugDisAsm:{$endif}
+        begin
+        labelDebugDisAsm:
+          SEDisAsmFunction(Self, CodeSegmentIndexLocal, S);
+          Writeln(S);
+          Writeln('Stack: ', NativeUInt(StackPtrLocal));
+          Writeln('Stack Frame: ', NativeUInt(Self.FramePtr^.StackPtr));
+          Writeln('Difference: ', (NativeUInt(StackPtrLocal) - NativeUInt(Self.FramePtr^.StackPtr)) div SizeOf(TSEValue));
+          Inc(CodePtrLocal);
+          DispatchGoto;
+        end;
       {$ifndef SE_COMPUTED_GOTO}
       end;
       if Self.IsPaused then
@@ -12547,6 +12594,8 @@ begin
               Token.Kind := tkThrow;
             'override':
               Token.Kind := tkOverride;
+            '___debug_disasm':
+              Token.Kind := tkDebugDisAsm;
             else
               Token.Kind := tkIdent;
           end;
@@ -14806,12 +14855,7 @@ var
     P := FindFunc(Token.Value, FuncValue.VarFuncKind, Ind);
     if P = nil then
       Error(Format('Function "%s" not found', [Token.Value]), Token);
-    case FuncValue.VarFuncKind of
-      sefkScript, sefkImport:
-        FuncValue.VarFuncIndx := Ind;
-      sefkNative:
-        FuncValue.VarFuncIndx := NativeUInt(P);
-    end;
+    FuncValue.VarFuncIndx := Ind;
     FuncValue.Kind := sevkFunction;
     Emit([Pointer(opPushConst), FuncValue]);
   end;
@@ -15963,6 +16007,11 @@ var
         begin
           NextToken;
           ParseThrow;
+        end;
+      tkDebugDisAsm:
+        begin
+          NextToken;
+          Emit([Pointer(opDebugDisAsm)]);
         end;
       tkEOF:
         Exit;
