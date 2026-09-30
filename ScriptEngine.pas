@@ -1690,7 +1690,6 @@ type
     class function SEMapKeyDelete(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEMapKeyExists(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEMapKeysGet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
-    class function SEMapKeysOrArrayItemsGet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEMapIndicesGet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEMapClear(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEArrayResize(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -5489,34 +5488,6 @@ begin
     begin
       SEMapSet(Result, I, I);
     end;
-  end;
-end;
-
-class function TBuiltInFunction.SEMapKeysOrArrayItemsGet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
-var
-  Key: String;
-  I: NativeInt = 0;
-  Keys: TStringDynArray;
-begin
-  SEValidateType(@Args[0], sevkMap, 1, {$I %CURRENTROUTINE%});
-  GC.AllocMap(@Result);
-  if not SEMapIsValidArray(Args[0]) then
-  begin
-    Args[0].VarMap^.Lock;
-    try
-      Keys := Args[0].VarMap^.Shape.GetKeys;
-      Result.VarMap^.Resize(Length(Keys));
-      for Key in Keys do
-      begin
-        SEMapSet(Result, I, Key);
-        Inc(I);
-      end;
-    finally
-      Args[0].VarMap^.Unlock;
-    end;
-  end else
-  begin
-    Result := Args[0];
   end;
 end;
 
@@ -11645,7 +11616,6 @@ begin
     Self.RegisterFunc('map_key_exists', @TBuiltInFunction(nil).SEMapKeyExists, 2);
     Self.RegisterFunc('map_key_delete', @TBuiltInFunction(nil).SEMapKeyDelete, 2);
     Self.RegisterFunc('map_keys_get', @TBuiltInFunction(nil).SEMapKeysGet, 1, [sevkString]);
-    Self.RegisterFunc('___map_keys_or_array_items_get', @TBuiltInFunction(nil).SEMapKeysOrArrayItemsGet, 1, []);
     Self.RegisterFunc('map_indices_get', @TBuiltInFunction(nil).SEMapIndicesGet, 1, [sevkNumber]);
     Self.RegisterFunc('map_clear', @TBuiltInFunction(nil).SEMapClear, 1);
     Self.RegisterFunc('array_resize', @TBuiltInFunction(nil).SEArrayResize, 2);
@@ -15045,11 +15015,8 @@ var
         PIdentFirst := FindVar(VarIdent.Name);
         PIdentFirst^.PossibleKinds := ParseExpr(False);
         VerifyJITBlock(PIdentFirst^.PossibleKinds);
-
-        FindFuncNative('___map_keys_or_array_items_get', Ind);
-        Emit([Pointer(opCallNative), Pointer(Ind), Pointer(1), Pointer(0)]);
-
         EmitAssignVar(VarHiddenArrayIdent);
+
         Emit([Pointer(opPushConst), 0]);
         EmitAssignVar(VarHiddenCountIdent);
 
