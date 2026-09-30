@@ -144,10 +144,10 @@
 `coroutine_create(f: function, any...): pasobject`
 - Creates a new coroutine with the provided function and returns coroutine's pasobject instance. The first argument must be a function, any additional arguments will be passed to that function when the coroutine starts. The coroutine's pasobject instance is passed to the function as `self`.
 
-`coroutine_start(coroutine: pasobject): any`
+`coroutine_start(coroutine: pasobject, any...): any`
 - Begin or resume coroutine execution. Returns value set by either `yield` or `result`.
 
-`coroutine_resume(coroutine: pasobject): any`
+`coroutine_resume(coroutine: pasobject, any...): any`
 - Alias to `coroutine_start`.
 
 `coroutine_is_terminated(coroutine: pasobject): boolean`

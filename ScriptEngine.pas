@@ -6016,9 +6016,18 @@ begin
 end;
 
 class function TBuiltInFunction.SECoroutineResume(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+var
+  StackPtrLocal: PSEValue;
+  Co: TSEVMCoroutine;
 begin
   SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
-  Result := TSEVMCoroutine(Args[0].VarPascalObject^.Value).Execute;
+  Co := TSEVMCoroutine(Args[0].VarPascalObject^.Value);
+  if ArgCount > 1 then
+  begin
+    StackPtrLocal := PSEValue(@Co.VM.Stack[0]) + SE_STACK_RESERVED;
+    Move(Args[1], StackPtrLocal[0], (ArgCount - 1) * SizeOf(TSEValue));
+  end;
+  Result := Co.Execute;
 end;
 
 class function TBuiltInFunction.SECoroutineIsTerminated(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -11477,11 +11486,8 @@ begin
   inherited Create;
   Self.VM := AVM.Fork(AStackSize, AVM.Name + '[Coroutine]');
   Self.VM.CoroutineOwner := Self;
-  for I := 0 to ArgCount - 1 do
-  begin
-    Self.VM.StackPtr[0] := Args[I];
-    Inc(Self.VM.StackPtr);
-  end;
+  if ArgCount > 0 then
+    Move(Args[0], Self.VM.StackPtr[0], ArgCount * SizeOf(TSEValue));
   Self.VM.StackPtr := Self.VM.StackPtr + Self.VM.Parent.FuncScriptList[Fn.VarFuncIndx].VarCount;
   Self.VM.CodeSegmentIndex := Self.VM.Parent.FuncScriptList[Fn.VarFuncIndx].CodeSegmentIndex;
   Self.FStackPtr := Self.VM.StackPtr;
@@ -11738,8 +11744,8 @@ begin
 
     Self.RegisterFunc('coroutine_create', @TBuiltInFunction(nil).SECoroutineCreate, -1);
     Self.RegisterFunc('coroutine_reset', @TBuiltInFunction(nil).SECoroutineReset, -1);
-    Self.RegisterFunc('coroutine_start', @TBuiltInFunction(nil).SECoroutineResume, 1);
-    Self.RegisterFunc('coroutine_resume', @TBuiltInFunction(nil).SECoroutineResume, 1);
+    Self.RegisterFunc('coroutine_start', @TBuiltInFunction(nil).SECoroutineResume, -1);
+    Self.RegisterFunc('coroutine_resume', @TBuiltInFunction(nil).SECoroutineResume, -1);
     Self.RegisterFunc('coroutine_is_terminated', @TBuiltInFunction(nil).SECoroutineIsTerminated, 1);
     Self.RegisterFunc('coroutine_terminate', @TBuiltInFunction(nil).SECoroutineTerminate, 1);
     Self.RegisterFunc('coroutine_is_running', @TBuiltInFunction(nil).SECoroutineIsExecuting, 1);
