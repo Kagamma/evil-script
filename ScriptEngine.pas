@@ -15328,7 +15328,10 @@ var
                   IsJitPossibleForArray := False;
                 NextTokenExpected([tkSquareBracketClose]);
                 if PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot, tkBracketOpen] then
+                begin
                   Emit([Pointer(opLoadMapItem), SENull, Pointer(1)]);
+                  PeepholeArrayAssignOptimization;
+                end;
                 AssignReturnFuncRef;
               end;
             tkDot:
