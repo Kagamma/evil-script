@@ -15024,7 +15024,7 @@ var
           end;
         tkOf:
           begin
-            for I := Pos + 2 to Self.TokenList.Count - 1 do
+            {for I := Pos + 2 to Self.TokenList.Count - 1 do
             begin
               if Self.TokenList[I].Kind = tkBracketOpen then
               begin
@@ -15038,7 +15038,7 @@ var
             Self.TokenList.Insert(Pos + 1, TokenInsert);
             TokenInsert.Kind := tkIdent;
             TokenInsert.Value := 'coroutine_create';
-            Self.TokenList.Insert(Pos + 1, TokenInsert);
+            Self.TokenList.Insert(Pos + 1, TokenInsert);}
 
             ParseExpr(False);
 

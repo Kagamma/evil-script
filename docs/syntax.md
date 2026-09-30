@@ -17,6 +17,7 @@
   + [Do-while block](#do-while-block)
   + [For block](#for-block)
   + [For-in block](#for-in-block)
+  + [For-of block](#for-of-block)
   + [Switch-case block](#switch-case-block)
   + [Function declaration](#function-declaration)
   + [Function reference](#function-reference)
@@ -333,9 +334,7 @@ for value, index in [1, 2, 5, 7, 9] {
 ```
 ### For-of block
 
-For-of block takes a generator function as an argument, and iterates over the result of the generator function.
-
-It uses coroutines under the hood.
+For-of block takes a `generator` function, which is basically a coroutine, as an argument, and iterates over the result of the generator function.
 
 ```
 fn range(minv, maxv) {
@@ -344,7 +343,7 @@ fn range(minv, maxv) {
   }
 }
 
-for i of range(3, 12) {
+for i of coroutine_create(range, 3, 12) {
   writeln(i)
 }
 writeln('END')

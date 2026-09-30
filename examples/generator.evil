@@ -1,12 +1,14 @@
+generator = coroutine_create
+
 fn numberGenerator(base) {
-  yield (base + 2)        
+  yield (base + 2)
   yield (base + 4)
   yield (base + 6)
 }
 
 writeln('Demonstrate the use of for-of loops and generator functions')
 
-for i of numberGenerator(5) {
+for i of generator(numberGenerator, 5) {
   writeln(i)
 }
 writeln('END')
