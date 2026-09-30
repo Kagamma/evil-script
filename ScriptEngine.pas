@@ -96,11 +96,9 @@ type
     opPopConst,
     opPopFrame,
     opAssignGlobalVar,
-    opAssignGlobalMap,
-    opAssignGlobalMapAttr,
+    opAssignMap,
+    opAssignMapAttr,
     opAssignLocalVar,
-    opAssignLocalMap,
-    opAssignLocalMapAttr,
     opJumpEqualRel,
     opJumpEqual1Rel,
     opJumpUnconditionalRel,
@@ -892,11 +890,9 @@ const
     1, // opPopConst,
     1, // opPopFrame,
     2, // opAssignGlobalVar,
-    4, // opAssignGlobalMap, the last slot is used for inline cache
-    4, // opAssignGlobalMapAttr, the last slot is used for inline cache
+    2, // opAssignMap, the last slot is used for inline cache
+    2, // opAssignMapAttr, the last slot is used for inline cache
     3, // opAssignLocalVar,
-    5, // opAssignLocalMap, the last slot is used for inline cache
-    5, // opAssignLocalMapAttr, the last slot is used for inline cache
     2, // opJumpEqualRel,
     3, // opJumpEqual1Rel,
     2, // opJumpUnconditionalRel,
@@ -9351,11 +9347,9 @@ label
   labelPopConst,
   labelPopFrame,
   labelAssignGlobalVar,
-  labelAssignGlobalMap,
-  labelAssignGlobalMapAttr,
+  labelAssignMap,
+  labelAssignMapAttr,
   labelAssignLocalVar,
-  labelAssignLocalMap,
-  labelAssignLocalMapAttr,
   labelJumpEqualRel,
   labelJumpEqual1Rel,
   labelJumpUnconditionalRel,
@@ -9433,11 +9427,9 @@ var
     @labelPopConst,
     @labelPopFrame,
     @labelAssignGlobalVar,
-    @labelAssignGlobalMap,
-    @labelAssignGlobalMapAttr,
+    @labelAssignMap,
+    @labelAssignMapAttr,
     @labelAssignLocalVar,
-    @labelAssignLocalMap,
-    @labelAssignLocalMapAttr,
     @labelJumpEqualRel,
     @labelJumpEqual1Rel,
     @labelJumpUnconditionalRel,
@@ -9646,24 +9638,23 @@ var
           end;
         // TODO: Only handle 1-dimensional maps for now
         // TODO: Array index is from stack, this is wasteful and we should merge jit blocks in the future
-        opAssignGlobalMap:
+        opAssignMap:
           begin
-            { Load global variable index to RDI }
-            // mov rdi, qword ptr [r15 + code[1].VarPointer]
-            E.MovRegImm64(regRDI, SizeOf(TSEValue) * NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
-            { TV, Load global variable to RDI }
-            // mov rdi, qword ptr [r12 + rdi + .VarNumber]
-            E.MovRegMem64(regRDI, E.MemIndex(regR12, regRDI, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
             { B, Load from stack }
             // movsd xmm1,xmm?
             E.MovSDXMM(regXMM1, TXMMReg(XMMStackPtr - 1));
             Dec(XMMStackPtr);
             { Decrease stack by 1 }
             E.SubRegImm32(regR14, SizeOf(TSEValue));
-            E.MovMemReg64(E.Mem(regR13, 0), regR14);
             { C, Load from actual stack }
             // movsd xmm0, qword ptr [r14 + .VarNumber]
             E.MovSDXMMFromMem(regXMM0, E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)));
+            { Decrease stack by 1 }
+            E.SubRegImm32(regR14, SizeOf(TSEValue));
+            E.MovMemReg64(E.Mem(regR13, 0), regR14);
+            { TV, Load from actual stack }
+            // movsd xmm0, qword ptr [r14 + .VarNumber]
+            E.MovRegMem64(regRDI, E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)));
 
               E.PushReg(regR15);
               E.PushReg(regR14);
@@ -9681,124 +9672,25 @@ var
           end;
         // TODO: Only handle 1-dimensional maps for now
         // TODO: Array index is from stack, this is wasteful and we should merge jit blocks in the future
-        opAssignGlobalMapAttr:
+        opAssignMapAttr:
           begin
-            { Load global variable index to RDI }
-            // mov rdi, qword ptr [r15 + code[1].VarPointer]
-            E.MovRegImm64(regRDI, SizeOf(TSEValue) * NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
-            { TV, Load global variable to RDI }
-            // mov rdi, qword ptr [r12 + rdi + .VarNumber]
-            E.MovRegMem64(regRDI, E.MemIndex(regR12, regRDI, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
             { B, Load from stack }
             // movsd xmm1,xmm?
             E.MovSDXMM(regXMM1, TXMMReg(XMMStackPtr - 1));
             Dec(XMMStackPtr);
             { Decrease stack by 1 }
             E.SubRegImm32(regR14, SizeOf(TSEValue));
-            E.MovMemReg64(E.Mem(regR13, 0), regR14);
             { C, Load from actual stack }
             // movsd xmm0, qword ptr [r14 + .VarNumber]
             E.MovSDXMMFromMem(regXMM0, E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)));
+            { Decrease stack by 1 }
+            E.SubRegImm32(regR14, SizeOf(TSEValue));
+            E.MovMemReg64(E.Mem(regR13, 0), regR14);
+            { TV, Load from actual stack }
+            // movsd xmm0, qword ptr [r14 + .VarNumber]
+            E.MovRegMem64(regRDI, E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)));
             { CacheSite }
-            E.MovRegImm64(regRSI, NativeUInt(@JitCodePtrLocal[BIndex + 3]));
-
-              E.PushReg(regR15);
-              E.PushReg(regR14);
-              E.PushReg(regR13);
-              E.PushReg(regR12);
-              E.PushReg(regR10);
-            E.CallAbsolute(regRCX, @SEMapSetJITResolve);
-              E.PopReg(regR10);
-              E.PopReg(regR12);
-              E.PopReg(regR13);
-              E.PopReg(regR14);
-              E.PopReg(regR15);
-            //
-            CodeSize := CodeSize + OpcodeSizes[Op];
-          end;
-        // TODO: Only handle 1-dimensional maps for now
-        // TODO: Array index is from stack, this is wasteful and we should merge jit blocks in the future
-        opAssignLocalMap:
-          begin
-            { RDI = current frame }
-            // mov rdi, r11
-            E.MovRegReg64(regRDI, regR11);
-            if NativeUInt(JitCodePtrLocal[BIndex + 3].VarPointer) <> 0 then
-            begin
-              { RDI = current frame - relative index }
-              // sub rdi, frame
-              E.SubRegImm32(regRDI, NativeUInt(JitCodePtrLocal[BIndex + 3].VarPointer) * SizeOf(TSEFrame));
-            end;
-            { Load local vraiable index to RAX }
-            // mov rax, code[1].VarPointer
-            E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer) * SizeOf(TSEValue));
-            { RDI = current frame's stack pointer }
-            // mov rdi, qword ptr [rdi + .StackPtr]
-            E.MovRegMem64(regRDI, E.Mem(regRDI, NativeUInt(@TSEFrame(nil^).StackPtr)));
-            { TV, Load local variable to RDI }
-            // mov rdi, qword ptr [rdi + rax + .VarNumber]
-            E.MovRegMem64(regRDI, E.MemIndex(regRDI, regRAX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
-
-            { B, Load from stack }
-            // movsd xmm1,xmm?
-            E.MovSDXMM(regXMM1, TXMMReg(XMMStackPtr - 1));
-            Dec(XMMStackPtr);
-            { Decrease stack by 1 }
-            E.SubRegImm32(regR14, SizeOf(TSEValue));
-            E.MovMemReg64(E.Mem(regR13, 0), regR14);
-            { C, Load from actual stack }
-            // movsd xmm0, qword ptr [r14 + .VarNumber]
-            E.MovSDXMMFromMem(regXMM0, E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)));
-
-              E.PushReg(regR15);
-              E.PushReg(regR14);
-              E.PushReg(regR13);
-              E.PushReg(regR12);
-              E.PushReg(regR10);
-            E.CallAbsolute(regRCX, @SEMapSetJIT);
-              E.PopReg(regR10);
-              E.PopReg(regR12);
-              E.PopReg(regR13);
-              E.PopReg(regR14);
-              E.PopReg(regR15);
-            //
-            CodeSize := CodeSize + OpcodeSizes[Op];
-          end;
-        // TODO: Only handle 1-dimensional maps for now
-        // TODO: Array index is from stack, this is wasteful and we should merge jit blocks in the future
-        opAssignLocalMapAttr:
-          begin
-            { RDI = current frame }
-            // mov rdi, r11
-            E.MovRegReg64(regRDI, regR11);
-            if NativeUInt(JitCodePtrLocal[BIndex + 3].VarPointer) <> 0 then
-            begin
-              { RDI = current frame - relative index }
-              // sub rdi, frame
-              E.SubRegImm32(regRDI, NativeUInt(JitCodePtrLocal[BIndex + 3].VarPointer) * SizeOf(TSEFrame));
-            end;
-            { Load local vraiable index to RAX }
-            // mov rax, code[1].VarPointer
-            E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer) * SizeOf(TSEValue));
-            { RDI = current frame's stack pointer }
-            // mov rdi, qword ptr [rdi + .StackPtr]
-            E.MovRegMem64(regRDI, E.Mem(regRDI, NativeUInt(@TSEFrame(nil^).StackPtr)));
-            { TV, Load local variable to RDI }
-            // mov rdi, qword ptr [rdi + rax + .VarNumber]
-            E.MovRegMem64(regRDI, E.MemIndex(regRDI, regRAX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
-
-            { B, Load from stack }
-            // movsd xmm1,xmm?
-            E.MovSDXMM(regXMM1, TXMMReg(XMMStackPtr - 1));
-            Dec(XMMStackPtr);
-            { Decrease stack by 1 }
-            E.SubRegImm32(regR14, SizeOf(TSEValue));
-            E.MovMemReg64(E.Mem(regR13, 0), regR14);
-            { C, Load from actual stack }
-            // movsd xmm0, qword ptr [r14 + .VarNumber]
-            E.MovSDXMMFromMem(regXMM0, E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)));
-            { CacheSite }
-            E.MovRegImm64(regRSI, NativeUInt(@JitCodePtrLocal[BIndex + 4]));
+            E.MovRegImm64(regRSI, NativeUInt(@JitCodePtrLocal[BIndex + 1]));
 
               E.PushReg(regR15);
               E.PushReg(regR14);
@@ -11216,37 +11108,10 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opCallRef:{$endif}
         begin
         labelCallRef:
-          A := Pop; // Ref or map
-          DeepCount := 0;
-          case A^.Kind of
-            sevkFunction:
-              begin
-                // Do nothing
-              end;
-            sevkMap:
-              begin
-                DeepCount := NativeInt(CodePtrLocal[3].VarPointer) and $FFFF;
-                if DeepCount = 0 then
-                  raise Exception.Create('Not a function reference');
-                StackPtrLocal := StackPtrLocal - DeepCount;
-                C := StackPtrLocal;
-                for I := 0 to DeepCount - 1 do
-                begin
-                  TV2 := A^;
-                  SEMapGet(TV, A^, C^);
-                  A := @TV;
-                  Inc(C);
-                end;
-              end;
-            else
-              raise Exception.Create('Not a function reference');
-          end;
-         // CodePtrLocal[1] := Pointer(A^.VarFuncIndx);
+          A := Pop; // Ref
           case A^.VarFuncKind of
             sefkScript:
               begin
-                if DeepCount > 1 then
-                  (StackPtrLocal - 1)^ := TV2;
                 FuncScriptInfo := @FuncScriptInfoPtrLocal[A^.VarFuncIndx];
                 if NativeInt(CodePtrLocal[3].VarPointer) and $10000 <> 0 then
                   goto labelCallScriptTailRef
@@ -11261,8 +11126,6 @@ labelStart:
               end;
             sefkNative:
               begin
-                if DeepCount > 1 then
-                  (StackPtrLocal - 1)^ := TV2;
                 This := Pop;
                 FuncNativeInfo := @FuncNativeInfoPtrLocal[A^.VarFuncIndx];
                 ArgCount := NativeInt(CodePtrLocal[2].VarPointer) - 1; // ArgCount contains this, so we minus it by 1
@@ -11367,68 +11230,23 @@ labelStart:
           Inc(CodePtrLocal, 3);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opAssignGlobalMap, opAssignGlobalMapAttr:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opAssignMap, opAssignMapAttr:{$endif}
         begin
-        labelAssignGlobalMap:
-        labelAssignGlobalMapAttr:
-          A := @CodePtrLocal[1];
-          TV := GetGlobalInt(NativeInt(A^.VarPointer))^;
+        labelAssignMap:
+        labelAssignMapAttr:
           B := Pop;
-          ArgCount := NativeInt(CodePtrLocal[2].VarPointer);
-          if ArgCount = 1 then
-            C := Pop
-          else
-          begin
-            StackPtrLocal := StackPtrLocal - ArgCount;
-            C := StackPtrLocal;
-            for I := 1 to ArgCount - 1 do
-            begin
-              SEMapGet(TV, TV, C^);
-              Inc(C);
-            end;
-          end;
+          C := Pop;
+          TV := Pop^;
           case TV.Kind of
             sevkMap:
-              ResolveMapSet(TV, C^, B^, @CodePtrLocal[3]);
+              ResolveMapSet(TV, C^, B^, @CodePtrLocal[1]);
               //SEMapSet(TV, C^, B^);
             sevkPascalObject:
               TV.SetProp(C^, B^);
             sevkString:
               StringSet(GetGlobalInt(NativeInt(A^.VarPointer)), C^, B^);
           end;
-          Inc(CodePtrLocal, 4);
-          DispatchGoto;
-        end;
-      {$ifndef SE_COMPUTED_GOTO}opAssignLocalMap, opAssignLocalMapAttr:{$endif}
-        begin
-        labelAssignLocalMap:
-        labelAssignLocalMapAttr:
-          A := @CodePtrLocal[1];
-          TV := GetLocalInt(NativeInt(A^.VarPointer), NativeInt(CodePtrLocal[3].VarPointer))^;
-          B := Pop;
-          ArgCount := NativeInt(CodePtrLocal[2].VarPointer);
-          if ArgCount = 1 then
-            C := Pop
-          else
-          begin
-            StackPtrLocal := StackPtrLocal - ArgCount;
-            C := StackPtrLocal;
-            for I := 1 to ArgCount - 1 do
-            begin
-              SEMapGet(TV, TV, C^);
-              Inc(C);
-            end;
-          end;
-          case TV.Kind of
-            sevkMap:
-              ResolveMapSet(TV, C^, B^, @CodePtrLocal[4]);
-              //SEMapSet(TV, C^, B^);
-            sevkPascalObject:
-              TV.SetProp(C^, B^);
-            sevkString:
-              StringSet(GetLocalInt(NativeInt(A^.VarPointer), NativeInt(CodePtrLocal[3].VarPointer)), C^, B^);
-          end;
-          Inc(CodePtrLocal, 5);
+          Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
       {$ifndef SE_COMPUTED_GOTO}opPushConstFromConstList:{$endif}
@@ -13061,8 +12879,7 @@ var
           if not (Op2 in [
             opPushConst, opPushGlobalVar, opPushLocalVar, opLoadMapItem, opLoadMapAttr,
             opAssignGlobalVar, opAssignLocalVar,
-            opAssignGlobalMap, opAssignLocalMap,
-            opAssignGlobalMapAttr, opAssignLocalMapAttr,
+            opAssignMap, opAssignMapAttr,
             opJITBlockPotential,
             opInc,
             opNegative,
@@ -13128,20 +12945,14 @@ var
       Result := Emit([Pointer(opAssignGlobalVar), Pointer(Ident.Addr)]);
   end;
 
-  function EmitAssignArray(const Ident: TSEIdent; const ArgCount: NativeInt; const IsAttr: Boolean = False): NativeInt; inline;
+  function EmitAssignArray(const IsAttr: Boolean = False): NativeInt; inline;
   begin
     if not IsAttr then
     begin
-      if Ident.Local > 0 then
-        Result := Emit([Pointer(opAssignLocalMap), Pointer(Ident.Addr), Pointer(ArgCount), Pointer(Self.FuncTraversal - Ident.Local), Pointer(1)])
-      else
-        Result := Emit([Pointer(opAssignGlobalMap), Pointer(Ident.Addr), Pointer(ArgCount), Pointer(1)]);
+      Result := Emit([Pointer(opAssignMap), Pointer(1)]);
     end else
     begin
-      if Ident.Local > 0 then
-        Result := Emit([Pointer(opAssignLocalMapAttr), Pointer(Ident.Addr), Pointer(ArgCount), Pointer(Self.FuncTraversal - Ident.Local), Pointer(1)])
-      else
-        Result := Emit([Pointer(opAssignGlobalMapAttr), Pointer(Ident.Addr), Pointer(ArgCount), Pointer(1)]);
+      Result := Emit([Pointer(opAssignMapAttr), Pointer(1)]);
     end;
   end;
 
@@ -13983,7 +13794,7 @@ var
           end;
         tkFunctionDecl:
           begin
-            Result := Result + [sevkFunction];
+            Result := Result + [sevkNull];
             PushConstCount := 0;
             IsTailed := True;
             NextToken;
@@ -14092,7 +13903,7 @@ var
                   NextToken;
                   if PeekAtNextToken.Kind <> tkBracketOpen then // Likely function ref
                   begin
-                    Result := Result + [sevkFunction];
+                    Result := Result + [sevkNull];
                     P := FindFunc(Token.Value, FuncValue.VarFuncKind, Ind);
                     if P = nil then
                       Error(Format('Function "%s" not found', [Token.Value]), Token);
@@ -14366,46 +14177,6 @@ var
       Patch(JumpExpr2 - 1, Pointer(Expr2Block) - (JumpExpr2 - 3));
       Patch(JumpEnd - 1, Pointer(EndBlock) - (JumpEnd - 2));
     end;
-  end;
-
-  procedure ParseFuncRefCallByMapRewind(const Ident: TSEIdent; const DeepCount, RewindStartAdd: NativeInt; const ThisRefIdent: PSEIdent = nil);
-  var
-    Token: TSEToken;
-    ArgCount: NativeInt = 1;
-    RewindCount: NativeInt;
-    This: PSEIdent;
-  begin
-    RewindCount := Self.Binary.Count - RewindStartAdd;
-    NextTokenExpected([tkBracketOpen]);
-    // Allocate stack for result
-    Emit([Pointer(opPushConst), SENull]);
-    Token := PeekAtNextToken;
-    if Token.Kind = tkBracketClose then
-      NextToken;
-    while not (Token.Kind = tkBracketClose) do
-    begin
-      MarkJITBlock;
-      VerifyJITBlock(ParseExpr(True));
-      Inc(ArgCount);
-      Token := NextTokenExpected([tkComma, tkBracketClose]);
-    end;
-    // Allocate stack for this
-    if ThisRefIdent <> nil then
-      EmitPushVar(ThisRefIdent^)
-    else
-    begin
-      This := FindVar('self');
-      if (This <> nil) and (This^.Local > 0) then
-        EmitPushVar(This^)
-      else
-        Emit([Pointer(opPushConst), SENull]);
-    end;
-    // Push map to stack
-    Rewind(RewindStartAdd, RewindCount);
-    EmitPushVar(Ident);
-    Emit([Pointer(opCallRef), Pointer(0), Pointer(ArgCount), Pointer(DeepCount)]);
-    if PeekAtNextToken.Kind = tkBracketOpen then
-      ParseFuncRefCall;
   end;
 
   procedure ParseFuncRefCall(const ThisRefIdent: PSEIdent = nil);
@@ -15471,9 +15242,28 @@ var
     Emit([Pointer(opCallNative), Pointer(Ind), Pointer(ArgCount), Pointer(0)]);
   end;
 
-  procedure ParseAssignTail;
+  procedure ParseVarAssign(const Name: String; const IsNew: Boolean);
   var
-    Token, FuncRefToken: TSEToken;
+    Ident: PSEIdent;
+    Token, Token2: TSEToken;
+    ArgCount: NativeInt = 0;
+    I, J,
+    RewindStartAddr,
+    OpBinaryStart,
+    OpBinaryEnd,
+    VarStartTokenPos,
+    VarEndTokenPos: NativeInt;
+    AccessNumber: TSEValue;
+    AccessString: String;
+    OpInfoPrev1: PSEOpcodeInfo;
+    KindName: String;
+    FirstExprOpIndex: Integer;
+    ArrayIndexPossibleKinds,
+    AssignPossibleKinds: TSEValueKindSet;
+    IsJitPossibleForArray: Boolean = True;
+    IsDotNotation: Boolean = False;
+
+    FuncRefToken: TSEToken;
     FuncRefIdent: TSEIdent;
     AssignReturnFuncRefCount: NativeInt = 0;
     AssignReturnFuncRefOpStart,
@@ -15498,110 +15288,79 @@ var
     end;
 
   begin
-    while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
+    Ident := nil;
+    if Name <> '' then
     begin
-      if FuncRefToken.Value = '' then
+      Ident := FindVar(Name);
+      if Ident^.IsAssigned and Ident^.IsConst then
+        Error(Format('Cannot reassign value to constant "%s"', [Name]), PeekAtNextToken);
+        RewindStartAddr := Self.Binary.Count;
+      VarStartTokenPos := Pos;
+      if PeekAtNextToken.kind = tkColon then
       begin
-        FuncRefToken.Value := '___f' + Self.InternalIdent;
-        FuncRefToken.Kind := tkIdent;
-        FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False)^;
+        ParseTypeAnnotation(Ident);
       end;
-      AssignReturnFuncRef;
-      while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
-      begin
-        case PeekAtNextToken.Kind of
-          tkSquareBracketOpen:
-            begin
-              NextToken;
-              MarkJITBlock;
-              VerifyJITBlock(ParseExpr(False));
-              NextTokenExpected([tkSquareBracketClose]);
-              AssignReturnFuncRef;
-              Emit([Pointer(opLoadMapItem), SENull, Pointer(1)]);
-              PeepholeArrayAssignOptimization;
-            end;
-          tkDot:
-            begin
-              NextToken;
-              Token := NextTokenExpected([tkIdent]);
-              AssignReturnFuncRef;
-              Emit([Pointer(opLoadMapItem), CreateConstStringValue(Token.Value), Pointer(1)]);
-            end;
-        end;
-      end;
-      if PeekAtNextToken.Kind = tkBracketOpen then
-      begin
-        AssignReturnFuncRefCount := 0;
-        ParseFuncRefCall(@FuncRefIdent);
-      end;
-    end;
-    if AssignReturnFuncRefCount > 0 then
-    begin
-      Self.Binary.DeleteRange(AssignReturnFuncRefStart, AssignReturnFuncRefEnd - AssignReturnFuncRefStart);
-      Self.OpcodeInfoList.DeleteRange(AssignReturnFuncRefOpStart, AssignReturnFuncRefOpEnd - AssignReturnFuncRefOpStart);
-    end;
-    Emit([Pointer(opPopConst)]);
-  end;
-
-  procedure ParseVarAssign(const Name: String; const IsNew: Boolean);
-  var
-    Ident: PSEIdent;
-    Token, Token2: TSEToken;
-    ArgCount: NativeInt = 0;
-    I, J,
-    RewindStartAddr,
-    OpBinaryStart,
-    OpBinaryEnd,
-    VarStartTokenPos,
-    VarEndTokenPos: NativeInt;
-    AccessNumber: TSEValue;
-    AccessString: String;
-    OpInfoPrev1: PSEOpcodeInfo;
-    KindName: String;
-    FirstExprOpIndex: Integer;
-    ArrayIndexPossibleKinds,
-    AssignPossibleKinds: TSEValueKindSet;
-    IsJitPossibleForArray: Boolean = True;
-    IsDotNotation: Boolean = False;
-  begin
-    Ident := FindVar(Name);
-    if Ident^.IsAssigned and Ident^.IsConst then
-      Error(Format('Cannot reassign value to constant "%s"', [Name]), PeekAtNextToken);
-      RewindStartAddr := Self.Binary.Count;
-    VarStartTokenPos := Pos;
-    if PeekAtNextToken.kind = tkColon then
-    begin
-      ParseTypeAnnotation(Ident);
+      Ident^.IsAssigned := True;
     end else
     begin
+      if not (PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot, tkBracketOpen]) then
+      begin
+        Emit([Pointer(opPopConst)]);
+        Exit;
+      end;
+    end;
+    begin
       while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
       begin
-        if IsNew then
-          Error(Format('Variable "%s" is not an array / a map', [Name]), PeekAtNextToken);
-        case PeekAtNextToken.Kind of
-          tkSquareBracketOpen:
-            begin
-              NextToken;
-              MarkJITBlock;
-              ArrayIndexPossibleKinds := ParseExpr(False);
-              VerifyJITBlock(ArrayIndexPossibleKinds);
-              if ArrayIndexPossibleKinds - [sevkNumber, sevkBoolean] <> [] then
-                IsJitPossibleForArray := False;
-              NextTokenExpected([tkSquareBracketClose]);
-            end;
-          tkDot:
-            begin
-              NextToken;
-              Token2 := NextTokenExpected([tkIdent]);
-              Emit([Pointer(opPushConst), CreateConstStringValue(Token2.Value)]);
-              IsDotNotation := True;
-            end;
+        if FuncRefToken.Value = '' then
+        begin
+          FuncRefToken.Value := '___f' + Self.InternalIdent;
+          FuncRefToken.Kind := tkIdent;
+          FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False)^;
         end;
-        Inc(ArgCount);
+        AssignReturnFuncRef;
+        while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
+        begin
+          if IsNew then
+            Error(Format('Variable "%s" is not an array / a map', [Name]), PeekAtNextToken);
+          if (ArgCount = 0) and (Ident <> nil) then
+            EmitPushVar(Ident^);
+          case PeekAtNextToken.Kind of
+            tkSquareBracketOpen:
+              begin
+                NextToken;
+                MarkJITBlock;
+                ArrayIndexPossibleKinds := ParseExpr(False);
+                VerifyJITBlock(ArrayIndexPossibleKinds);
+                if ArrayIndexPossibleKinds - [sevkNumber, sevkBoolean] <> [] then
+                  IsJitPossibleForArray := False;
+                NextTokenExpected([tkSquareBracketClose]);
+                if PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot, tkBracketOpen] then
+                  Emit([Pointer(opLoadMapItem), SENull, Pointer(1)]);
+                AssignReturnFuncRef;
+              end;
+            tkDot:
+              begin
+                NextToken;
+                Token2 := NextTokenExpected([tkIdent]);
+                AssignReturnFuncRef;
+                if PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot, tkBracketOpen] then
+                begin
+                  Emit([Pointer(opLoadMapAttr), CreateConstStringValue(Token2.Value), Pointer(1)]);
+                end else
+                  Emit([Pointer(opPushConst), CreateConstStringValue(Token2.Value)]);
+                IsDotNotation := True;
+              end;
+          end;
+          Inc(ArgCount);
+        end;
       end;
     end;
 
-    Token := PeekAtNextTokenExpected([tkAssign, tkOpAssign, tkBracketOpen]);
+    if Ident <> nil then
+      Token := PeekAtNextTokenExpected([tkAssign, tkOpAssign, tkBracketOpen])
+    else
+      Token := PeekAtNextTokenExpected([tkBracketOpen]);
     AssignPossibleKinds := [];
     case Token.Kind of
       tkAssign,
@@ -15613,7 +15372,7 @@ var
           FirstExprOpIndex := Self.OpcodeInfoList.Count;
           if Token.Kind = tkOpAssign then
           begin
-            if ArgCount > 0 then
+            if (ArgCount > 0) then
             begin
               J := Pos + 1;
               for I := VarStartTokenPos to VarEndTokenPos do
@@ -15648,12 +15407,12 @@ var
           begin
             if (ArgCount = 1) and IsJitPossibleForArray then
             begin
-              EmitAssignArray(Ident^, ArgCount, IsDotNotation);
+              EmitAssignArray(IsDotNotation);
               VerifyJITBlock(Ident^.PossibleKinds);
             end else
             begin
               VerifyJITBlock(Ident^.PossibleKinds);
-              EmitAssignArray(Ident^, ArgCount, IsDotNotation);
+              EmitAssignArray(IsDotNotation);
             end;
           end else
           begin
@@ -15670,11 +15429,16 @@ var
         begin
           if IsNew then
             Error(Format('Variable "%s" is not a function', [Name]), PeekAtNextToken);
-          ParseFuncRefCallByMapRewind(Ident^, ArgCount, RewindStartAddr, Ident);
-          ParseAssignTail;
+          AssignReturnFuncRefCount := 0;
+          ParseFuncRefCall(@FuncRefIdent);
+          ParseVarAssign('', False);
         end;
     end;
-    Ident^.IsAssigned := True;
+    if AssignReturnFuncRefCount > 0 then
+    begin
+      Self.Binary.DeleteRange(AssignReturnFuncRefStart, AssignReturnFuncRefEnd - AssignReturnFuncRefStart);
+      Self.OpcodeInfoList.DeleteRange(AssignReturnFuncRefOpStart, AssignReturnFuncRefOpEnd - AssignReturnFuncRefOpStart);
+    end;
   end;
 
   procedure ParseTrap;
@@ -15782,7 +15546,7 @@ var
           if PeekAtNextToken.Kind = tkBracketOpen then // Likely function ref
           begin
             ParseFuncRefCallByName(Token.Value);
-            ParseAssignTail;
+            ParseVarAssign('', False);
           end else
             ParseVarAssign(Token.Value, False);
         end;
@@ -15792,7 +15556,7 @@ var
             CanEmit := False;
           NextToken;
           ParseFuncCall(Token.Value);
-          ParseAssignTail;
+          ParseVarAssign('', False);
           if Self.OptimizeAsserts and (Token.Value = 'assert') then
             CanEmit := True;
         end;
