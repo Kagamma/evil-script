@@ -8756,7 +8756,7 @@ var
   FuncImportInfo: PSEFuncImportInfo;
   FuncNativeInfoPtrLocal: PSEFuncNativeInfo;
   FuncScriptInfoPtrLocal: PSEFuncScriptInfo;
-  I, J, ArgCountStack, ArgCount, ArgSize, DeepCount: NativeInt;
+  I, J, ArgCountStack, ArgCount, ArgSize: NativeInt;
   This: PSEValue;
   GlobalLocal: PSEValue;
   CodeSegmentIndexLocal: NativeInt;
