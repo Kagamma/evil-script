@@ -15024,9 +15024,16 @@ var
           end;
         tkOf:
           begin
-            TokenInsert.Kind := tkComma;
-            Self.TokenList.Insert(Pos + 3, TokenInsert);
-            Self.TokenList.Delete(Pos + 2);
+            for I := Pos + 2 to Self.TokenList.Count - 1 do
+            begin
+              if Self.TokenList[I].Kind = tkBracketOpen then
+              begin
+                Self.TokenList.Delete(I);
+                TokenInsert.Kind := tkComma;
+                Self.TokenList.Insert(I, TokenInsert);
+                break;
+              end;
+            end;
             TokenInsert.Kind := tkBracketOpen;
             Self.TokenList.Insert(Pos + 1, TokenInsert);
             TokenInsert.Kind := tkIdent;
