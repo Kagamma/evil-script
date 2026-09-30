@@ -852,6 +852,7 @@ type
     tkNot,
     tkFor,
     tkIn,
+    tkOf,
     tkTo,
     tkDownto,
     tkStep,
@@ -874,7 +875,7 @@ const
     '>', '<=', '>=', '{', '}', ':', '?', '(', ')', 'neg', 'number', 'string',
     ',', 'if', 'switch', 'case', 'default', 'identity', 'function', 'fn', 'variable', 'const', 'local',
     'unknown', 'else', 'while', 'break', 'continue', 'yield',
-    '[', ']', 'and', 'or', 'and (&&)', 'or (||)', 'xor', 'not', 'for', 'in', 'to', 'downto', 'step', 'return',
+    '[', ']', 'and', 'or', 'and (&&)', 'or (||)', 'xor', 'not', 'for', 'in', 'of', 'to', 'downto', 'step', 'return',
     'atom', 'import', 'do', 'var', 'try', 'catch', 'throw', 'override', 'debug_disasm'
   );
   ValueKindNames: array[TSEValueKind] of RawByteString = (
@@ -11468,14 +11469,16 @@ end;
 constructor TSEVMCoroutine.Create(const AVM: TSEVM; constref Fn: TSEValue; const Args: PSEValue; const ArgCount, AStackSize: Cardinal);
 var
   I: NativeInt;
+  Func: PSEFuncScriptInfo;
 begin
   inherited Create;
   Self.VM := AVM.Fork(AStackSize, AVM.Name + '[Coroutine]');
   Self.VM.CoroutineOwner := Self;
   if ArgCount > 0 then
     Move(Args[0], Self.VM.StackPtr[0], ArgCount * SizeOf(TSEValue));
-  Self.VM.StackPtr := Self.VM.StackPtr + Self.VM.Parent.FuncScriptList[Fn.VarFuncIndx].VarCount;
-  Self.VM.CodeSegmentIndex := Self.VM.Parent.FuncScriptList[Fn.VarFuncIndx].CodeSegmentIndex;
+  Func := Self.VM.Parent.FuncScriptList.Ptr(Fn.VarFuncIndx);
+  Self.VM.StackPtr := Self.VM.StackPtr + Func^.VarCount + Func^.ArgCount;
+  Self.VM.CodeSegmentIndex := Func^.CodeSegmentIndex;
   Self.FStackPtr := Self.VM.StackPtr;
   Self.FBinaryPtr := Self.VM.CodeSegmentIndex;
 end;
@@ -12365,6 +12368,8 @@ begin
               Token.Kind := tkFor;
             'in':
               Token.Kind := tkIn;
+            'of':
+              Token.Kind := tkOf;
             'to':
               Token.Kind := tkTo;
             'do':
@@ -14923,9 +14928,11 @@ var
     BreakList,
     ContinueList: TList;
     I: NativeInt;
+    TokenInsert,
     Token: TSEToken;
     PIdent, PIdentFirst: PSEIdent;
     VarIdent,
+    VarHiddenCoroutineIdent,
     VarHiddenTargetIdent,
     VarHiddenCountIdent,
     VarHiddenArrayIdent: TSEIdent;
@@ -14954,125 +14961,181 @@ var
       begin
         VarIdent := FindVar(Token.Value)^;
       end;
-      Token := NextTokenExpected([tkAssign, tkIn, tkComma]);
+      Token := NextTokenExpected([tkAssign, tkIn, tkOf, tkComma]);
 
       VarHiddenTargetName := '___t' + VarIdent.Name;
       Token.Value := VarHiddenTargetName;
       VarHiddenTargetIdent := CreateIdent(ikVariable, Token, True, False)^;
 
-      if Token.Kind = tkAssign then
-      begin
+      case Token.Kind of
+        tkAssign:
+          begin
+            ParseExpr(False);
+            EmitAssignVar(VarIdent);
 
-        ParseExpr(False);
-        EmitAssignVar(VarIdent);
+            Token := NextTokenExpected([tkTo, tkDownto]);
 
-        Token := NextTokenExpected([tkTo, tkDownto]);
+            MarkJITBlock;
+            Kinds := ParseExpr(False);
 
-        MarkJITBlock;
-        Kinds := ParseExpr(False);
+            if PeekAtNextToken.Kind = tkStep then
+            begin
+              NextToken;
+              Step := PointStrToFloat(NextTokenExpected([tkNumber]).Value);
+            end;
 
-        if PeekAtNextToken.Kind = tkStep then
-        begin
-          NextToken;
-          Step := PointStrToFloat(NextTokenExpected([tkNumber]).Value);
-        end;
+            if Token.Kind = tkDownto then
+            begin
+              Step := -Step;
+            end;
+            Emit([Pointer(opAdd0), Step]);
+            EmitAssignVar(VarHiddenTargetIdent);
+            VerifyJITBlock(Kinds);
 
-        if Token.Kind = tkDownto then
-        begin
-          Step := -Step;
-        end;
-        Emit([Pointer(opAdd0), Step]);
-        EmitAssignVar(VarHiddenTargetIdent);
-        VerifyJITBlock(Kinds);
+            StartBlock := Self.Binary.Count;
+            //EmitPushVar(VarIdent);
+            //EmitPushVar(VarHiddenTargetIdent);
+            if Token.Kind = tkTo then
+            begin
+              JumpEnd := Emit([Pointer(opJumpEqualOrGreater2Rel), Pointer(VarIdent.Addr), GetIdentLocalValue(VarIdent), Pointer(VarHiddenTargetIdent.Addr), GetIdentLocalValue(VarHiddenTargetIdent), Pointer(0)]);
+            end else
+            if Token.Kind = tkDownto then
+            begin
+              JumpEnd := Emit([Pointer(opJumpEqualOrLesser2Rel), Pointer(VarIdent.Addr), GetIdentLocalValue(VarIdent), Pointer(VarHiddenTargetIdent.Addr), GetIdentLocalValue(VarHiddenTargetIdent), Pointer(0)]);
+            end;
 
-        StartBlock := Self.Binary.Count;
-        //EmitPushVar(VarIdent);
-        //EmitPushVar(VarHiddenTargetIdent);
-        if Token.Kind = tkTo then
-        begin
-          JumpEnd := Emit([Pointer(opJumpEqualOrGreater2Rel), Pointer(VarIdent.Addr), GetIdentLocalValue(VarIdent), Pointer(VarHiddenTargetIdent.Addr), GetIdentLocalValue(VarHiddenTargetIdent), Pointer(0)]);
-        end else
-        if Token.Kind = tkDownto then
-        begin
-          JumpEnd := Emit([Pointer(opJumpEqualOrLesser2Rel), Pointer(VarIdent.Addr), GetIdentLocalValue(VarIdent), Pointer(VarHiddenTargetIdent.Addr), GetIdentLocalValue(VarHiddenTargetIdent), Pointer(0)]);
-        end;
+            ParseBlock;
 
-        ParseBlock;
+            ContinueBlock := Self.Binary.Count;
+            MarkJITBlock;
+            Emit([Pointer(opInc), Pointer(VarIdent.Addr), GetVarFrame(VarIdent), Step]);
+            JumpBlock := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
+            VerifyJITBlock([sevkNumber]);
+            EndBLock := JumpBlock;
 
-        ContinueBlock := Self.Binary.Count;
-        MarkJITBlock;
-        Emit([Pointer(opInc), Pointer(VarIdent.Addr), GetVarFrame(VarIdent), Step]);
-        JumpBlock := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
-        VerifyJITBlock([sevkNumber]);
-        EndBLock := JumpBlock;
-      end else
-      begin
-        // Changed to any instead
-        //PIdentFirst^.PossibleKinds := [sevkString, sevkNumber, sevkMap, sevkFunction, sevkBoolean, sevkNull];
-        if Token.Kind = tkComma then
-        begin
-          Token := NextTokenExpected([tkIdent]);
-          VarHiddenCountName := Token.Value;
-          NextTokenExpected([tkIn]);
-        end else
-          VarHiddenCountName := '___c' + VarIdent.Name;
-        VarHiddenArrayName := '___a' + VarIdent.Name;
+            ContinueList := ContinueStack.Pop;
+            BreakList := BreakStack.Pop;
+            for I := 0 to ContinueList.Count - 1 do
+              Patch(NativeInt(ContinueList[I]), Pointer(ContinueBlock) - (NativeInt(ContinueList[I]) - 1));
+            for I := 0 to BreakList.Count - 1 do
+              Patch(NativeInt(BreakList[I]), Pointer(EndBlock) - (NativeInt(BreakList[I]) - 1));
+            Patch(JumpBlock - 1, Pointer(StartBlock) - (JumpBlock - 2));
+            Patch(JumpEnd - 1, Pointer(EndBlock) - (JumpEnd - 6));
+          end;
+        tkOf:
+          begin
+            TokenInsert.Kind := tkComma;
+            Self.TokenList.Insert(Pos + 3, TokenInsert);
+            Self.TokenList.Delete(Pos + 2);
+            TokenInsert.Kind := tkBracketOpen;
+            Self.TokenList.Insert(Pos + 1, TokenInsert);
+            TokenInsert.Kind := tkIdent;
+            TokenInsert.Value := 'coroutine_create';
+            Self.TokenList.Insert(Pos + 1, TokenInsert);
 
-        Token.Value := VarHiddenCountName;
-        PIdent := CreateIdent(ikVariable, Token, True, False);
-        PIdent^.PossibleKinds := [sevkNumber];
-        VarHiddenCountIdent := PIdent^;
+            ParseExpr(False);
 
-        Token.Value := VarHiddenArrayName;
-        PIdent := CreateIdent(ikVariable, Token, True, False);
-        VarHiddenArrayIdent := PIdent^;
+            Token.Value := '___co' + VarIdent.Name;
+            PIdent := CreateIdent(ikVariable, Token, True, False);
+            VarHiddenCoroutineIdent := PIdent^;
+            EmitAssignVar(VarHiddenCoroutineIdent);
 
-        MarkJITBlock;
-        // We look for it again in case the pointer changed
-        PIdentFirst := FindVar(VarIdent.Name);
-        PIdentFirst^.PossibleKinds := ParseExpr(False);
-        VerifyJITBlock(PIdentFirst^.PossibleKinds);
-        FindFuncNative('___check_array_valid', Ind);
-        Emit([Pointer(opCallNative), Pointer(Ind), Pointer(1), Pointer(0)]);
-        EmitAssignVar(VarHiddenArrayIdent);
+            StartBlock := Self.Binary.Count;
 
-        Emit([Pointer(opPushConst), 0]);
-        EmitAssignVar(VarHiddenCountIdent);
+            EmitPushVar(VarHiddenCoroutineIdent);
+            FindFuncNative('coroutine_resume', Ind);
+            Emit([Pointer(opCallNative), Pointer(Ind), Pointer(1), Pointer(0)]);
+            EmitAssignVar(VarIdent);
 
-        EmitPushVar(VarHiddenArrayIdent);
-        FindFuncNative('length', Ind);
-        Emit([Pointer(opCallNative), Pointer(Ind), Pointer(1), Pointer(0)]);
-        EmitAssignVar(VarHiddenTargetIdent);
+            EmitPushVar(VarHiddenCoroutineIdent);
+            FindFuncNative('coroutine_is_terminated', Ind);
+            Emit([Pointer(opCallNative), Pointer(Ind), Pointer(1), Pointer(0)]);
+            JumpEnd := Emit([Pointer(opJumpEqual1Rel), True, Pointer(0)]);
 
-        StartBlock := Self.Binary.Count;
-        //EmitPushVar(VarHiddenTargetIdent);
-        //EmitPushVar(VarHiddenCountIdent);
-        JumpEnd := Emit([Pointer(opJumpEqualOrLesser2Rel), Pointer(VarHiddenTargetIdent.Addr), GetIdentLocalValue(VarHiddenTargetIdent), Pointer(VarHiddenCountIdent.Addr), GetIdentLocalValue(VarHiddenCountIdent), Pointer(0)]);
+            ParseBlock;
+            ContinueBlock := Self.Binary.Count;
 
-        EmitPushVar(VarHiddenArrayIdent);
-        EmitPushVar(VarHiddenCountIdent);
-        Emit([Pointer(opLoadMapItem), SENull, Pointer(1)]);
-        PeepholeArrayAssignOptimization;
-        EmitAssignVar(VarIdent);
+            JumpBlock := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
+            EndBLock := JumpBlock;
 
-        ParseBlock;
+            ContinueList := ContinueStack.Pop;
+            BreakList := BreakStack.Pop;
+            for I := 0 to ContinueList.Count - 1 do
+              Patch(NativeInt(ContinueList[I]), Pointer(ContinueBlock) - (NativeInt(ContinueList[I]) - 1));
+            for I := 0 to BreakList.Count - 1 do
+              Patch(NativeInt(BreakList[I]), Pointer(EndBlock) - (NativeInt(BreakList[I]) - 1));
+            Patch(JumpBlock - 1, Pointer(StartBlock) - (JumpBlock - 2));
+            Patch(JumpEnd - 1, Pointer(EndBlock) - (JumpEnd - 3));
+          end;
+        tkComma, tkIn:
+          begin
+            // Changed to any instead
+            //PIdentFirst^.PossibleKinds := [sevkString, sevkNumber, sevkMap, sevkFunction, sevkBoolean, sevkNull];
+            if Token.Kind = tkComma then
+            begin
+              Token := NextTokenExpected([tkIdent]);
+              VarHiddenCountName := Token.Value;
+              NextTokenExpected([tkIn]);
+            end else
+              VarHiddenCountName := '___c' + VarIdent.Name;
+            VarHiddenArrayName := '___a' + VarIdent.Name;
 
-        ContinueBlock := Self.Binary.Count;
-        MarkJITBlock;
-        Emit([Pointer(opInc), Pointer(VarHiddenCountIdent.Addr), GetVarFrame(VarHiddenCountIdent), 1]);
-        JumpBlock := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
-        VerifyJITBlock([sevkNumber]);
-        EndBLock := JumpBlock;
+            Token.Value := VarHiddenCountName;
+            PIdent := CreateIdent(ikVariable, Token, True, False);
+            PIdent^.PossibleKinds := [sevkNumber];
+            VarHiddenCountIdent := PIdent^;
+
+            Token.Value := VarHiddenArrayName;
+            PIdent := CreateIdent(ikVariable, Token, True, False);
+            VarHiddenArrayIdent := PIdent^;
+
+            MarkJITBlock;
+            // We look for it again in case the pointer changed
+            PIdentFirst := FindVar(VarIdent.Name);
+            PIdentFirst^.PossibleKinds := ParseExpr(False);
+            VerifyJITBlock(PIdentFirst^.PossibleKinds);
+            FindFuncNative('___check_array_valid', Ind);
+            Emit([Pointer(opCallNative), Pointer(Ind), Pointer(1), Pointer(0)]);
+            EmitAssignVar(VarHiddenArrayIdent);
+
+            Emit([Pointer(opPushConst), 0]);
+            EmitAssignVar(VarHiddenCountIdent);
+
+            EmitPushVar(VarHiddenArrayIdent);
+            FindFuncNative('length', Ind);
+            Emit([Pointer(opCallNative), Pointer(Ind), Pointer(1), Pointer(0)]);
+            EmitAssignVar(VarHiddenTargetIdent);
+
+            StartBlock := Self.Binary.Count;
+            //EmitPushVar(VarHiddenTargetIdent);
+            //EmitPushVar(VarHiddenCountIdent);
+            JumpEnd := Emit([Pointer(opJumpEqualOrLesser2Rel), Pointer(VarHiddenTargetIdent.Addr), GetIdentLocalValue(VarHiddenTargetIdent), Pointer(VarHiddenCountIdent.Addr), GetIdentLocalValue(VarHiddenCountIdent), Pointer(0)]);
+
+            EmitPushVar(VarHiddenArrayIdent);
+            EmitPushVar(VarHiddenCountIdent);
+            Emit([Pointer(opLoadMapItem), SENull, Pointer(1)]);
+            PeepholeArrayAssignOptimization;
+            EmitAssignVar(VarIdent);
+
+            ParseBlock;
+
+            ContinueBlock := Self.Binary.Count;
+            MarkJITBlock;
+            Emit([Pointer(opInc), Pointer(VarHiddenCountIdent.Addr), GetVarFrame(VarHiddenCountIdent), 1]);
+            JumpBlock := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
+            VerifyJITBlock([sevkNumber]);
+            EndBLock := JumpBlock;
+
+            ContinueList := ContinueStack.Pop;
+            BreakList := BreakStack.Pop;
+            for I := 0 to ContinueList.Count - 1 do
+              Patch(NativeInt(ContinueList[I]), Pointer(ContinueBlock) - (NativeInt(ContinueList[I]) - 1));
+            for I := 0 to BreakList.Count - 1 do
+              Patch(NativeInt(BreakList[I]), Pointer(EndBlock) - (NativeInt(BreakList[I]) - 1));
+            Patch(JumpBlock - 1, Pointer(StartBlock) - (JumpBlock - 2));
+            Patch(JumpEnd - 1, Pointer(EndBlock) - (JumpEnd - 6));
+          end;
       end;
-
-      ContinueList := ContinueStack.Pop;
-      BreakList := BreakStack.Pop;
-      for I := 0 to ContinueList.Count - 1 do
-        Patch(NativeInt(ContinueList[I]), Pointer(ContinueBlock) - (NativeInt(ContinueList[I]) - 1));
-      for I := 0 to BreakList.Count - 1 do
-        Patch(NativeInt(BreakList[I]), Pointer(EndBlock) - (NativeInt(BreakList[I]) - 1));
-      Patch(JumpBlock - 1, Pointer(StartBlock) - (JumpBlock - 2));
-      Patch(JumpEnd - 1, Pointer(EndBlock) - (JumpEnd - 6));
     finally
       ContinueList.Free;
       BreakList.Free;

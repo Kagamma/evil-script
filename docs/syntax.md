@@ -331,6 +331,24 @@ for value, index in [1, 2, 5, 7, 9] {
   writeln(string(index) + ": " + string(value))
 }
 ```
+### For-of block
+
+For-of block takes a generator function as an argument, and iterates over the result of the generator function.
+
+It uses coroutines under the hood.
+
+```
+fn range(minv, maxv) {
+  for i = minv to maxv {
+    yield(i)
+  }
+}
+
+for i of range(3, 12) {
+  writeln(i)
+}
+writeln('END')
+```
 
 ### Switch-case block
 
