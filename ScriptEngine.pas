@@ -1692,6 +1692,7 @@ type
     class function SEMapKeysGet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEMapIndicesGet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEMapClear(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+    class function SEIsArray(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEArrayResize(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEArrayToMap(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEArrayFill(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -5529,6 +5530,11 @@ class function TBuiltInFunction.SEMapClear(const VM: TSEVM; const Args: PSEValue
 begin
   SEValidateType(@Args[0], sevkMap, 1, {$I %CURRENTROUTINE%});
   Args[0].VarMap^.Reset;
+end;
+
+class function TBuiltInFunction.SEIsArray(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+begin
+  Result := Args[0].IsValidArray;
 end;
 
 class function TBuiltInFunction.SEArrayResize(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -11618,6 +11624,7 @@ begin
     Self.RegisterFunc('map_keys_get', @TBuiltInFunction(nil).SEMapKeysGet, 1, [sevkString]);
     Self.RegisterFunc('map_indices_get', @TBuiltInFunction(nil).SEMapIndicesGet, 1, [sevkNumber]);
     Self.RegisterFunc('map_clear', @TBuiltInFunction(nil).SEMapClear, 1);
+    Self.RegisterFunc('is_array', @TBuiltInFunction(nil).SEIsArray, 1);
     Self.RegisterFunc('array_resize', @TBuiltInFunction(nil).SEArrayResize, 2);
     Self.RegisterFunc('array_to_map', @TBuiltInFunction(nil).SEArrayToMap, 1);
     Self.RegisterFunc('array_fill', @TBuiltInFunction(nil).SEArrayFill, 2);
