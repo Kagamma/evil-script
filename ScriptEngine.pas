@@ -1693,6 +1693,7 @@ type
     class function SEMapIndicesGet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEMapClear(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEIsArray(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+    class function SECheckArrayValid(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEArrayResize(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEArrayToMap(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEArrayFill(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -5535,6 +5536,13 @@ end;
 class function TBuiltInFunction.SEIsArray(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   Result := Args[0].IsValidArray;
+end;
+
+class function TBuiltInFunction.SECheckArrayValid(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+begin
+  Result := Args[0];
+  if not Result.IsValidArray then
+    raise Exception.Create('Invalid array while performing for-in loop');
 end;
 
 class function TBuiltInFunction.SEArrayResize(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -11367,6 +11375,7 @@ labelStart:
           S := S + Format('Runtime error %s: "%s" at line %d', [E.ClassName, E.Message, LineOfCode.Line])
         else
           S := S + Format('Runtime error %s: "%s" at line %d (%s)', [E.ClassName, E.Message, LineOfCode.Line, LineOfCode.Module]);
+        raise Exception.Create(S);
         IsScriptException := False;
         Push(S);
         ArgCount := 1;
@@ -11625,6 +11634,7 @@ begin
     Self.RegisterFunc('map_indices_get', @TBuiltInFunction(nil).SEMapIndicesGet, 1, [sevkNumber]);
     Self.RegisterFunc('map_clear', @TBuiltInFunction(nil).SEMapClear, 1);
     Self.RegisterFunc('is_array', @TBuiltInFunction(nil).SEIsArray, 1);
+    Self.RegisterFunc('___check_array_valid', @TBuiltInFunction(nil).SECheckArrayValid, 1);
     Self.RegisterFunc('array_resize', @TBuiltInFunction(nil).SEArrayResize, 2);
     Self.RegisterFunc('array_to_map', @TBuiltInFunction(nil).SEArrayToMap, 1);
     Self.RegisterFunc('array_fill', @TBuiltInFunction(nil).SEArrayFill, 2);
@@ -15022,6 +15032,8 @@ var
         PIdentFirst := FindVar(VarIdent.Name);
         PIdentFirst^.PossibleKinds := ParseExpr(False);
         VerifyJITBlock(PIdentFirst^.PossibleKinds);
+        FindFuncNative('___check_array_valid', Ind);
+        Emit([Pointer(opCallNative), Pointer(Ind), Pointer(1), Pointer(0)]);
         EmitAssignVar(VarHiddenArrayIdent);
 
         Emit([Pointer(opPushConst), 0]);

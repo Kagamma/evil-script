@@ -14,12 +14,11 @@ fn try_finally(ftry, ffinally) {
 }
 
 writeln('START PROGRAM')
-a = 2
 try {
   try_finally(
     fn() {
       writeln('START TRY')
-      b = a / 0 // Trigger division by zero
+      throw 'Some errors'
       writeln('END TRY')
     },
     fn() {
