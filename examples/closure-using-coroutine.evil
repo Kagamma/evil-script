@@ -1,0 +1,23 @@
+// The language does not support closures, so we emulate it
+// by using coroutines
+
+Closure = [
+  init: coroutine_create,
+  call: coroutine_resume,
+]
+
+fn accumulator(initial) {
+  local total = initial
+
+  while true {
+    yield (total)
+    total += initial
+  }
+}
+
+local acc = Closure.init(accumulator, 100)
+
+writeln(Closure.call(acc))
+writeln(Closure.call(acc, 5))
+writeln(Closure.call(acc, 20))
+writeln(Closure.call(acc, -10))
