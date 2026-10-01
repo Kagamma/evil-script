@@ -1702,6 +1702,7 @@ type
 function SEValueToText(constref Value: TSEValue; const IsRoot: Boolean = True): String;
 function SESize(constref Value: TSEValue): SizeInt; inline;
 procedure SEValidateType(V: PSEValue; Expected: TSEValueKind; At: DWord; const FuncName: String); inline;
+procedure SEValidateArgCount(ArgCount: Integer; Expected: TIntegerDynArray; const FuncName: String); inline;
 procedure SEMapDelete(constref V: TSEValue; const I: NativeInt); inline; overload;
 procedure SEMapDelete(constref V: TSEValue; constref S: String); inline; overload;
 procedure SEMapDelete(constref V, I: TSEValue); inline; overload;
@@ -4261,6 +4262,19 @@ begin
     WriteStr(S2, V^.Kind);
     raise Exception.Create(Format('[%s] Parameter #%d: Expected %s, got %s', [FuncName, At, S1, S2]));
   end;
+end;
+
+procedure SEValidateArgCount(ArgCount: Integer; Expected: TIntegerDynArray; const FuncName: String); inline;
+var
+  I: Integer;
+  S: String;
+begin
+  for I in Expected do
+    if I = ArgCount then
+      Exit;
+  for I in Expected do
+    S := S + IntToStr(I) + ', ';
+  raise Exception.Create(Format('Expected number of arguments: %s but got %d', [S, ArgCount]));
 end;
 
 function StringIndexOf(S, P: String): NativeInt; inline;
