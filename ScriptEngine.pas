@@ -14628,7 +14628,7 @@ var
 
       // The pointer may be changed due to reallocation, need to query for it again
       Func := Self.FuncScriptList.Ptr(FuncIndex);
-      Func^.VarCount := Self.LocalVarCountList[Self.LocalVarCountList.Count - 1] - ArgCount + 2; // 2 pad
+      Func^.VarCount := Self.LocalVarCountList[Self.LocalVarCountList.Count - 1] - ArgCount + SE_STACK_RESERVED; // 2 pad
       Self.Binary := ParentBinary;
       Self.CodeSegmentIndex := ParentBinaryPos;
     finally
