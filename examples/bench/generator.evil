@@ -1,0 +1,28 @@
+const N = 4999999
+
+writeln('Numeric for loop')
+t = ticks()
+
+a = 0
+for i = 0 to N
+  a = a + i
+
+writeln('\nTime: ', ticks() - t, 'ms')
+writeln('Total: ', a)
+
+writeln()
+writeln('For loop using generator function')
+t = ticks()
+
+fn range(minv, maxv) {
+  for i = minv to maxv {
+    yield(i)
+  }
+}
+
+a = 0
+for i of coroutine_create(range, 0, N)
+  a = a + i
+
+writeln('\nTime: ', ticks() - t, 'ms')
+writeln('Total: ', a)
