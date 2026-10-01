@@ -512,6 +512,11 @@ type
     destructor Destroy; override;
     procedure Execute; override;
   end;
+
+  TSETicksJob = class(TThread)
+  public
+    procedure Execute; override;
+  end;
   {$endif}
 
   TSEGarbageCollector = class
@@ -1605,6 +1610,8 @@ var
   GC: TSEGarbageCollector;
   {$ifdef SE_THREADS}
   GCMarkJob: TSEGarbageCollectorMarkJob;
+  GCTicksJob: TSETicksJob;
+  PrecomputedTicks: NativeInt;
   {$endif}
   SENull: TSEValue;
   JumpTable: array[TSEOpcode] of Pointer;
@@ -7676,6 +7683,17 @@ begin
     end;
   end;
 end;
+
+procedure TSETicksJob.Execute;
+begin
+  while True do
+  begin
+    if Self.Terminated then
+      Exit;
+    PrecomputedTicks := GetTickCount64;
+    Sleep(500);
+  end;
+end;
 {$endif}
 
 constructor TSEGarbageCollector.Create;
@@ -7762,7 +7780,7 @@ end;
 
 procedure TSEGarbageCollector.CheckForGCFast; inline;
 begin
-  if GetTickCount64 - Self.FTicks > Self.Interval then
+  if {$ifdef SE_THREADS}PrecomputedTicks{$else}GetTickCount64{$endif} - Self.FTicks > Self.Interval then
   begin
     Self.GC;
   end;
@@ -10591,7 +10609,7 @@ var
 
   procedure CheckForGCFast; inline;
   begin
-    if GetTickCount64 - GC.Ticks > GC.Interval then
+    if {$ifdef SE_THREADS}PrecomputedTicks{$else}GetTickCount64{$endif} - GC.Ticks > GC.Interval then
     begin
       Self.StackPtr := StackPtrLocal;
       GC.GC;
@@ -16343,6 +16361,9 @@ initialization
   ConstStringsLookup := TSEStringLookupMap.Create;
   {$ifdef SE_THREADS}
   GCMarkJob := TSEGarbageCollectorMarkJob.Create;
+  GCTicksJob := TSETicksJob.Create(True);
+  GCTicksJob.FreeOnTerminate := True;
+  GCTicksJob.Start;
   {$endif}
   GC.AllocMap(@ScriptVarMap);
   IsThread := 0;
@@ -16380,6 +16401,7 @@ finalization
   {$ifdef SE_THREADS}
   GCMarkJob.Terminate;
   GCMarkJob.Resume;
+  GCTicksJob.Terminate;
   {$endif}
   GC.Free;
   DynlibMap.Free;
