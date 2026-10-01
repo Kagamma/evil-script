@@ -7933,6 +7933,8 @@ var
 begin
   if not (PValue^.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
     Exit;
+  if (PValue^.Ref >= Self.FNodeList.Count) or (PValue^.Ref = 0) then
+    Exit;
   Value := Self.FNodeList.Ptr(PValue^.Ref);
   if Value^.Marked >= Self.FRunCount then
     Exit;
