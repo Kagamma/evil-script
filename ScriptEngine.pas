@@ -7399,15 +7399,17 @@ end;
 procedure TSEValueMapHelper.Lock;
 begin
   {$ifdef SE_THREADS}
-  while InterlockedExchange(Self.FLock, 1) > 0 do
-    Sleep(0);
+  if GC.EnableParallel then
+    while InterlockedExchange(Self.FLock, 1) > 0 do
+      Sleep(0);
   {$endif}
 end;
 
 procedure TSEValueMapHelper.Unlock;
 begin
   {$ifdef SE_THREADS}
-  InterlockedExchange(Self.FLock, 0);
+  if GC.EnableParallel then
+    InterlockedExchange(Self.FLock, 0);
   {$endif}
 end;
 
@@ -7954,7 +7956,8 @@ begin
             begin
               if SEMapIsValidArray(PValue^) then
               begin
-                PValue^.VarMap^.Lock;
+                if Self.EnableParallel then
+                  PValue^.VarMap^.Lock;
                 try
                   VArray := PValue^.VarMap^.Items;
                   for I := 0 to Length(VArray) - 1 do
@@ -7965,11 +7968,13 @@ begin
                     Mark(@RValue);
                   end;
                 finally
-                  PValue^.VarMap^.Unlock;
+                  if Self.EnableParallel then
+                    PValue^.VarMap^.Unlock;
                 end;
               end else
               begin
-                PValue^.VarMap^.Lock;
+                if Self.EnableParallel then
+                  PValue^.VarMap^.Lock;
                 try
                   VArray := PValue^.VarMap^.Items;
                   ShapeManager.Mark(PValue^.VarMap^.Shape);
@@ -7981,7 +7986,8 @@ begin
                     Mark(@RValue);
                   end;
                 finally
-                  PValue^.VarMap^.Unlock;
+                  if Self.EnableParallel then
+                    PValue^.VarMap^.Unlock;
                 end;
               end;
             end;
