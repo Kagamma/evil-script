@@ -7691,7 +7691,7 @@ begin
     if Self.Terminated then
       Exit;
     PrecomputedTicks := GetTickCount64;
-    Sleep(500);
+    Sleep(Max(250, GC.Interval div 3));
   end;
 end;
 {$endif}
