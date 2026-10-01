@@ -1,4 +1,11 @@
-const N = 4999999
+const N = 4999999  
+
+fn irange(minv, maxv) {
+  result = coroutine_create(fn(minv, maxv) {
+    for i = minv to maxv
+      yield(i)
+  }, minv, maxv)
+}
 
 writeln('Numeric for loop')
 t = ticks()
@@ -14,14 +21,8 @@ writeln()
 writeln('For loop using generator function')
 t = ticks()
 
-fn range(minv, maxv) {
-  for i = minv to maxv {
-    yield(i)
-  }
-}
-
 a = 0
-for i of coroutine_create(range, 0, N)
+for i of irange(0, N)
   a = a + i
 
 writeln('\nTime: ', ticks() - t, 'ms')
