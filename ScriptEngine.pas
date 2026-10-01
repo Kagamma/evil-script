@@ -14477,7 +14477,7 @@ var
       case KindName of
         'number':
           begin
-            Ident^.IsForcedKind := True;
+           // Ident^.IsForcedKind := True;
             Ident^.PossibleKinds := [sevkNumber];
           end;
         'map':
@@ -14492,7 +14492,7 @@ var
           end;
         'boolean':
           begin
-            Ident^.IsForcedKind := True;
+           // Ident^.IsForcedKind := True;
             Ident^.PossibleKinds := [sevkBoolean];
           end;
         'pasobject':
