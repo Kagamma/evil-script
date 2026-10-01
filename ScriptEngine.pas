@@ -5553,7 +5553,7 @@ class function TBuiltInFunction.SECheckArrayValid(const VM: TSEVM; const Args: P
 begin
   Result := Args[0];
   if not Result.IsValidArray then
-    raise Exception.Create('Invalid array while performing for-in loop');
+    raise Exception.Create('Invalid array while performing for-in loop: ' + Args[0].ToString);
 end;
 
 class function TBuiltInFunction.SEArrayResize(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -14628,7 +14628,7 @@ var
 
       // The pointer may be changed due to reallocation, need to query for it again
       Func := Self.FuncScriptList.Ptr(FuncIndex);
-      Func^.VarCount := Self.LocalVarCountList[Self.LocalVarCountList.Count - 1] - ArgCount + 1; // 1 pad
+      Func^.VarCount := Self.LocalVarCountList[Self.LocalVarCountList.Count - 1] - ArgCount + 2; // 2 pad
       Self.Binary := ParentBinary;
       Self.CodeSegmentIndex := ParentBinaryPos;
     finally
