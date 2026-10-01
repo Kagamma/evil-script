@@ -96,7 +96,7 @@ type
     opPopConst,
     opPopFrame,
     opAssignGlobalVar,
-    opAssignMap,
+    opAssignMapItem,
     opAssignMapAttr,
     opAssignLocalVar,
     opJumpEqualRel,
@@ -896,7 +896,7 @@ const
     1, // opPopConst,
     1, // opPopFrame,
     2, // opAssignGlobalVar,
-    2, // opAssignMap, the last slot is used for inline cache
+    2, // opAssignMapItem, the last slot is used for inline cache
     2, // opAssignMapAttr, the last slot is used for inline cache
     3, // opAssignLocalVar,
     2, // opJumpEqualRel,
@@ -9368,7 +9368,7 @@ label
   labelPopConst,
   labelPopFrame,
   labelAssignGlobalVar,
-  labelAssignMap,
+  labelAssignMapItem,
   labelAssignMapAttr,
   labelAssignLocalVar,
   labelJumpEqualRel,
@@ -9448,7 +9448,7 @@ var
     @labelPopConst,
     @labelPopFrame,
     @labelAssignGlobalVar,
-    @labelAssignMap,
+    @labelAssignMapItem,
     @labelAssignMapAttr,
     @labelAssignLocalVar,
     @labelJumpEqualRel,
@@ -9659,7 +9659,7 @@ var
           end;
         // TODO: Only handle 1-dimensional maps for now
         // TODO: Array index is from stack, this is wasteful and we should merge jit blocks in the future
-        opAssignMap:
+        opAssignMapItem:
           begin
             { B, Load from stack }
             // movsd xmm1,xmm?
@@ -11251,9 +11251,9 @@ labelStart:
           Inc(CodePtrLocal, 3);
           DispatchGoto;
         end;
-      {$ifndef SE_COMPUTED_GOTO}opAssignMap, opAssignMapAttr:{$endif}
+      {$ifndef SE_COMPUTED_GOTO}opAssignMapItem, opAssignMapAttr:{$endif}
         begin
-        labelAssignMap:
+        labelAssignMapItem:
         labelAssignMapAttr:
           B := Pop;
           C := Pop;
@@ -12903,7 +12903,7 @@ var
           if not (Op2 in [
             opPushConst, opPushGlobalVar, opPushLocalVar, opLoadMapItem, opLoadMapAttr,
             opAssignGlobalVar, opAssignLocalVar,
-            opAssignMap, opAssignMapAttr,
+            opAssignMapItem, opAssignMapAttr,
             opJITBlockPotential,
             opInc,
             opNegative,
@@ -12973,7 +12973,7 @@ var
   begin
     if not IsAttr then
     begin
-      Result := Emit([Pointer(opAssignMap), Pointer(1)]);
+      Result := Emit([Pointer(opAssignMapItem), Pointer(1)]);
     end else
     begin
       Result := Emit([Pointer(opAssignMapAttr), Pointer(1)]);
