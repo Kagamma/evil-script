@@ -7741,7 +7741,7 @@ begin
   Self.FReachableValueList := TSEValueList.Create;
   Self.FReachableValueList.Capacity := 65536;
   Self.FVMThreadList := TSEVMList.Create;
-  Self.EnableParallel := {$ifdef SE_MAP_AVK959}True{$else}False{$endif};
+  Self.EnableParallel := False;
 end;
 
 destructor TSEGarbageCollector.Destroy;
