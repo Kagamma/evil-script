@@ -10543,9 +10543,13 @@ var
         E.MovSDMemFromXMM(E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM3);
         { Mark this as LastOpKind }
         if LastOpKindInRBX then
-          E.MovMemReg32(E.Mem(regR14, Cardinal(@TSEValue(nil^).Kind)), regRBX)
-        else
-          E.MovMemImm32(E.Mem(regR14, Cardinal(@TSEValue(nil^).Kind)), Cardinal(LastOpKind));
+        begin
+          E.ShlRegImm(regRBX, 32);
+          E.MovMemReg64(E.Mem(regR14, Cardinal(@TSEValue(nil^).Ref)), regRBX);
+        end else
+        begin
+          E.MovMemImm64(E.Mem(regR14, Cardinal(@TSEValue(nil^).Ref)), QWord(LastOpKind) shl 32);
+        end;
         { Increase stack by 1 }
         E.AddRegImm32(regR14, SizeOf(TSEValue));
         E.MovMemReg64(E.Mem(regR13, 0), regR14);
