@@ -17,6 +17,9 @@ unit ScriptEngine;
 {$endif}
 // enable this if you want to use libffi to handle dynamic function calls
 {.$define SE_LIBFFI}
+{.$ifdef UNIX}
+  {$define MANUAL_THREAD_SUSPEND}
+{.$endif}
 {$if defined(CPU32) or defined(CPU64) or defined(SE_LIBFFI)}
   {$ifndef WASI}
     {$ifndef GO32v2}
@@ -155,7 +158,7 @@ type
     opYield,
     opHlt,
 
-    {$ifdef UNIX}
+    {$ifdef MANUAL_THREAD_SUSPEND}
     opBlockCleanup,
     {$endif}
     opPushTrap,
@@ -773,7 +776,7 @@ type
     IsPaused: Boolean;
     IsDone: Boolean;
     IsYielded: Boolean;
-    {$ifdef UNIX}
+    {$ifdef MANUAL_THREAD_SUSPEND}
     IsRequestForSuspend: Boolean;
     {$endif}
     Global: TSEValueArrayManaged;
@@ -954,7 +957,7 @@ const
     1, // opYield,
     1, // opHlt,
 
-    {$ifdef UNIX}
+    {$ifdef MANUAL_THREAD_SUSPEND}
     1, // opBlockCleanup
     {$endif}
     2, // opPushTrap,
@@ -8023,7 +8026,7 @@ var
         if (VMList[I].ThreadOwner <> nil) and (not VMList[I].ThreadOwner.Suspended) then
         begin
           VMList[I].ThreadOwner.IsRequestForSuspendByGC := True;
-          {$ifdef UNIX}
+          {$ifdef MANUAL_THREAD_SUSPEND}
           VMList[I].IsRequestForSuspend := True;
           while not VMList[I].ThreadOwner.Suspended do ;
           {$else}
@@ -8032,7 +8035,7 @@ var
           FVMThreadList.Add(VMList[I]);
         end;
       end;
-      {$ifdef UNIX}
+      {$ifdef MANUAL_THREAD_SUSPEND}
       for I := 0 to Self.FVMThreadList.Count - 1 do
       begin
         while not Self.FVMThreadList[I].ThreadOwner.Suspended do ;
@@ -9343,12 +9346,15 @@ var
 {$else}
   {$define DispatchGoto := ;}
 {$endif}
-{$ifdef Unix}
+{$ifdef MANUAL_THREAD_SUSPEND}
   {$define CheckForSuspend :=
     if Self.ThreadOwner <> nil then
     begin
       if Self.IsRequestForSuspend then
+      begin
+        Self.StackPtr := StackPtrLocal;
         Self.ThreadOwner.Suspend;
+      end;
       Self.IsRequestForSuspend := False;
     end
   }
@@ -9426,7 +9432,7 @@ label
   labelYield,
   labelHlt,
 
-  {$ifdef UNIX}
+  {$ifdef MANUAL_THREAD_SUSPEND}
   labelBlockCleanup,
   {$endif}
   labelPushTrap,
@@ -9506,7 +9512,7 @@ var
     @labelYield,
     @labelHlt,
 
-    {$ifdef UNIX}
+    {$ifdef MANUAL_THREAD_SUSPEND}
     @labelBlockCleanup,
     {$endif}
     @labelPushTrap,
@@ -11281,7 +11287,7 @@ labelStart:
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
-      {$ifdef UNIX}
+      {$ifdef MANUAL_THREAD_SUSPEND}
       {$ifndef SE_COMPUTED_GOTO}opBlockCleanup:{$endif}
         begin
         labelBlockCleanup:
@@ -11470,9 +11476,9 @@ begin
       while not Self.VM.IsDone do
       begin
         Self.VM.Exec;
-        {$ifdef Unix}
         if Self.VM.IsYielded then
           Self.Yield;
+        {$ifdef MANUAL_THREAD_SUSPEND}
         if Self.VM.IsRequestForSuspend then
           Self.Suspend;
         Self.VM.IsRequestForSuspend := False;
@@ -15836,7 +15842,7 @@ var
         end;
       tkBegin:
         begin
-          {$ifdef UNIX}
+          {$ifdef MANUAL_THREAD_SUSPEND}
           Emit([Pointer(opBlockCleanup)]);
           {$endif}
           Self.ScopeStack.Push(Self.VarList.Count);
