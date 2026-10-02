@@ -7987,51 +7987,51 @@ begin
       if (ValueLocal.Ref >= Self.FNodeList.Count) or (ValueLocal.Ref = 0) then
         continue;
       Node := Self.FNodeList.Ptr(ValueLocal.Ref);
-    finally
-      LeaveCriticalSection(CS);
-    end;
-    if Node^.Marked >= Self.FRunCount then
-      continue;
-    InterlockedExchange(Node^.Color, Cardinal(segccGray));
-    if Node^.Value.VarPointer = ValueLocal.VarPointer then
-    begin
-      Node^.Marked := Self.FRunCount;
-      if (Node^.Value.Kind = sevkMap) and (ValueLocal.VarMap <> nil) then
+      if Node^.Marked >= Self.FRunCount then
+        continue;
+      InterlockedExchange(Node^.Color, Cardinal(segccGray));
+      if Node^.Value.VarPointer = ValueLocal.VarPointer then
       begin
-        if SEMapIsValidArray(ValueLocal) then
+        Node^.Marked := Self.FRunCount;
+        if (Node^.Value.Kind = sevkMap) and (ValueLocal.VarMap <> nil) then
         begin
-          ValueLocal.VarMap^.Lock;
-          try
-            VArray := ValueLocal.VarMap^.Items;
-            for I := 0 to Length(VArray) - 1 do
-            begin
-              RValue := VArray[I];
-              if not (RValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
-                Continue;
-              Self.FGrayValueQueue.Enqueue(RValue);
+          if SEMapIsValidArray(ValueLocal) then
+          begin
+            ValueLocal.VarMap^.Lock;
+            try
+              VArray := ValueLocal.VarMap^.Items;
+              for I := 0 to Length(VArray) - 1 do
+              begin
+                RValue := VArray[I];
+                if not (RValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
+                  Continue;
+                Self.FGrayValueQueue.Enqueue(RValue);
+              end;
+            finally
+              ValueLocal.VarMap^.Unlock;
             end;
-          finally
-            ValueLocal.VarMap^.Unlock;
-          end;
-        end else
-        begin
-          ValueLocal.VarMap^.Lock;
-          try
-            VArray := ValueLocal.VarMap^.Items;
-            ShapeManager.Mark(ValueLocal.VarMap^.Shape);
-            for Key in ValueLocal.VarMap^.Shape.GetKeys do
-            begin
-              RValue := ValueLocal.VarMap^.Get2(@Key);
-              if not (RValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
-                Continue;
-              Self.FGrayValueQueue.Enqueue(RValue);
+          end else
+          begin
+            ValueLocal.VarMap^.Lock;
+            try
+              VArray := ValueLocal.VarMap^.Items;
+              ShapeManager.Mark(ValueLocal.VarMap^.Shape);
+              for Key in ValueLocal.VarMap^.Shape.GetKeys do
+              begin
+                RValue := ValueLocal.VarMap^.Get2(@Key);
+                if not (RValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
+                  Continue;
+                Self.FGrayValueQueue.Enqueue(RValue);
+              end;
+            finally
+              ValueLocal.VarMap^.Unlock;
             end;
-          finally
-            ValueLocal.VarMap^.Unlock;
           end;
         end;
+        InterlockedExchange(Node^.Color, Cardinal(segccBlack));
       end;
-      InterlockedExchange(Node^.Color, Cardinal(segccBlack));
+    finally
+      LeaveCriticalSection(CS);
     end;
   end;
 end;
