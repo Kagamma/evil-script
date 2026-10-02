@@ -8194,7 +8194,15 @@ var
 
       Self.FPhase := segcpSweep;
       if ShapeManager.ShapeCount - ShapeManager.LastShapeCount > ShapeManager.ShapeCeiling then
+      begin
+        {$ifdef SE_LOG}
+        Writeln('[GC] Shape count before sweep: ', ShapeManager.ShapeCount);
+        {$endif}
         ShapeManager.Sweep;
+        {$ifdef SE_LOG}
+        Writeln('[GC] Shape count after sweep: ', ShapeManager.ShapeCount);
+        {$endif}
+      end;
 
       {$ifdef SE_THREADS}
       Self.EnableParallel := EnableParallelBackup;
