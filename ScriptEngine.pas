@@ -473,6 +473,7 @@ type
   PPSEValue = ^PSEValue;
 
   TSEValueList = specialize TSEListPtr<TSEValue>;
+  TSEValueQueue = specialize TQueue<TSEValue>;
   TSEJITBlock = record
     Code: PByte;
     AllocSize,
@@ -542,6 +543,7 @@ type
     FObjectThreshold,
     FObjectsLastTimeVisited,
     FObjectsOld: Cardinal;
+    FGrayValueQueue: TSEValueQueue;
     FRemainingGrayValueList,
     FReachableValueList: TSEValueList;
     FNodeList: TSEGCNodeList;
@@ -7750,6 +7752,7 @@ begin
   Self.FReachableValueList.Capacity := 65536;
   Self.FRemainingGrayValueList := TSEValueList.Create;
   Self.FRemainingGrayValueList.Capacity := 128;
+  Self.FGrayValueQueue := TSEValueQueue.Create;
   Self.FVMThreadList := TSEVMList.Create;
   Self.EnableParallel := False;
 end;
@@ -7779,6 +7782,7 @@ begin
   Self.FNodeList.Free;
   Self.FReachableValueList.Free;
   Self.FRemainingGrayValueList.Free;
+  Self.FGrayValueQueue.Free;
   Self.FVMThreadList.Free;
   {$ifdef SE_THREADS}
   DoneCriticalSection(Self.FLock);
@@ -7963,61 +7967,67 @@ begin
   Self.FObjectsLastTimeVisited := Self.FObjects;
 end;
 
-procedure TSEGarbageCollector.Mark(const PValue: PSEValue); inline;
+procedure TSEGarbageCollector.Mark(const PValue: PSEValue);
 var
-  Value: PSEGCNode;
+  Node: PSEGCNode;
   RValue: TSEValue;
   Key: String;
   I: NativeInt;
   VArray: TSEValueArray;
+  ValueLocal: TSEValue;
 begin
-  if not (PValue^.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
-    Exit;
-  if (PValue^.Ref >= Self.FNodeList.Count) or (PValue^.Ref = 0) then
-    Exit;
-  Value := Self.FNodeList.Ptr(PValue^.Ref);
-  if Value^.Marked >= Self.FRunCount then
-    Exit;
-  InterlockedExchange(Value^.Color, Cardinal(segccGray));
-  if Value^.Value.VarPointer = PValue^.VarPointer then
+  Self.FGrayValueQueue.Enqueue(PValue^);
+  while Self.FGrayValueQueue.Count > 0 do
   begin
-    Value^.Marked := Self.FRunCount;
-    if (Value^.Value.Kind = sevkMap) and (PValue^.VarMap <> nil) then
+    ValueLocal := Self.FGrayValueQueue.Dequeue;
+    if not (ValueLocal.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
+      continue;
+    if (ValueLocal.Ref >= Self.FNodeList.Count) or (ValueLocal.Ref = 0) then
+      continue;
+    Node := Self.FNodeList.Ptr(ValueLocal.Ref);
+    if Node^.Marked >= Self.FRunCount then
+      continue;
+    InterlockedExchange(Node^.Color, Cardinal(segccGray));
+    if Node^.Value.VarPointer = ValueLocal.VarPointer then
     begin
-      if SEMapIsValidArray(PValue^) then
+      Node^.Marked := Self.FRunCount;
+      if (Node^.Value.Kind = sevkMap) and (ValueLocal.VarMap <> nil) then
       begin
-        PValue^.VarMap^.Lock;
-        try
-          VArray := PValue^.VarMap^.Items;
-          for I := 0 to Length(VArray) - 1 do
-          begin
-            RValue := VArray[I];
-            if not (RValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
-              Continue;
-            Mark(@RValue);
+        if SEMapIsValidArray(ValueLocal) then
+        begin
+          ValueLocal.VarMap^.Lock;
+          try
+            VArray := ValueLocal.VarMap^.Items;
+            for I := 0 to Length(VArray) - 1 do
+            begin
+              RValue := VArray[I];
+              if not (RValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
+                Continue;
+              Self.FGrayValueQueue.Enqueue(RValue);
+            end;
+          finally
+            ValueLocal.VarMap^.Unlock;
           end;
-        finally
-          PValue^.VarMap^.Unlock;
-        end;
-      end else
-      begin
-        PValue^.VarMap^.Lock;
-        try
-          VArray := PValue^.VarMap^.Items;
-          ShapeManager.Mark(PValue^.VarMap^.Shape);
-          for Key in PValue^.VarMap^.Shape.GetKeys do
-          begin
-            RValue := PValue^.VarMap^.Get2(@Key);
-            if not (RValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
-              Continue;
-            Mark(@RValue);
+        end else
+        begin
+          ValueLocal.VarMap^.Lock;
+          try
+            VArray := ValueLocal.VarMap^.Items;
+            ShapeManager.Mark(ValueLocal.VarMap^.Shape);
+            for Key in ValueLocal.VarMap^.Shape.GetKeys do
+            begin
+              RValue := ValueLocal.VarMap^.Get2(@Key);
+              if not (RValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
+                Continue;
+              Self.FGrayValueQueue.Enqueue(RValue);
+            end;
+          finally
+            ValueLocal.VarMap^.Unlock;
           end;
-        finally
-          PValue^.VarMap^.Unlock;
         end;
       end;
+      InterlockedExchange(Node^.Color, Cardinal(segccBlack));
     end;
-    InterlockedExchange(Value^.Color, Cardinal(segccBlack));
   end;
 end;
 
@@ -14703,7 +14713,7 @@ var
 
       // The pointer may be changed due to reallocation, need to query for it again
       Func := Self.FuncScriptList.Ptr(FuncIndex);
-      Func^.VarCount := Self.LocalVarCountList[Self.LocalVarCountList.Count - 1] - ArgCount + SE_STACK_RESERVED; // 2 pad
+      Func^.VarCount := Self.LocalVarCountList[Self.LocalVarCountList.Count - 1] - ArgCount; // 2 pad
       Self.Binary := ParentBinary;
       Self.CodeSegmentIndex := ParentBinaryPos;
     finally
