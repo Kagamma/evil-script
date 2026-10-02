@@ -7982,9 +7982,14 @@ begin
     ValueLocal := Self.FGrayValueQueue.Dequeue;
     if not (ValueLocal.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
       continue;
-    if (ValueLocal.Ref >= Self.FNodeList.Count) or (ValueLocal.Ref = 0) then
-      continue;
-    Node := Self.FNodeList.Ptr(ValueLocal.Ref);
+    EnterCriticalSection(CS);
+    try
+      if (ValueLocal.Ref >= Self.FNodeList.Count) or (ValueLocal.Ref = 0) then
+        continue;
+      Node := Self.FNodeList.Ptr(ValueLocal.Ref);
+    finally
+      LeaveCriticalSection(CS);
+    end;
     if Node^.Marked >= Self.FRunCount then
       continue;
     InterlockedExchange(Node^.Color, Cardinal(segccGray));
