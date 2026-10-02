@@ -222,16 +222,19 @@ type
   TSEValueKindSet = set of TSEValueKind;
   PSECommonString = ^RawByteString;
   TSEBuffer = record
+    Ref: Cardinal;
     Base: Pointer;
     Ptr: Pointer;
   end;
   PSEBuffer = ^TSEBuffer;
   TSEPascalObject = record
+    Ref: Cardinal;
     Value: TObject;
     IsManaged: Boolean;
   end;
   PSEPascalObject = ^TSEPascalObject;
   TSEString = record
+    Ref: Cardinal;
     Data: RawByteString;
     Hash: NativeUInt;
   end;
@@ -440,6 +443,7 @@ type
   end;
 
   TSEValueMap = record
+    Ref: Cardinal;
     Items: array of TSEValue;
     Count,
     Capacity,
@@ -7822,6 +7826,7 @@ begin
     Value.Value := PValue^;
     Self.FNodeList[PValue^.Ref] := Value;
   end;
+  PValue^.VarMap^.Ref := PValue^.Ref;
   Self.FNodeList.Ptr(Self.FNodeLastYoung)^.Next := PValue^.Ref;
   Self.FNodeLastYoung := PValue^.Ref;
   Inc(Self.FObjects);
@@ -8444,32 +8449,25 @@ begin
   {$ifdef SE_THREADS}
   if Self.FPhase <> segcpMark then
     Exit;
-  GlobalLock;
-  try
-    if (AValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) and
-       (AValue.Ref > 0) and
-       (AValue.Ref < Self.FNodeList.Count) then
-    begin
+  if AValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject] then
+  begin
+    GlobalLock;
+    try
       if Self.FPhase <> segcpMark then
         Exit;
-      AOwner.VarMap^.Lock;
-      try
-        NodeOwner := Self.FNodeList.Ptr(AOwner.Ref);
-        NodeValue := Self.FNodeList.Ptr(AValue.Ref);
-        if (NodeOwner^.Color = Cardinal(segccBlack)) and (NodeValue^.Color = Cardinal(segccWhite)) then
-        begin
-          {$ifdef SE_LOG}
-          Writeln('[GC] Write barrier triggered');
-          {$endif}
-          InterlockedExchange(NodeValue^.Color, Cardinal(segccGray));
-          Self.FRemainingGrayValueList.Add(AValue);
-        end;
-      finally
-        AOwner.VarMap^.Unlock;
+      NodeOwner := Self.FNodeList.Ptr(AOwner.VarMap^.Ref);
+      NodeValue := Self.FNodeList.Ptr(AValue.VarMap^.Ref);
+      if (NodeOwner^.Color = Cardinal(segccBlack)) and (NodeValue^.Color = Cardinal(segccWhite)) then
+      begin
+        {$ifdef SE_LOG}
+        Writeln('[GC] Write barrier triggered');
+        {$endif}
+        InterlockedExchange(NodeValue^.Color, Cardinal(segccGray));
+        Self.FRemainingGrayValueList.Add(AValue);
       end;
+    finally
+      GlobalUnlock;
     end;
-  finally
-    GlobalUnlock;
   end;
   {$endif}
 end;
