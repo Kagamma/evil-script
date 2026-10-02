@@ -7982,51 +7982,44 @@ begin
   if Value^.Value.VarPointer = PValue^.VarPointer then
   begin
     Value^.Marked := Self.FRunCount;
-    case Value^.Value.Kind of
-      sevkMap:
-        begin
-          if PValue^.VarMap <> nil then
+    if (Value^.Value.Kind = sevkMap) and (PValue^.VarMap <> nil) then
+    begin
+      if SEMapIsValidArray(PValue^) then
+      begin
+        if Self.EnableParallel then
+          PValue^.VarMap^.Lock;
+        try
+          VArray := PValue^.VarMap^.Items;
+          for I := 0 to Length(VArray) - 1 do
           begin
-            begin
-              if SEMapIsValidArray(PValue^) then
-              begin
-                if Self.EnableParallel then
-                  PValue^.VarMap^.Lock;
-                try
-                  VArray := PValue^.VarMap^.Items;
-                  for I := 0 to Length(VArray) - 1 do
-                  begin
-                    RValue := VArray[I];
-                    if not (RValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
-                      Continue;
-                    Mark(@RValue);
-                  end;
-                finally
-                  if Self.EnableParallel then
-                    PValue^.VarMap^.Unlock;
-                end;
-              end else
-              begin
-                if Self.EnableParallel then
-                  PValue^.VarMap^.Lock;
-                try
-                  VArray := PValue^.VarMap^.Items;
-                  ShapeManager.Mark(PValue^.VarMap^.Shape);
-                  for Key in PValue^.VarMap^.Shape.GetKeys do
-                  begin
-                    RValue := PValue^.VarMap^.Get2(@Key);
-                    if not (RValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
-                      Continue;
-                    Mark(@RValue);
-                  end;
-                finally
-                  if Self.EnableParallel then
-                    PValue^.VarMap^.Unlock;
-                end;
-              end;
-            end;
+            RValue := VArray[I];
+            if not (RValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
+              Continue;
+            Mark(@RValue);
           end;
+        finally
+          if Self.EnableParallel then
+            PValue^.VarMap^.Unlock;
         end;
+      end else
+      begin
+        if Self.EnableParallel then
+          PValue^.VarMap^.Lock;
+        try
+          VArray := PValue^.VarMap^.Items;
+          ShapeManager.Mark(PValue^.VarMap^.Shape);
+          for Key in PValue^.VarMap^.Shape.GetKeys do
+          begin
+            RValue := PValue^.VarMap^.Get2(@Key);
+            if not (RValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
+              Continue;
+            Mark(@RValue);
+          end;
+        finally
+          if Self.EnableParallel then
+            PValue^.VarMap^.Unlock;
+        end;
+      end;
     end;
     InterlockedExchange(Value^.Color, Cardinal(segccBlack));
   end;
