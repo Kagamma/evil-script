@@ -8769,7 +8769,7 @@ begin
   begin
     if Self.Parent.GlobalVarSymbols[I] = AName then
     begin
-      GC.WriteBarrier(Self.Global.Value^.Data[I] AValue);
+      GC.WriteBarrier(Self.Global.Value^.Data[I], AValue);
       Self.Global.Value^.Data[I] := AValue;
       break;
     end;
