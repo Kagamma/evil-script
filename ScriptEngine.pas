@@ -7986,8 +7986,7 @@ begin
     begin
       if SEMapIsValidArray(PValue^) then
       begin
-        if Self.EnableParallel then
-          PValue^.VarMap^.Lock;
+        PValue^.VarMap^.Lock;
         try
           VArray := PValue^.VarMap^.Items;
           for I := 0 to Length(VArray) - 1 do
@@ -7998,13 +7997,11 @@ begin
             Mark(@RValue);
           end;
         finally
-          if Self.EnableParallel then
-            PValue^.VarMap^.Unlock;
+          PValue^.VarMap^.Unlock;
         end;
       end else
       begin
-        if Self.EnableParallel then
-          PValue^.VarMap^.Lock;
+        PValue^.VarMap^.Lock;
         try
           VArray := PValue^.VarMap^.Items;
           ShapeManager.Mark(PValue^.VarMap^.Shape);
@@ -8016,8 +8013,7 @@ begin
             Mark(@RValue);
           end;
         finally
-          if Self.EnableParallel then
-            PValue^.VarMap^.Unlock;
+          PValue^.VarMap^.Unlock;
         end;
       end;
     end;
