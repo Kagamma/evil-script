@@ -58,6 +58,9 @@ unit ScriptEngine;
 {$optimization REGVAR}
 {$R-}
 {$Q-}
+{$ifndef SE_THREADS}
+  {$undef MANUAL_THREAD_SUSPEND}
+{$endif}
 
 interface
 
@@ -3831,8 +3834,10 @@ begin
         else
           Offset := Current.FPropertyOffset;
         { Cache only if there is no conflicting hash entry. }
+        {$ifdef SE_THREADS}
         EnterCriticalSection(CS);
         try
+        {$endif}
           if FLookup = nil then
             FLookup := TSEHashShapeDictionary.Create;
           if FLookup.TryGetValue(Hash, CachedShape) then
@@ -3842,9 +3847,11 @@ begin
           end
           else
             FLookup.AddOrSetValue(Hash, Current);
+        {$ifdef SE_THREADS}
         finally
           LeaveCriticalSection(CS);
         end;
+        {$endif}
         Result := Offset >= 0;
         Exit;
       end;
@@ -4196,6 +4203,8 @@ end;
 
 {$ifdef SE_THREADS}
 threadvar
+{$else}
+var
 {$endif}
   IsThread: Cardinal;
 
@@ -8002,8 +8011,10 @@ begin
     ValueLocal := Self.FGrayValueQueue.Dequeue;
     if not (ValueLocal.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
       continue;
+    {$ifdef SE_THREADS}
     EnterCriticalSection(CS);
     try
+    {$endif}
       if (ValueLocal.Ref >= Self.FNodeList.Count) or (ValueLocal.Ref = 0) then
         continue;
       Node := Self.FNodeList.Ptr(ValueLocal.Ref);
@@ -8050,9 +8061,11 @@ begin
         end;
         InterlockedExchange(Node^.Color, Cardinal(segccBlack));
       end;
+    {$ifdef SE_THREADS}
     finally
       LeaveCriticalSection(CS);
     end;
+    {$endif}
   end;
 end;
 
@@ -8468,6 +8481,7 @@ procedure TSEGarbageCollector.WriteBarrier(constref AOwner, AValue: TSEValue);
 var
   NodeOwner, NodeValue: TSEGCNode;
 begin
+  {$ifdef SE_THREADS}
   if Self.FPhase = segcpMark then
   begin
     if AValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject] then
@@ -8499,6 +8513,7 @@ begin
       end;
     end;
   end;
+  {$endif}
 end;
 
 procedure TSEGarbageCollector.Lock;
@@ -10737,8 +10752,10 @@ var
   var
     Bit0_3: Byte;
   begin
+    {$ifdef SE_THREADS}
     EnterCriticalSection(CS);
     try
+    {$endif}
       if TSEOpcode(Cardinal(CodePtrLocal[0].VarPointer)) <> opJITBlockPotential then
         Dec(CodePtrLocal, 2)
       else
@@ -10754,9 +10771,11 @@ var
           TSEJITCountPack(Cardinal(CodePtrLocal[1].VarPointer)).HotSpot := Bit0_3;
         end;
       end;
+    {$ifdef SE_THREADS}
     finally
       LeaveCriticalSection(CS);
     end;
+    {$endif}
   end;
 {$endif}
 
