@@ -488,10 +488,24 @@ type
     destructor Destroy; override;
   end;
 
+  TSEGarbageCollectorColor = (
+    segccWhite,
+    segccGray,
+    segccBlack
+  );
+
+  TSEGarbageCollectorPhase = (
+    segcpRest,
+    segcpInitial,
+    segcpMark,
+    segcpMarkGray,
+    segcpSweep
+  );
+
   PSEGCNode = ^TSEGCNode;
   TSEGCNode = record
     Value: TSEValue;
-    Garbage: Boolean;
+    Color: Cardinal;
     Lock: Boolean;
     Visit: Byte;
     Marked,
@@ -501,13 +515,6 @@ type
   TSEGCNodeListAncestor = specialize TList<TSEGCNode>;
   TSEGCNodeList = class(specialize TSEListPtr<TSEGCNode>);
   TSEGCNodeAvailStack = specialize TStack<NativeInt>;
-
-  TSEGarbageCollectorPhase = (
-    segcpRest,
-    segcpInitial,
-    segcpMark,
-    segcpSweep
-  );
 
   {$ifdef SE_THREADS}
   TSEGarbageCollectorMarkJob = class(TThread)
@@ -535,6 +542,7 @@ type
     FObjectThreshold,
     FObjectsLastTimeVisited,
     FObjectsOld: Cardinal;
+    FRemainingGrayValueList,
     FReachableValueList: TSEValueList;
     FNodeList: TSEGCNodeList;
     FNodeAvailStack: TSEGCNodeAvailStack;
@@ -545,8 +553,8 @@ type
     FInterval: Cardinal;
     FPromotion: Byte;
     FOldObjectCheckCycle: Byte;
-    FCurrentWhite: Byte;
     FEnableParallel: Boolean;
+    procedure ResetColor(const AValue: PSEGCNode); inline;
     procedure Initial;
     procedure Sweep(const AFirst: Cardinal);
     procedure Mark(const PValue: PSEValue);
@@ -562,6 +570,7 @@ type
     procedure AllocPascalObject(const PValue: PSEValue; const Obj: TObject; const IsManaged: Boolean);
     procedure UnManaged(const PValue: PSEValue);
     procedure Managed(const PValue: PSEValue);
+    procedure WriteBarrier(constref AOwner, AValue: TSEValue); inline;
     procedure Lock;
     procedure Unlock;
     property Ticks: NativeUInt read FTicks write FTicks;
@@ -574,9 +583,9 @@ type
     property OldObjectCheckCycle: Byte read FOldObjectCheckCycle write FOldObjectCheckCycle;
     property ObjectThreshold: Cardinal read FObjectThreshold write FObjectThreshold;
     property ReachableValueList: TSEValueList read FReachableValueList;
+    property RemainingGrayValueList: TSEValueList read FRemainingGrayValueList;
     property Phase: TSEGarbageCollectorPhase read FPhase write FPhase;
     property EnableParallel: Boolean read FEnableParallel write FEnableParallel;
-    property CurrentWhite: Byte read FCurrentWhite;
   end;
 
   TSECallingConvention = (
@@ -4463,16 +4472,19 @@ end;
 
 procedure SEMapSet(constref V: TSEValue; const I: NativeInt; constref A: TSEValue); inline; overload;
 begin
+  GC.WriteBarrier(V, A);
   V.VarMap^.Set2(I, A);
 end;
 
 procedure SEMapSet(constref V: TSEValue; constref S: String; constref A: TSEValue); inline; overload;
 begin
+  GC.WriteBarrier(V, A);
   V.VarMap^.Set2(@S, A);
 end;
 
 procedure SEMapSet(constref V, I: TSEValue; constref A: TSEValue); inline; overload;
 begin
+  GC.WriteBarrier(V, A);
   case I.Kind of
     sevkString:
       V.VarMap^.Set2(@I.VarString^.Data, A);
@@ -7684,7 +7696,10 @@ begin
       {$endif}
       for I := 0 to GC.ReachableValueList.Count - 1 do
         GC.Mark(GC.ReachableValueList.Ptr(I));
-      GC.Phase := segcpSweep;
+      if GC.RemainingGrayValueList.Count = 0 then
+        GC.Phase := segcpSweep
+      else
+        GC.Phase := segcpMarkGray;
       Self.Suspend;
     end;
   end;
@@ -7727,9 +7742,10 @@ begin
   Self.FObjectThreshold := 700;
   Self.FReachableValueList := TSEValueList.Create;
   Self.FReachableValueList.Capacity := 65536;
+  Self.FRemainingGrayValueList := TSEValueList.Create;
+  Self.FRemainingGrayValueList.Capacity := 128;
   Self.FVMThreadList := TSEVMList.Create;
   Self.EnableParallel := False;
-  Self.FCurrentWhite := 0;
 end;
 
 destructor TSEGarbageCollector.Destroy;
@@ -7741,14 +7757,14 @@ begin
   while I <> 0 do
   begin
     Value := Self.FNodeList.Ptr(I);
-    Value^.Garbage := not Value^.Lock;
+    Self.ResetColor(Value);
     I := Value^.Prev;
   end;
   I := Self.FNodeLastYoung;
   while I <> 0 do
   begin
     Value := Self.FNodeList.Ptr(I);
-    Value^.Garbage := not Value^.Lock;
+    Self.ResetColor(Value);
     I := Value^.Prev;
   end;
   Self.Sweep(1);
@@ -7756,6 +7772,7 @@ begin
   Self.FNodeAvailStack.Free;
   Self.FNodeList.Free;
   Self.FReachableValueList.Free;
+  Self.FRemainingGrayValueList.Free;
   Self.FVMThreadList.Free;
   {$ifdef SE_THREADS}
   DoneCriticalSection(Self.FLock);
@@ -7768,6 +7785,7 @@ var
   Value: TSEGCNode;
 begin
   Value := Default(TSEGCNode);
+  Value.Color := Cardinal(segccBlack);
   Value.Prev := Self.FNodeLastYoung;
   if Self.FNodeAvailStack.Count = 0 then
   begin
@@ -7793,18 +7811,27 @@ begin
   end;
 end;
 
+procedure TSEGarbageCollector.ResetColor(const AValue: PSEGCNode);
+begin
+  if not AValue^.Lock then
+    AValue^.Color := Cardinal(segccWhite)
+  else
+    AValue^.Color := Cardinal(segccGray);
+end;
+
 procedure TSEGarbageCollector.Initial;
 var
   I, J: NativeInt;
   Value, PrevValue: PSEGCNode;
 begin
+  Self.FRemainingGrayValueList.Count := 0;
   if Self.FRunCount mod Self.FOldObjectCheckCycle = 0 then
   begin
     I := Self.FNodeLastOld;
     while I <> 0 do
     begin
       Value := Self.FNodeList.Ptr(I);
-      Value^.Garbage := not Value^.Lock;
+      Self.ResetColor(Value);
       I := Value^.Prev;
     end;
   end else
@@ -7817,7 +7844,7 @@ begin
       I := Value^.Prev;
       if Value^.Visit >= Self.FPromotion then
       begin
-        // Detach from young generation
+        // Detach from young generation                        5
         if J <> Self.FNodeLastYoung then
         begin
           PrevValue := Self.FNodeList.Ptr(Value^.Prev);
@@ -7836,7 +7863,7 @@ begin
         Inc(Self.FObjectsOld);
       end else
       begin
-        Value^.Garbage := not Value^.Lock;
+        Self.ResetColor(Value);
         Inc(Value^.Visit);
       end;
     end;
@@ -7881,7 +7908,7 @@ begin
   while I <> 0 do
   begin
     Value := Self.FNodeList.Ptr(I);
-    if Value^.Garbage then
+    if Value^.Color = Cardinal(segccWhite) then
     begin
       case Value^.Value.Kind of
         sevkMap:
@@ -7945,19 +7972,15 @@ begin
   Value := Self.FNodeList.Ptr(PValue^.Ref);
   if Value^.Marked >= Self.FRunCount then
     Exit;
-  Value^.Marked := Self.FRunCount;
-  Value^.Garbage := False;
   if Value^.Value.VarPointer = PValue^.VarPointer then
   begin
+    Value^.Marked := Self.FRunCount;
+    InterlockedExchange(Value^.Color, Cardinal(segccGray));
     case Value^.Value.Kind of
       sevkMap:
         begin
           if PValue^.VarMap <> nil then
           begin
-            {if (sevkMap in PValue^.VarMap^.PossibleKinds) or
-               (sevkString in PValue^.VarMap^.PossibleKinds) or
-               (sevkBuffer in PValue^.VarMap^.PossibleKinds) or
-               (sevkPascalObject in PValue^.VarMap^.PossibleKinds) then}
             begin
               if SEMapIsValidArray(PValue^) then
               begin
@@ -7985,7 +8008,7 @@ begin
                   ShapeManager.Mark(PValue^.VarMap^.Shape);
                   for Key in PValue^.VarMap^.Shape.GetKeys do
                   begin
-                    RValue := SEMapGet(PValue^, Key);
+                    RValue := PValue^.VarMap^.Get2(@Key);
                     if not (RValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
                       Continue;
                     Mark(@RValue);
@@ -7999,6 +8022,7 @@ begin
           end;
         end;
     end;
+    InterlockedExchange(Value^.Color, Cardinal(segccBlack));
   end;
 end;
 
@@ -8022,7 +8046,6 @@ var
   begin
     {$ifdef SE_THREADS}
       Self.FVMThreadList.Clear;
-      Self.FPhase := segcpInitial;
       for I := 0 to VMList.Count - 1 do
       begin
         if (VMList[I].ThreadOwner <> nil) and (not VMList[I].ThreadOwner.Suspended) then
@@ -8060,12 +8083,17 @@ var
     {$endif}
   end;
 
-  procedure Marking;
+  procedure MarkingRemainingGrayValues;
   var
-    I, J: NativeInt;
-    EnableParallelBackup: Boolean;
+    I: NativeInt;
+  begin
+    for I := 0 to Self.FRemainingGrayValueList.Count - 1 do
+      Self.Mark(Self.FRemainingGrayValueList.Ptr(I));
+  end;
 
-    procedure MarkRoots;
+  procedure Marking;
+
+    procedure ScanRoot;
     var
       I, J: NativeInt;
     begin
@@ -8097,32 +8125,54 @@ var
       Self.FReachableValueList.Add(ScriptVarMap);
     end;
 
+    procedure MarkReachableValues;
+    var
+      I: NativeInt;
+    begin
+      for I := 0 to Self.FReachableValueList.Count - 1 do
+        Self.Mark(Self.FReachableValueList.Ptr(I));
+    end;
+
+  var
+    EnableParallelBackup: Boolean;
   begin
+    {$ifdef SE_LOG}
+    Writeln('[GC] EnableParallel before marking: ', Self.EnableParallel);
+    {$endif}
   {$ifdef SE_THREADS}
+    EnableParallelBackup := Self.EnableParallel;
     if ShapeManager.ShapeCount - ShapeManager.LastShapeCount > ShapeManager.ShapeCeiling then
     begin
-      EnableParallelBackup := Self.EnableParallel;
       Self.EnableParallel := False;
     end;
-    MarkRoots;
     if Self.EnableParallel then
     begin
+      {$ifdef SE_LOG}
+      Writeln('[GC] Start marking (concurrent)');
+      {$endif}
+      ScanRoot;
       GCMarkJob.Resume;
     end else
   {$endif}
     begin
+      {$ifdef SE_LOG}
+      Writeln('[GC] Start marking (single thread)');
+      {$endif}
       ShapeManager.BeginMark;
-      MarkRoots;
-      for I := 0 to Self.FReachableValueList.Count - 1 do
-        Self.Mark(Self.FReachableValueList.Ptr(I));
+      ScanRoot;
+      MarkReachableValues;
 
       Self.FPhase := segcpSweep;
       if ShapeManager.ShapeCount - ShapeManager.LastShapeCount > ShapeManager.ShapeCeiling then
         ShapeManager.Sweep;
+
       {$ifdef SE_THREADS}
       Self.EnableParallel := EnableParallelBackup;
       {$endif}
     end;
+    {$ifdef SE_LOG}
+    Writeln('[GC] EnableParallel after marking: ', Self.EnableParallel);
+    {$endif}
   end;
 
 begin
@@ -8175,7 +8225,12 @@ begin
         SEProfiler.AddReport(ProfilerItem);
         {$endif}
         if Self.EnableParallel then
+        begin
+          {$ifdef SE_LOG}
+          Writeln('[GC] Parallel is enabled, waiting for next visit.');
+          {$endif}
           Exit;
+        end;
       end;
 
       // Wait for the thread to finish it's job
@@ -8184,6 +8239,16 @@ begin
         if Self.FPhase = segcpMark then
           Exit;
       {$endif}
+
+      if Self.FPhase = segcpMarkGray then
+      begin
+        {$ifdef SE_LOG}
+        Writeln('[GC] ', Self.FPhase);
+        Writeln('[GC] Number of gray values: ', Self.FRemainingGrayValueList.Count);
+        {$endif}
+        MarkingRemainingGrayValues;
+        Self.FPhase := segcpSweep;
+      end;
 
       if Self.FPhase = segcpSweep then
       begin
@@ -8353,6 +8418,30 @@ begin
     {$ifdef SE_THREADS}
     LeaveCriticalSection(CS);
     {$endif}
+  end;
+end;
+
+procedure TSEGarbageCollector.WriteBarrier(constref AOwner, AValue: TSEValue);
+var
+  NodeOwner, NodeValue: PSEGCNode;
+begin
+  if Self.FPhase = segcpMark then
+  begin
+    if AValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject] then
+    begin
+      {$ifdef SE_LOG}
+      Writeln('[GC] Write barrier triggered');
+      {$endif}
+      AOwner.VarMap^.Lock;
+        NodeOwner := Self.FNodeList.Ptr(AOwner.Ref);
+        NodeValue := Self.FNodeList.Ptr(AValue.Ref);
+        if (NodeOwner^.Color = Cardinal(segccBlack)) and (NodeValue^.Color = Cardinal(segccWhite)) then
+        begin
+          InterlockedExchange(NodeValue^.Color, Cardinal(segccGray));
+          Self.FRemainingGrayValueList.Add(NodeValue);
+        end;
+      AOwner.VarMap^.Unlock;
+    end;
   end;
 end;
 
@@ -9285,6 +9374,7 @@ var
   var
     CacheValue: TSECacheValue;
   begin
+    GC.WriteBarrier(TV, B);
     case C.Kind of
       sevkNumber:
         TV.VarMap^.Set2(Round(C.VarNumber), B);
@@ -9515,11 +9605,6 @@ var
 
 {$ifdef SE_HAS_JIT}
   function JITHandler(JitCodePtrBase, JitCodePtrLocal: PSEValue; E: TX64Emitter; CodeSize: Cardinal; OpCount: Cardinal): Integer;
-  type
-    TSEValueHeader = record
-      Ref: Cardinal;
-      Kind: TSEValueKind;
-    end;
   const
     STATUS_OK = 0;
     STATUS_OVERFLOW = 1;
@@ -9533,7 +9618,7 @@ var
     P: Pointer;
     IsCodePtrAssigned: Boolean;
     LabelYes, LabelDone: TX64Label;
-    LastOpHeader: TSEValueHeader;
+    LastOpKind: TSEValueKind = sevkNull;
     LastOpKindInRBX: Boolean = False;
     NewCodePtr: PSEValue;
 
@@ -9609,8 +9694,6 @@ var
       E := TX64Emitter.Create;
      // Writeln('START');
     end;
-    LastOpHeader.Ref := 0;
-    LastOpHeader.Kind := sevkNull;
     BIndex := 0;
     BFinish := TSEJITCountPack(Cardinal(JitCodePtrLocal[1].VarPointer)).ApplyRange;
 
@@ -9821,7 +9904,7 @@ var
             end;
             E.MovRegImm64(regRAX, NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer));
             E.MovSDXMMFromReg(TXMMReg(XMMStackPtr), regRAX);
-            //LastOpHeader.Kind := JitCodePtrLocal[BIndex + 1].Kind;
+            //LastOpKind := JitCodePtrLocal[BIndex + 1].Kind;
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Inc(XMMStackPtr);
@@ -9832,9 +9915,9 @@ var
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Dec(XMMStackPtr);
-            LastOpHeader.Kind := sevkNumber;
+            LastOpKind := sevkNumber;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
         opSub:
           begin
@@ -9842,9 +9925,9 @@ var
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Dec(XMMStackPtr);
-            LastOpHeader.Kind := sevkNumber;
+            LastOpKind := sevkNumber;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
         opMul:
           begin
@@ -9852,9 +9935,9 @@ var
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Dec(XMMStackPtr);
-            LastOpHeader.Kind := sevkNumber;
+            LastOpKind := sevkNumber;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
         opDiv:
           begin
@@ -9862,9 +9945,9 @@ var
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Dec(XMMStackPtr);
-            LastOpHeader.Kind := sevkNumber;
+            LastOpKind := sevkNumber;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
         opMod:
           begin
@@ -9882,9 +9965,9 @@ var
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Dec(XMMStackPtr);
-            LastOpHeader.Kind := sevkNumber;
+            LastOpKind := sevkNumber;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
         opNegative:
           begin
@@ -9894,9 +9977,9 @@ var
             E.XorPDMem(TXMMReg(XMMStackPtr - 1), E.Mem(regRAX, 0));
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
-            LastOpHeader.Kind := sevkNumber;
+            LastOpKind := sevkNumber;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
         opAnd:
           begin
@@ -9907,9 +9990,9 @@ var
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Dec(XMMStackPtr);
-            LastOpHeader.Kind := sevkNumber;
+            LastOpKind := sevkNumber;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
         opOr:
           begin
@@ -9920,9 +10003,9 @@ var
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Dec(XMMStackPtr);
-            LastOpHeader.Kind := sevkNumber;
+            LastOpKind := sevkNumber;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
         opXor:
           begin
@@ -9933,9 +10016,9 @@ var
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Dec(XMMStackPtr);
-            LastOpHeader.Kind := sevkNumber;
+            LastOpKind := sevkNumber;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
         opNot:
           begin
@@ -9944,9 +10027,9 @@ var
             E.CvtSI2SD(TXMMReg(XMMStackPtr - 1), regRAX);
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
-            LastOpHeader.Kind := sevkNumber;
+            LastOpKind := sevkNumber;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
         opShiftLeft:
           begin
@@ -9957,9 +10040,9 @@ var
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Dec(XMMStackPtr);
-            LastOpHeader.Kind := sevkNumber;
+            LastOpKind := sevkNumber;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
         opShiftRight:
           begin
@@ -9970,9 +10053,9 @@ var
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Dec(XMMStackPtr);
-            LastOpHeader.Kind := sevkNumber;
+            LastOpKind := sevkNumber;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
         opEqual:
           begin
@@ -9992,9 +10075,9 @@ var
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Dec(XMMStackPtr);
-            LastOpHeader.Kind := sevkBoolean;
+            LastOpKind := sevkBoolean;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkBoolean));
           end;
         opNotEqual:
           begin
@@ -10014,9 +10097,9 @@ var
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Dec(XMMStackPtr);
-            LastOpHeader.Kind := sevkBoolean;
+            LastOpKind := sevkBoolean;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkBoolean));
           end;
         opGreater:
           begin
@@ -10036,9 +10119,9 @@ var
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Dec(XMMStackPtr);
-            LastOpHeader.Kind := sevkBoolean;
+            LastOpKind := sevkBoolean;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkBoolean));
           end;
         opGreaterOrEqual:
           begin
@@ -10058,9 +10141,9 @@ var
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Dec(XMMStackPtr);
-            LastOpHeader.Kind := sevkBoolean;
+            LastOpKind := sevkBoolean;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkBoolean));
           end;
         opLesser:
           begin
@@ -10080,9 +10163,9 @@ var
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Dec(XMMStackPtr);
-            LastOpHeader.Kind := sevkBoolean;
+            LastOpKind := sevkBoolean;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkBoolean));
           end;
         opLesserOrEqual:
           begin
@@ -10102,9 +10185,9 @@ var
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Dec(XMMStackPtr);
-            LastOpHeader.Kind := sevkBoolean;
+            LastOpKind := sevkBoolean;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkBoolean));
           end;
 
         opAdd0:
@@ -10119,9 +10202,9 @@ var
             Dec(XMMStackPtr);
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
-            LastOpHeader.Kind := sevkNumber;
+            LastOpKind := sevkNumber;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
         opMul0:
           begin
@@ -10135,9 +10218,9 @@ var
             Dec(XMMStackPtr);
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
-            LastOpHeader.Kind := sevkNumber;
+            LastOpKind := sevkNumber;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
         opDiv0:
           begin
@@ -10151,9 +10234,9 @@ var
             Dec(XMMStackPtr);
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
-            LastOpHeader.Kind := sevkNumber;
+            LastOpKind := sevkNumber;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
         {opAnd0:
           begin
@@ -10165,9 +10248,9 @@ var
             E.CvtSI2SD(TXMMReg(XMMStackPtr - 1), regRAX);
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
-            LastOpHeader.Kind := sevkNumber;
+            LastOpKind := sevkNumber;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
         opOr0:
           begin
@@ -10179,9 +10262,9 @@ var
             E.CvtSI2SD(TXMMReg(XMMStackPtr - 1), regRAX);
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
-            LastOpHeader.Kind := sevkNumber;
+            LastOpKind := sevkNumber;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;}
         opEqual0:
           begin
@@ -10205,9 +10288,9 @@ var
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Dec(XMMStackPtr);
-            LastOpHeader.Kind := sevkBoolean;
+            LastOpKind := sevkBoolean;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkBoolean));
           end;
         opNotEqual0:
           begin
@@ -10231,9 +10314,9 @@ var
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Dec(XMMStackPtr);
-            LastOpHeader.Kind := sevkBoolean;
+            LastOpKind := sevkBoolean;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkBoolean));
           end;
         opGreater0:
           begin
@@ -10257,9 +10340,9 @@ var
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Dec(XMMStackPtr);
-            LastOpHeader.Kind := sevkBoolean;
+            LastOpKind := sevkBoolean;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkBoolean));
           end;
         opGreaterOrEqual0:
           begin
@@ -10283,9 +10366,9 @@ var
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Dec(XMMStackPtr);
-            LastOpHeader.Kind := sevkBoolean;
+            LastOpKind := sevkBoolean;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkBoolean));
           end;
         opLesser0:
           begin
@@ -10309,9 +10392,9 @@ var
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Dec(XMMStackPtr);
-            LastOpHeader.Kind := sevkBoolean;
+            LastOpKind := sevkBoolean;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkBoolean));
           end;
         opLesserOrEqual0:
           begin
@@ -10335,9 +10418,9 @@ var
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Dec(XMMStackPtr);
-            LastOpHeader.Kind := sevkBoolean;
+            LastOpKind := sevkBoolean;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkBoolean));
           end;
 
         opInc:
@@ -10354,7 +10437,7 @@ var
             E.MovMemReg32(E.Mem(regRDX, NativeUInt(@TSEValue(nil^).Kind)), regRAX);
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
-            LastOpHeader.Kind := sevkNumber;
+            LastOpKind := sevkNumber;
             XMMStackPtr := XMM_START;
           end;
         opAdd1:
@@ -10365,9 +10448,9 @@ var
             Dec(XMMStackPtr);
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
-            LastOpHeader.Kind := sevkNumber;
+            LastOpKind := sevkNumber;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
         opSub1:
           begin
@@ -10377,9 +10460,9 @@ var
             Dec(XMMStackPtr);
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
-            LastOpHeader.Kind := sevkNumber;
+            LastOpKind := sevkNumber;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
         opMul1:
           begin
@@ -10389,9 +10472,9 @@ var
             Dec(XMMStackPtr);
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
-            LastOpHeader.Kind := sevkNumber;
+            LastOpKind := sevkNumber;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
         opDiv1:
           begin
@@ -10401,9 +10484,9 @@ var
             Dec(XMMStackPtr);
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
-            LastOpHeader.Kind := sevkNumber;
+            LastOpKind := sevkNumber;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(sevkNumber));
           end;
 
         opPushGlobalVar:
@@ -10421,10 +10504,9 @@ var
             E.MovSDXMMFromMem(TXMMReg(XMMStackPtr), E.MemIndex(regR12, regRAX, 1, NativeUInt(@TSEValue(nil^).VarNumber)));
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
-            LastOpHeader.Ref := GlobalLocal[NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer)].Ref;
-            LastOpHeader.Kind := GlobalLocal[NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer)].Kind;
+            LastOpKind := GlobalLocal[NativeUInt(JitCodePtrLocal[BIndex + 1].VarPointer)].Kind;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(LastOpKind));
             Inc(XMMStackPtr);
           end;
         opPushLocalVar:
@@ -10456,15 +10538,14 @@ var
             CodeSize := CodeSize + OpcodeSizes[Op];
 
             // TODO: This causes issue somehow...
-            LastOpHeader.Ref := ((FramePtrLocal - NativeInt(JitCodePtrLocal[BIndex + 2].VarPointer))^.StackPtr + NativeInt(JitCodePtrLocal[BIndex + 1].VarPointer))^.Ref;
-            LastOpHeader.Kind := ((FramePtrLocal - NativeInt(JitCodePtrLocal[BIndex + 2].VarPointer))^.StackPtr + NativeInt(JitCodePtrLocal[BIndex + 1].VarPointer))^.Kind;
+            LastOpKind := ((FramePtrLocal - NativeInt(JitCodePtrLocal[BIndex + 2].VarPointer))^.StackPtr + NativeInt(JitCodePtrLocal[BIndex + 1].VarPointer))^.Kind;
             if LastOpKindInRBX then
-              E.MovRegImm64(regRBX, QWord(LastOpHeader));
+              E.MovRegImm32(regRBX, Cardinal(LastOpKind));
             Inc(XMMStackPtr);
           end;
         opAssignGlobalVar:
           begin
-            if not (LastOpHeader.Kind in [sevkBoolean, sevkNumber]) then
+            if not (LastOpKind in [sevkBoolean, sevkNumber]) then
             begin
               Result := STATUS_INVALID;
               break;
@@ -10475,20 +10556,20 @@ var
             { Assign value from stack to global variable }
             // movsd qword ptr [r12 + rcx + .VarNumber], xmm3
             E.MovSDMemFromXMM(E.MemIndex(regR12, regRCX, 1, NativeUInt(@TSEValue(nil^).VarNumber)), TXMMReg(XMMStackPtr - 1));
-            { Mark as LastOpHeader }
-            // mov qword ptr [r12 + rcx + .Ref], LastOpHeader
+            { Mark as LastOpKind }
+            // mov dword ptr [r12 + rcx + .Kind], LastOpKind
 
             if LastOpKindInRBX then
-              E.MovMemReg64(E.MemIndex(regR12, regRCX, 1, Cardinal(@TSEValue(nil^).Ref)), regRBX)
+              E.MovMemReg32(E.MemIndex(regR12, regRCX, 1, Cardinal(@TSEValue(nil^).Kind)), regRBX)
             else
-              E.MovMemImm64(E.MemIndex(regR12, regRCX, 1, Cardinal(@TSEValue(nil^).Ref)), QWord(LastOpHeader));
+              E.MovMemImm32(E.MemIndex(regR12, regRCX, 1, Cardinal(@TSEValue(nil^).Kind)), Cardinal(LastOpKind));
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Dec(XMMStackPtr);
           end;
         opAssignLocalVar:
           begin
-            if not (LastOpHeader.Kind in [sevkBoolean, sevkNumber]) then
+            if not (LastOpKind in [sevkBoolean, sevkNumber]) then
             begin
               Result := STATUS_INVALID;
               break;
@@ -10514,12 +10595,12 @@ var
             { Assign value from stack to local variable }
             // movsd qword ptr [rcx + .VarNumber], xmm3
             E.MovSDMemFromXMM(E.Mem(regRCX, NativeUInt(@TSEValue(nil^).VarNumber)), TXMMReg(XMMStackPtr - 1));
-            { Mark as LastOpHeader }
-            // mov qword ptr [rcx + .Ref], LastOpHeader
+            { Mark as LastOpKind }
+            // mov dword ptr [rcx + .Kind], LastOpKind
             if LastOpKindInRBX then
-              E.MovMemReg64(E.Mem(regRCX, Cardinal(@TSEValue(nil^).Ref)), regRBX)
+              E.MovMemReg32(E.Mem(regRCX, Cardinal(@TSEValue(nil^).Kind)), regRBX)
             else
-              E.MovMemImm64(E.Mem(regRCX, Cardinal(@TSEValue(nil^).Ref)), QWord(LastOpHeader));
+              E.MovMemImm32(E.Mem(regRCX, Cardinal(@TSEValue(nil^).Kind)), Cardinal(LastOpKind));
             //
             CodeSize := CodeSize + OpcodeSizes[Op];
             Dec(XMMStackPtr);
@@ -10534,9 +10615,9 @@ var
       Inc(OpCount);
       Inc(BIndex, OpcodeSizes[Op]);
     end;
-    if (OpCount <= 1) or (not IsCodePtrAssigned) and (not (LastOpHeader.Kind in [sevkBoolean, sevkNumber])) then
+    if (OpCount <= 1) or (not IsCodePtrAssigned) and (not (LastOpKind in [sevkBoolean, sevkNumber])) then
     begin
-     // Writeln('Rejected: ', LastOpHeader.Kind, ', ', OpCount, ', ', IsCodePtrAssigned);
+     // Writeln('Rejected: ', LastOpKind, ', ', OpCount, ', ', IsCodePtrAssigned);
       Result := STATUS_INVALID;
     end;
     begin
@@ -10544,13 +10625,14 @@ var
       begin
         { Move XMM3 to the stack }
         E.MovSDMemFromXMM(E.Mem(regR14, NativeUInt(@TSEValue(nil^).VarNumber)), regXMM3);
-        { Mark this as LastOpHeader }
+        { Mark this as LastOpKind }
         if LastOpKindInRBX then
         begin
+          E.ShlRegImm(regRBX, 32);
           E.MovMemReg64(E.Mem(regR14, Cardinal(@TSEValue(nil^).Ref)), regRBX);
         end else
         begin
-          E.MovMemImm64(E.Mem(regR14, Cardinal(@TSEValue(nil^).Ref)), QWord(LastOpHeader));
+          E.MovMemImm64(E.Mem(regR14, Cardinal(@TSEValue(nil^).Ref)), QWord(LastOpKind) shl 32);
         end;
         { Increase stack by 1 }
         E.AddRegImm32(regR14, SizeOf(TSEValue));
