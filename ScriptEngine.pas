@@ -8476,7 +8476,7 @@ begin
           InterlockedExchange(NodeValue^.Color, Cardinal(segccGray));
           Self.Lock;
           try
-            Self.FRemainingGrayValueList.Add(NodeValue);
+            Self.FRemainingGrayValueList.Add(AValue);
           finally
             Self.Unlock;
           end;
