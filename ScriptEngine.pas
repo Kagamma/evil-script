@@ -8466,7 +8466,7 @@ end;
 
 procedure TSEGarbageCollector.WriteBarrier(constref AOwner, AValue: TSEValue);
 var
-  NodeOwner, NodeValue: PSEGCNode;
+  NodeOwner, NodeValue: TSEGCNode;
 begin
   if Self.FPhase = segcpMark then
   begin
@@ -8474,14 +8474,19 @@ begin
     begin
       AOwner.VarMap^.Lock;
       try
-        NodeOwner := Self.FNodeList.Ptr(AOwner.Ref);
-        NodeValue := Self.FNodeList.Ptr(AValue.Ref);
-        if (NodeOwner^.Color = Cardinal(segccBlack)) and (NodeValue^.Color = Cardinal(segccWhite)) then
+        EnterCriticalSection(CS);
+        try
+          NodeOwner := Self.FNodeList[AOwner.Ref];
+          NodeValue := Self.FNodeList[AValue.Ref];
+        finally
+          LeaveCriticalSection(CS);
+        end;
+        if (NodeOwner.Color = Cardinal(segccBlack)) and (NodeValue.Color = Cardinal(segccWhite)) then
         begin
           {$ifdef SE_LOG}
           Writeln('[GC] Write barrier triggered');
           {$endif}
-          InterlockedExchange(NodeValue^.Color, Cardinal(segccGray));
+          InterlockedExchange(NodeValue.Color, Cardinal(segccGray));
           Self.Lock;
           try
             Self.FRemainingGrayValueList.Add(AValue);
