@@ -1666,6 +1666,7 @@ type
     class function SEGCObjectCount(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEGCObjectOldCount(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEGCCollect(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+    class function SEIsJit(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEChar(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEOrd(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SECoroutineCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -5995,6 +5996,11 @@ class function TSEBuiltInFunction.SEGCCollect(const VM: TSEVM; const Args: PSEVa
 begin
   GC.GC(True);
   Result := SENull;
+end;
+
+class function TSEBuiltInFunction.SEIsJIT(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+begin
+  Result := VM.Parent.OptimizeJIT;
 end;
 
 class function TSEBuiltInFunction.SEChar(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -11845,6 +11851,7 @@ begin
     Self.RegisterFunc('mem_object_old_count', @TSEBuiltInFunction(nil).SEGCObjectOldCount, 0);
     Self.RegisterFunc('mem_object_count', @TSEBuiltInFunction(nil).SEGCObjectCount, 0);
     Self.RegisterFunc('mem_gc', @TSEBuiltInFunction(nil).SEGCCollect, 0);
+    Self.RegisterFunc('is_jit', @TSEBuiltInFunction(nil).SEIsJIT, 0);
     Self.RegisterFunc('fs_file_delete', @TSEBuiltInFunction(nil).SEFileDelete, 1);
     Self.RegisterFunc('fs_file_rename', @TSEBuiltInFunction(nil).SEFileRename, 2);
     Self.RegisterFunc('fs_file_exists', @TSEBuiltInFunction(nil).SEFileExists, 1);
