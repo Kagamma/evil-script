@@ -7774,7 +7774,7 @@ begin
   Self.FRemainingGrayValueList.Capacity := 128;
   Self.FGrayValueQueue := TSEValueQueue.Create;
   Self.FVMThreadList := TSEVMList.Create;
-  Self.EnableParallel := False;
+  Self.EnableParallel := True;
 end;
 
 destructor TSEGarbageCollector.Destroy;
