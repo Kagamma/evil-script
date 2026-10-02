@@ -7754,7 +7754,7 @@ begin
   InitCriticalSection(Self.FLock);
   {$endif}
   Self.FNodeList := TSEGCNodeList.Create;
-  Self.FNodeList.Capacity := 65536 * 8;
+  Self.FNodeList.Capacity := 8192;
   Ref0 := Default(TSEGCNode);
   Self.FNodeList.Add(Ref0);
   Self.FNodeList.Add(Ref0); // Young generation's root
@@ -7762,14 +7762,14 @@ begin
   Self.FNodeLastYoung := 1;
   Self.FNodeLastOld := 2;
   Self.FNodeAvailStack := TSEGCNodeAvailStack.Create;
-  Self.FNodeAvailStack.Capacity := 65536 * 8;
+  Self.FNodeAvailStack.Capacity := 8192;
   Self.FTicks := GetTickCount64;
   Self.FInterval := 5000;
   Self.FPromotion := 10;
   Self.FOldObjectCheckCycle := 10;
   Self.FObjectThreshold := 700;
   Self.FReachableValueList := TSEValueList.Create;
-  Self.FReachableValueList.Capacity := 65536;
+  Self.FReachableValueList.Capacity := 2048;
   Self.FRemainingGrayValueList := TSEValueList.Create;
   Self.FRemainingGrayValueList.Capacity := 128;
   Self.FGrayValueQueue := TSEValueQueue.Create;
