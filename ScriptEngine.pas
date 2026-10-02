@@ -8278,12 +8278,12 @@ begin
         {$endif}
         MarkingRemainingGrayValues;
         Self.FPhase := segcpSweep;
-        ResumeThreads;
       end;
       {$endif}
 
       if Self.FPhase = segcpSweep then
       begin
+        SuspendThreads;
         {$ifdef SE_LOG}
         Writeln('[GC] ', Self.FPhase);
         {$endif}
@@ -8306,6 +8306,9 @@ begin
         Writeln('[GC] Number of old objects after cleaning: ', Self.FObjectsOld);
         Writeln('[GC] Number of objects in object pool: ', Self.FNodeAvailStack.Count);
         Writeln('[GC] Time: ', GetTickCount64 - Self.FTicks, 'ms');
+        {$endif}
+        {$ifdef SE_THREADS}
+        ResumeThreads;
         {$endif}
       end;
     except
