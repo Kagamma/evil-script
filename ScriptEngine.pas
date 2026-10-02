@@ -8443,7 +8443,7 @@ end;
 
 procedure TSEGarbageCollector.WriteBarrier(constref AOwner, AValue: TSEValue);
 var
-  NodeOwner, NodeValue: TSEGCNode;
+  NodeOwner, NodeValue: PSEGCNode;
 begin
   {$ifdef SE_THREADS}
   if Self.FPhase <> segcpMark then
@@ -8451,29 +8451,21 @@ begin
   if AValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject] then
   begin
     GlobalLock;
+    AOwner.VarMap^.Lock;
     try
-      NodeOwner := Self.FNodeList[AOwner.Ref];
-      NodeValue := Self.FNodeList[AValue.Ref];
-    finally
-      GlobalUnlock;
-    end;
-    if (NodeOwner.Color = Cardinal(segccBlack)) and (NodeValue.Color = Cardinal(segccWhite)) then
-    begin
-      {$ifdef SE_LOG}
-      Writeln('[GC] Write barrier triggered');
-      {$endif}
-      GlobalLock;
-      try
-        InterlockedExchange(Self.FNodeList.Ptr(AValue.Ref)^.Color, Cardinal(segccGray));
-      finally
-        GlobalUnlock;
-      end;
-      Self.Lock;
-      try
+      NodeOwner := Self.FNodeList.Ptr(AOwner.Ref);
+      NodeValue := Self.FNodeList.Ptr(AValue.Ref);
+      if (NodeOwner^.Color = Cardinal(segccBlack)) and (NodeValue^.Color = Cardinal(segccWhite)) then
+      begin
+        {$ifdef SE_LOG}
+        Writeln('[GC] Write barrier triggered');
+        {$endif}
+        InterlockedExchange(NodeValue^.Color, Cardinal(segccGray));
         Self.FRemainingGrayValueList.Add(AValue);
-      finally
-        Self.Unlock;
       end;
+    finally
+      AOwner.VarMap^.Unlock;
+      GlobalUnlock;
     end;
   end;
   {$endif}
