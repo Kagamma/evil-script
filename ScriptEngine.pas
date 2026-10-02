@@ -8257,8 +8257,8 @@ begin
         Writeln('[GC] Number of gray values before markings: ', Self.FRemainingGrayValueList.Count);
         {$endif}
         MarkingRemainingGrayValues;
-        ResumeThreads;
         Self.FPhase := segcpSweep;
+        ResumeThreads;
       end;
       {$endif}
 
