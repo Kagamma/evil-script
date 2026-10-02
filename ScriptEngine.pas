@@ -7696,10 +7696,16 @@ begin
       {$endif}
       for I := 0 to GC.ReachableValueList.Count - 1 do
         GC.Mark(GC.ReachableValueList.Ptr(I));
+      {$ifdef SE_LOG}
+      Writeln('[GC] Number of gray values after concurrent markings: ', GC.RemainingGrayValueList.Count);
+      {$endif}
       if GC.RemainingGrayValueList.Count = 0 then
+      begin
         GC.Phase := segcpSweep
-      else
+      end else
+      begin
         GC.Phase := segcpMarkGray;
+      end;
       Self.Suspend;
     end;
   end;
@@ -7972,10 +7978,10 @@ begin
   Value := Self.FNodeList.Ptr(PValue^.Ref);
   if Value^.Marked >= Self.FRunCount then
     Exit;
+  InterlockedExchange(Value^.Color, Cardinal(segccGray));
   if Value^.Value.VarPointer = PValue^.VarPointer then
   begin
     Value^.Marked := Self.FRunCount;
-    InterlockedExchange(Value^.Color, Cardinal(segccGray));
     case Value^.Value.Kind of
       sevkMap:
         begin
@@ -8244,7 +8250,7 @@ begin
       begin
         {$ifdef SE_LOG}
         Writeln('[GC] ', Self.FPhase);
-        Writeln('[GC] Number of gray values: ', Self.FRemainingGrayValueList.Count);
+        Writeln('[GC] Number of gray values before markings: ', Self.FRemainingGrayValueList.Count);
         {$endif}
         MarkingRemainingGrayValues;
         Self.FPhase := segcpSweep;
@@ -8429,14 +8435,14 @@ begin
   begin
     if AValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject] then
     begin
-      {$ifdef SE_LOG}
-      Writeln('[GC] Write barrier triggered');
-      {$endif}
       AOwner.VarMap^.Lock;
         NodeOwner := Self.FNodeList.Ptr(AOwner.Ref);
         NodeValue := Self.FNodeList.Ptr(AValue.Ref);
         if (NodeOwner^.Color = Cardinal(segccBlack)) and (NodeValue^.Color = Cardinal(segccWhite)) then
         begin
+          {$ifdef SE_LOG}
+          Writeln('[GC] Write barrier triggered');
+          {$endif}
           InterlockedExchange(NodeValue^.Color, Cardinal(segccGray));
           Self.FRemainingGrayValueList.Add(NodeValue);
         end;
