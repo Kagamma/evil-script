@@ -8243,17 +8243,19 @@ begin
       if Self.EnableParallel then
         if Self.FPhase = segcpMark then
           Exit;
-      {$endif}
 
       if Self.FPhase = segcpMarkGray then
       begin
+        SuspendThreads;
         {$ifdef SE_LOG}
         Writeln('[GC] ', Self.FPhase);
         Writeln('[GC] Number of gray values before markings: ', Self.FRemainingGrayValueList.Count);
         {$endif}
         MarkingRemainingGrayValues;
+        ResumeThreads;
         Self.FPhase := segcpSweep;
       end;
+      {$endif}
 
       if Self.FPhase = segcpSweep then
       begin
