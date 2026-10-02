@@ -7725,18 +7725,6 @@ begin
       {$ifdef SE_LOG}
       Writeln('[GC] Number of gray values after concurrent markings: ', GC.RemainingGrayValueList.Count);
       {$endif}
-      GC.Lock;
-      try
-        if GC.RemainingGrayValueList.Count = 0 then
-        begin
-          GC.Phase := segcpSweep
-        end else
-        begin
-          GC.Phase := segcpMarkGray;
-        end;
-      finally
-        GC.Unlock;
-      end;
       Self.Suspend;
     end;
   end;
@@ -8283,12 +8271,17 @@ begin
       // Wait for the thread to finish it's job
       {$ifdef SE_THREADS}
       if Self.EnableParallel then
-        if Self.FPhase = segcpMark then
+        if (Self.FPhase = segcpMark) and (not GCMarkJob.Suspended) then
           Exit;
+
+      SuspendThreads;
+      if Self.FRemainingGrayValueList.Count > 0 then
+        Self.FPhase := segcpMarkGray
+      else
+        Self.FPhase := segcpSweep;
 
       if Self.FPhase = segcpMarkGray then
       begin
-        SuspendThreads;
         {$ifdef SE_LOG}
         Writeln('[GC] ', Self.FPhase);
         Writeln('[GC] Number of gray values before markings: ', Self.FRemainingGrayValueList.Count);
