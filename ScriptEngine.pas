@@ -8444,7 +8444,9 @@ begin
           Writeln('[GC] Write barrier triggered');
           {$endif}
           InterlockedExchange(NodeValue^.Color, Cardinal(segccGray));
-          Self.FRemainingGrayValueList.Add(NodeValue);
+          Self.Lock;
+            Self.FRemainingGrayValueList.Add(NodeValue);
+          Self.Unlock;
         end;
       AOwner.VarMap^.Unlock;
     end;
