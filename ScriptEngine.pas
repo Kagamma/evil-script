@@ -8486,8 +8486,8 @@ begin
   begin
     if AValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject] then
     begin
-      AOwner.VarMap^.Lock;
       EnterCriticalSection(CS);
+      AOwner.VarMap^.Lock;
       try
         NodeOwner := Self.FNodeList.Ptr(AOwner.Ref);
         NodeValue := Self.FNodeList.Ptr(AValue.Ref);
@@ -8505,8 +8505,8 @@ begin
           end;
         end;
       finally
-        LeaveCriticalSection(CS);
         AOwner.VarMap^.Unlock;
+        LeaveCriticalSection(CS);
       end;
     end;
   end;
