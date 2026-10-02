@@ -3639,6 +3639,20 @@ end;
 
 { ===================================================================== }
 
+procedure GlobalLock; inline;
+begin
+  {$ifdef SE_THREADS}
+  EnterCriticalSection(CS);
+  {$endif}
+end;
+
+procedure GlobalUnlock; inline;
+begin
+  {$ifdef SE_THREADS}
+  LeaveCriticalSection(CS);
+  {$endif}
+end;
+
 function SEHashString(const S: String): NativeUInt; inline;
 {$ifdef SE_MAP_AVK959}
 begin
@@ -3834,10 +3848,8 @@ begin
         else
           Offset := Current.FPropertyOffset;
         { Cache only if there is no conflicting hash entry. }
-        {$ifdef SE_THREADS}
-        EnterCriticalSection(CS);
+        GlobalLock;
         try
-        {$endif}
           if FLookup = nil then
             FLookup := TSEHashShapeDictionary.Create;
           if FLookup.TryGetValue(Hash, CachedShape) then
@@ -3847,11 +3859,9 @@ begin
           end
           else
             FLookup.AddOrSetValue(Hash, Current);
-        {$ifdef SE_THREADS}
         finally
-          LeaveCriticalSection(CS);
+          GlobalUnlock;
         end;
-        {$endif}
         Result := Offset >= 0;
         Exit;
       end;
@@ -4596,9 +4606,7 @@ end;
 
 function SEGet(const AName: String): TSEValue;
 begin
-  {$ifdef SE_THREADS}
-  EnterCriticalSection(CS);
-  {$endif}
+  GlobalLock;
   try
     try
       Exit(SEMapGet(ScriptVarMap, AName))
@@ -4607,17 +4615,13 @@ begin
         Result := SENull;
     end;
   finally
-    {$ifdef SE_THREADS}
-    LeaveCriticalSection(CS);
-    {$endif}
+    GlobalUnlock;
   end;
 end;
 
 procedure SESet(const AName: String; constref AValue: TSEValue);
 begin
-  {$ifdef SE_THREADS}
-  EnterCriticalSection(CS);
-  {$endif}
+  GlobalLock;
   try
     try
       SEMapSet(ScriptVarMap, AName, AValue);
@@ -4625,9 +4629,7 @@ begin
       on E: Exception do ;
     end;
   finally
-    {$ifdef SE_THREADS}
-    LeaveCriticalSection(CS);
-    {$endif}
+    GlobalUnlock;
   end;
 end;
 
@@ -5384,9 +5386,7 @@ end;
 
 class function TSEBuiltInFunction.SEGet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  {$ifdef SE_THREADS}
-  EnterCriticalSection(CS);
-  {$endif}
+  GlobalLock;
   try
     try
       Result := SEMapGet(ScriptVarMap, Args[0].VarString^.Data);
@@ -5395,24 +5395,18 @@ begin
         Result := SENull;
     end;
   finally
-    {$ifdef SE_THREADS}
-    LeaveCriticalSection(CS);
-    {$endif}
+    GlobalUnlock;
   end;
 end;
 
 class function TSEBuiltInFunction.SESet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  {$ifdef SE_THREADS}
-  EnterCriticalSection(CS);
-  {$endif}
+  GlobalLock;
   try
     SEMapSet(ScriptVarMap, Args[0].VarString^.Data, Args[1]);
     Result := SENull;
   finally
-    {$ifdef SE_THREADS}
-    LeaveCriticalSection(CS);
-    {$endif}
+    GlobalUnlock;
   end;
 end;
 
@@ -8011,10 +8005,8 @@ begin
     ValueLocal := Self.FGrayValueQueue.Dequeue;
     if not (ValueLocal.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
       continue;
-    {$ifdef SE_THREADS}
-    EnterCriticalSection(CS);
+    GlobalLock;
     try
-    {$endif}
       if (ValueLocal.Ref >= Self.FNodeList.Count) or (ValueLocal.Ref = 0) then
         continue;
       Node := Self.FNodeList.Ptr(ValueLocal.Ref);
@@ -8061,11 +8053,9 @@ begin
         end;
         InterlockedExchange(Node^.Color, Cardinal(segccBlack));
       end;
-    {$ifdef SE_THREADS}
     finally
-      LeaveCriticalSection(CS);
+      GlobalUnlock;
     end;
-    {$endif}
   end;
 end;
 
@@ -8349,9 +8339,7 @@ begin
       {$endif}
     end;
     ResumeThreads;
-    {$ifdef SE_THREADS}
-    LeaveCriticalSection(CS);
-    {$endif}
+    GlobalUnlock;
     Self.FTicks := GetTickCount64;
     {$ifdef SE_CGE_PROFILER}
     FrameProfiler.Stop('TEvilC.GC');
@@ -8361,9 +8349,7 @@ end;
 
 procedure TSEGarbageCollector.AllocBuffer(const PValue: PSEValue; const Size: NativeInt);
 begin
-  {$ifdef SE_THREADS}
-  EnterCriticalSection(CS);
-  {$endif}
+  GlobalLock;
   try
     PValue^.Kind := sevkBuffer;
     New(PValue^.VarBuffer);
@@ -8378,34 +8364,26 @@ begin
     end;
     Self.AddToList(PValue);
   finally
-    {$ifdef SE_THREADS}
-    LeaveCriticalSection(CS);
-    {$endif}
+    GlobalUnlock;
   end;
 end;
 
 procedure TSEGarbageCollector.AllocMap(const PValue: PSEValue);
 begin
-  {$ifdef SE_THREADS}
-  EnterCriticalSection(CS);
-  {$endif}
+  GlobalLock;
   try
     PValue^.Kind := sevkMap;
     New(PValue^.VarMap);
     PValue^.VarMap^.Init;
     Self.AddToList(PValue);
   finally
-    {$ifdef SE_THREADS}
-    LeaveCriticalSection(CS);
-    {$endif}
+    GlobalUnlock;
   end;
 end;
 
 procedure TSEGarbageCollector.AllocString(const PValue: PSEValue; const S: String);
 begin
-  {$ifdef SE_THREADS}
-  EnterCriticalSection(CS);
-  {$endif}
+  GlobalLock;
   try
     PValue^.Kind := sevkString;
     New(PValue^.VarString);
@@ -8413,17 +8391,13 @@ begin
     PValue^.VarString^.Hash := 0;
     Self.AddToList(PValue);
   finally
-    {$ifdef SE_THREADS}
-    LeaveCriticalSection(CS);
-    {$endif}
+    GlobalUnlock;
   end;
 end;
 
 procedure  TSEGarbageCollector.AllocPascalObject(const PValue: PSEValue; const Obj: TObject; const IsManaged: Boolean);
 begin
-  {$ifdef SE_THREADS}
-  EnterCriticalSection(CS);
-  {$endif}
+  GlobalLock;
   try
     PValue^.Kind := sevkPascalObject;
     New(PValue^.VarPascalObject);
@@ -8431,9 +8405,7 @@ begin
     PValue^.VarPascalObject^.IsManaged := IsManaged;
     Self.AddToList(PValue);
   finally
-    {$ifdef SE_THREADS}
-    LeaveCriticalSection(CS);
-    {$endif}
+    GlobalUnlock;
   end;
 end;
 
@@ -8441,9 +8413,7 @@ procedure TSEGarbageCollector.UnManaged(const PValue: PSEValue);
 var
   Value: TSEGCNode;
 begin
-  {$ifdef SE_THREADS}
-  EnterCriticalSection(CS);
-  {$endif}
+  GlobalLock;
   try
     if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) and (PValue^.Kind <> sevkPascalObject) then
       Exit;
@@ -8451,9 +8421,7 @@ begin
     Value.Lock := True;
     Self.FNodeList[PValue^.Ref] := Value;
   finally
-    {$ifdef SE_THREADS}
-    LeaveCriticalSection(CS);
-    {$endif}
+    GlobalUnlock;
   end;
 end;
 
@@ -8461,9 +8429,7 @@ procedure TSEGarbageCollector.Managed(const PValue: PSEValue);
 var
   Value: TSEGCNode;
 begin
-  {$ifdef SE_THREADS}
-  EnterCriticalSection(CS);
-  {$endif}
+  GlobalLock;
   try
     if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) and (PValue^.Kind <> sevkPascalObject) then
       Exit;
@@ -8471,42 +8437,43 @@ begin
     Value.Lock := False;
     Self.FNodeList[PValue^.Ref] := Value;
   finally
-    {$ifdef SE_THREADS}
-    LeaveCriticalSection(CS);
-    {$endif}
+    GlobalUnlock;
   end;
 end;
 
 procedure TSEGarbageCollector.WriteBarrier(constref AOwner, AValue: TSEValue);
 var
-  NodeOwner, NodeValue: PSEGCNode;
+  NodeOwner, NodeValue: TSEGCNode;
 begin
   {$ifdef SE_THREADS}
   if Self.FPhase = segcpMark then
   begin
     if AValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject] then
     begin
-      EnterCriticalSection(CS);
-      AOwner.VarMap^.Lock;
+      GlobalLock;
       try
-        NodeOwner := Self.FNodeList.Ptr(AOwner.Ref);
-        NodeValue := Self.FNodeList.Ptr(AValue.Ref);
-        if (NodeOwner^.Color = Cardinal(segccBlack)) and (NodeValue^.Color = Cardinal(segccWhite)) then
-        begin
-          {$ifdef SE_LOG}
-          Writeln('[GC] Write barrier triggered');
-          {$endif}
-          InterlockedExchange(NodeValue^.Color, Cardinal(segccGray));
-          Self.Lock;
-          try
-            Self.FRemainingGrayValueList.Add(AValue);
-          finally
-            Self.Unlock;
-          end;
-        end;
+        NodeOwner := Self.FNodeList[AOwner.Ref];
+        NodeValue := Self.FNodeList[AValue.Ref];
       finally
-        AOwner.VarMap^.Unlock;
-        LeaveCriticalSection(CS);
+        GlobalUnlock;
+      end;
+      if (NodeOwner.Color = Cardinal(segccBlack)) and (NodeValue.Color = Cardinal(segccWhite)) then
+      begin
+        {$ifdef SE_LOG}
+        Writeln('[GC] Write barrier triggered');
+        {$endif}
+        GlobalLock;
+        try
+          InterlockedExchange(Self.FNodeList.Ptr(AValue.Ref)^.Color, Cardinal(segccGray));
+        finally
+          GlobalUnlock;
+        end;
+        Self.Lock;
+        try
+          Self.FRemainingGrayValueList.Add(AValue);
+        finally
+          Self.Unlock;
+        end;
       end;
     end;
   end;
@@ -10749,10 +10716,8 @@ var
   var
     Bit0_3: Byte;
   begin
-    {$ifdef SE_THREADS}
-    EnterCriticalSection(CS);
+    GlobalLock;
     try
-    {$endif}
       if TSEOpcode(Cardinal(CodePtrLocal[0].VarPointer)) <> opJITBlockPotential then
         Dec(CodePtrLocal, 2)
       else
@@ -10768,11 +10733,9 @@ var
           TSEJITCountPack(Cardinal(CodePtrLocal[1].VarPointer)).HotSpot := Bit0_3;
         end;
       end;
-    {$ifdef SE_THREADS}
     finally
-      LeaveCriticalSection(CS);
+      GlobalUnlock;
     end;
-    {$endif}
   end;
 {$endif}
 
