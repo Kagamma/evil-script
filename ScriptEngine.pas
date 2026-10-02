@@ -443,7 +443,7 @@ type
     IncSize: NativeInt;
     Shape: TSEShape;
     {$ifdef SE_THREADS}
-    FLock: Cardinal;
+    FLock: TRTLCriticalSection;
     {$endif}
     PossibleKinds: TSEValueKindSet;
   end;
@@ -7391,7 +7391,9 @@ begin
   Self.Count := 0;
   Self.IncSize := 4;
   Self.Capacity := 4;
-  Self.FLock := 0;
+  {$ifdef SE_THREADS}
+  InitCriticalSection(Self.FLock);
+  {$endif}
   Self.PossibleKinds := [];
   SetLength(Self.Items, Capacity);
 end;
@@ -7401,7 +7403,9 @@ begin
   Self.Capacity := 0;
   Self.Count := 0;
   Self.Shape := nil;
-  Self.FLock := 0;
+  {$ifdef SE_THREADS}
+  DoneCriticalSection(Self.FLock);
+  {$endif}
   SetLength(Self.Items, 0);
 end;
 
@@ -7409,8 +7413,7 @@ procedure TSEValueMapHelper.Lock;
 begin
   {$ifdef SE_THREADS}
   if GC.EnableParallel then
-    while InterlockedExchange(Self.FLock, 1) > 0 do
-      Sleep(0);
+    EnterCriticalSection(Self.FLock);
   {$endif}
 end;
 
@@ -7418,7 +7421,7 @@ procedure TSEValueMapHelper.Unlock;
 begin
   {$ifdef SE_THREADS}
   if GC.EnableParallel then
-    InterlockedExchange(Self.FLock, 0);
+    LeaveCriticalSection(Self.FLock);
   {$endif}
 end;
 
@@ -7458,6 +7461,7 @@ begin
   if NewSize < 0 then
     Exit;
   Self.Lock;
+  try
     Self.Count := NewSize;
     if Self.Capacity > 127 then
       Self.IncSize := Self.Capacity shr 2
@@ -7471,7 +7475,9 @@ begin
     SetLength(Self.Items, Self.Capacity);
     if NewSize = 0 then
       Self.PossibleKinds := [];
-  Self.Unlock;
+  finally
+    Self.Unlock;
+  end;
 end;
 
 procedure TSEValueMapHelper.ExpandArray(const NewSize: NativeInt);
@@ -7479,6 +7485,7 @@ begin
   if NewSize > Self.Count - 1 then
   begin
     Self.Lock;
+    try
       Self.Count := NewSize + 1;
       if Self.Count > Self.Capacity then
       begin
@@ -7493,7 +7500,9 @@ begin
         Self.Capacity := Self.Count + Self.IncSize;
         SetLength(Self.Items, Self.Capacity);
       end;
-    Self.Unlock;
+    finally
+      Self.Unlock;
+    end;
   end;
 end;
 
@@ -7553,6 +7562,7 @@ begin
   if Self.Shape.NeedsCompaction then
   begin
     Self.Lock;
+    try
       Self.Shape := ShapeManager.Compact(Self.Shape, Remap);
       SetLength(NewValues, Self.Shape.SlotCount + Self.IncSize);
       for I := 0 to High(Remap) do
@@ -7562,7 +7572,9 @@ begin
       Self.Count := Self.Shape.SlotCount;
       Self.Capacity := Self.Count + Self.IncSize;
       Self.Items := NewValues;
-    Self.Unlock;
+    finally
+      Self.Unlock;
+    end;
   end;
 end;
 
@@ -7573,10 +7585,13 @@ begin
   if Index <= Self.Count - 1 then
   begin
     Self.Lock;
+    try
       for I := Index to Count - 2 do
         Self.Items[I] := Self.Items[I + 1];
       Dec(Self.Count);
-    Self.Unlock;
+    finally
+      Self.Unlock;
+    end;
   end;
 end;
 
@@ -7701,12 +7716,17 @@ begin
       {$ifdef SE_LOG}
       Writeln('[GC] Number of gray values after concurrent markings: ', GC.RemainingGrayValueList.Count);
       {$endif}
-      if GC.RemainingGrayValueList.Count = 0 then
-      begin
-        GC.Phase := segcpSweep
-      end else
-      begin
-        GC.Phase := segcpMarkGray;
+      GC.Lock;
+      try
+        if GC.RemainingGrayValueList.Count = 0 then
+        begin
+          GC.Phase := segcpSweep
+        end else
+        begin
+          GC.Phase := segcpMarkGray;
+        end;
+      finally
+        GC.Unlock;
       end;
       Self.Suspend;
     end;
@@ -8442,6 +8462,7 @@ begin
     if AValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject] then
     begin
       AOwner.VarMap^.Lock;
+      try
         NodeOwner := Self.FNodeList.Ptr(AOwner.Ref);
         NodeValue := Self.FNodeList.Ptr(AValue.Ref);
         if (NodeOwner^.Color = Cardinal(segccBlack)) and (NodeValue^.Color = Cardinal(segccWhite)) then
@@ -8451,10 +8472,15 @@ begin
           {$endif}
           InterlockedExchange(NodeValue^.Color, Cardinal(segccGray));
           Self.Lock;
+          try
             Self.FRemainingGrayValueList.Add(NodeValue);
-          Self.Unlock;
+          finally
+            Self.Unlock;
+          end;
         end;
-      AOwner.VarMap^.Unlock;
+      finally
+        AOwner.VarMap^.Unlock;
+      end;
     end;
   end;
 end;
@@ -8743,6 +8769,7 @@ begin
   begin
     if Self.Parent.GlobalVarSymbols[I] = AName then
     begin
+      GC.WriteBarrier(Self.Global.Value^.Data[I] AValue);
       Self.Global.Value^.Data[I] := AValue;
       break;
     end;
