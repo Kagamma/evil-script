@@ -7722,9 +7722,6 @@ begin
       {$endif}
       for I := 0 to GC.ReachableValueList.Count - 1 do
         GC.Mark(GC.ReachableValueList.Ptr(I));
-      {$ifdef SE_LOG}
-      Writeln('[GC] Number of gray values after concurrent markings: ', GC.RemainingGrayValueList.Count);
-      {$endif}
       Self.Suspend;
     end;
   end;
@@ -8447,25 +8444,32 @@ begin
   {$ifdef SE_THREADS}
   if Self.FPhase <> segcpMark then
     Exit;
-  if AValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject] then
-  begin
-    GlobalLock;
-    AOwner.VarMap^.Lock;
-    try
-      NodeOwner := Self.FNodeList.Ptr(AOwner.Ref);
-      NodeValue := Self.FNodeList.Ptr(AValue.Ref);
-      if (NodeOwner^.Color = Cardinal(segccBlack)) and (NodeValue^.Color = Cardinal(segccWhite)) then
-      begin
-        {$ifdef SE_LOG}
-        Writeln('[GC] Write barrier triggered');
-        {$endif}
-        InterlockedExchange(NodeValue^.Color, Cardinal(segccGray));
-        Self.FRemainingGrayValueList.Add(AValue);
+  GlobalLock;
+  try
+    if (AValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) and
+       (AValue.Ref > 0) and
+       (AValue.Ref < Self.FNodeList.Count) then
+    begin
+      if Self.FPhase <> segcpMark then
+        Exit;
+      AOwner.VarMap^.Lock;
+      try
+        NodeOwner := Self.FNodeList.Ptr(AOwner.Ref);
+        NodeValue := Self.FNodeList.Ptr(AValue.Ref);
+        if (NodeOwner^.Color = Cardinal(segccBlack)) and (NodeValue^.Color = Cardinal(segccWhite)) then
+        begin
+          {$ifdef SE_LOG}
+          Writeln('[GC] Write barrier triggered');
+          {$endif}
+          InterlockedExchange(NodeValue^.Color, Cardinal(segccGray));
+          Self.FRemainingGrayValueList.Add(AValue);
+        end;
+      finally
+        AOwner.VarMap^.Unlock;
       end;
-    finally
-      AOwner.VarMap^.Unlock;
-      GlobalUnlock;
     end;
+  finally
+    GlobalUnlock;
   end;
   {$endif}
 end;
@@ -8754,7 +8758,6 @@ begin
   begin
     if Self.Parent.GlobalVarSymbols[I] = AName then
     begin
-      GC.WriteBarrier(Self.Global.Value^.Data[I], AValue);
       Self.Global.Value^.Data[I] := AValue;
       break;
     end;
