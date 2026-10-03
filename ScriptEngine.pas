@@ -595,6 +595,7 @@ type
     property ReachableValueList: TSEValueList read FReachableValueList;
     property RemainingGrayValueList: TSEValueList read FRemainingGrayValueList;
     property Phase: TSEGarbageCollectorPhase read FPhase write FPhase;
+    // Despite the name, this enables concurrent marking with a single helper thread, not parallel STW marking.
     property EnableParallel: Boolean read FEnableParallel write FEnableParallel;
   end;
 
