@@ -559,10 +559,12 @@ type
     FNodeLastOld: Cardinal;
     FRunCount: QWord;
     FTicks: NativeUInt;
+    FIntervalWhenBlocked,
     FInterval: Cardinal;
     FPromotion: Byte;
     FOldObjectCheckCycle: Byte;
     FEnableParallel: Boolean;
+    procedure SetInterval(const AValue: Cardinal);
     procedure ResetColor(const AValue: PSEGCNode); inline;
     procedure Initial;
     procedure Sweep(const AFirst: Cardinal);
@@ -587,7 +589,7 @@ type
     property ObjectCount: Cardinal read FObjects;
     property OldObjectCount: Cardinal read FObjectsOld;
     property RunCount: QWord read FRunCount;
-    property Interval: Cardinal read FInterval write FInterval;
+    property Interval: Cardinal read FInterval write SetInterval;
     property Promotion: Byte read FPromotion write FPromotion;
     property OldObjectCheckCycle: Byte read FOldObjectCheckCycle write FOldObjectCheckCycle;
     property ObjectThreshold: Cardinal read FObjectThreshold write FObjectThreshold;
@@ -7762,7 +7764,7 @@ begin
   Self.FNodeAvailStack := TSEGCNodeAvailStack.Create;
   Self.FNodeAvailStack.Capacity := 8192;
   Self.FTicks := GetTickCount64;
-  Self.FInterval := 5000;
+  Self.Interval := 5000;
   Self.FPromotion := 10;
   Self.FOldObjectCheckCycle := 10;
   Self.FObjectThreshold := 700;
@@ -7838,6 +7840,12 @@ begin
   begin
     Self.GC;
   end;
+end;
+
+procedure TSEGarbageCollector.SetInterval(const AValue: Cardinal);
+begin
+  Self.FInterval := AValue;
+  Self.FIntervalWhenBlocked := Max(100, AValue div 4);
 end;
 
 procedure TSEGarbageCollector.ResetColor(const AValue: PSEGCNode);
@@ -8224,7 +8232,10 @@ begin
   {$ifdef SE_THREADS}
   if System.TryEnterCriticalSection(CS) = 0 then
   begin
-    Self.FTicks := GetTickCount64;
+    Self.FTicks := GetTickCount64 + Self.FIntervalWhenBlocked;
+    {$ifdef SE_LOG}
+    Writeln('[GC] Cannot acquire lock... GC is not running');
+    {$endif}
     Exit;
   end;
   {$endif}
@@ -8285,7 +8296,7 @@ begin
       begin
         {$ifdef SE_LOG}
         Writeln('[GC] ', Self.FPhase);
-        Writeln('[GC] Number of gray values captured by write barriers: ', Self.FRemainingGrayValueList.Count);
+        Writeln('[GC] Number of gray objects captured by write barriers: ', Self.FRemainingGrayValueList.Count);
         {$endif}
         MarkingRemainingGrayValues;
         Self.FPhase := segcpSweep;
