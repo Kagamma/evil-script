@@ -5601,9 +5601,19 @@ begin
   SEValidateType(@Args[0], sevkMap, 1, {$I %CURRENTROUTINE%});
   if SEMapIsValidArray(Args[0]) then
   begin
-    for I := 0 to Args[0].VarMap^.Count - 1 do
+    if Args[1].Kind in [sevkMap, sevkBuffer, sevkString, sevkPascalObject] then
     begin
-      Args[0].VarMap^.Items[I] := Args[1];
+      for I := 0 to Args[0].VarMap^.Count - 1 do
+      begin
+        GC.WriteBarrier(Args[0], Args[1]);
+        Args[0].VarMap^.Items[I] := Args[1];
+      end;
+    end else
+    begin
+      for I := 0 to Args[0].VarMap^.Count - 1 do
+      begin
+        Args[0].VarMap^.Items[I] := Args[1];
+      end;
     end;
     Args[0].VarMap^.PossibleKinds := Args[0].VarMap^.PossibleKinds + [Args[1].Kind];
   end;
