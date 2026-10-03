@@ -221,5 +221,5 @@ A 16-byte data structure. `TSEValue.Kind` stores the type of variable, which can
     ```
 
 ## Performance tips
-- Install `https://github.com/avk959/LGenerics` and enable `SE_MAP_AVK959` flag for a significant map-related performance boost (approximately 200% more for scripts heavily reliant on maps).
+- Install `https://github.com/avk959/LGenerics` and enable `SE_MAP_AVK959` flag for a significant map-related performance boost.
 - Set `GC.EnableParallel` to `True` to enable concurrent marking with a single helper thread. This will help reduce stuttering on tight loops, especially useful for games.
