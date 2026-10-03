@@ -8457,7 +8457,7 @@ begin
         Exit;
       NodeOwner := Self.FNodeList.Ptr(AOwner.VarMap^.Ref);
       NodeValue := Self.FNodeList.Ptr(AValue.VarMap^.Ref);
-      if (NodeOwner^.Color = Cardinal(segccBlack)) and (NodeValue^.Color = Cardinal(segccWhite)) then
+      if (NodeOwner^.Color <> Cardinal(segccWhite)) and (NodeValue^.Color = Cardinal(segccWhite)) then
       begin
         {$ifdef SE_LOG}
         Writeln('[GC] Write barrier triggered');
