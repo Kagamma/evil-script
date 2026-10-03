@@ -8027,6 +8027,7 @@ begin
         begin
           if SEMapIsValidArray(ValueLocal) then
           begin
+            GlobalUnlock;
             ValueLocal.VarMap^.Lock;
             try
               VArray := ValueLocal.VarMap^.Items;
@@ -8039,9 +8040,11 @@ begin
               end;
             finally
               ValueLocal.VarMap^.Unlock;
+              GlobalLock;
             end;
           end else
           begin
+            GlobalUnlock;
             ValueLocal.VarMap^.Lock;
             try
               VArray := ValueLocal.VarMap^.Items;
@@ -8055,10 +8058,12 @@ begin
               end;
             finally
               ValueLocal.VarMap^.Unlock;
+              GlobalLock;
             end;
           end;
         end;
         {$ifdef SE_THREADS}
+        Node := Self.FNodeList.Ptr(ValueLocal.Ref);
         InterlockedExchange(Node^.Color, Cardinal(segccBlack));
         {$else}
         Node^.Color := Cardinal(segccBlack);
