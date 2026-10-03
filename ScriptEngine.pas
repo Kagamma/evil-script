@@ -8015,7 +8015,11 @@ begin
       Node := Self.FNodeList.Ptr(ValueLocal.Ref);
       if Node^.Marked >= Self.FRunCount then
         continue;
+      {$ifdef SE_THREADS}
       InterlockedExchange(Node^.Color, Cardinal(segccGray));
+      {$else}
+      Node^.Color := Cardinal(segccGray);
+      {$endif}
       if Node^.Value.VarPointer = ValueLocal.VarPointer then
       begin
         Node^.Marked := Self.FRunCount;
@@ -8054,7 +8058,11 @@ begin
             end;
           end;
         end;
+        {$ifdef SE_THREADS}
         InterlockedExchange(Node^.Color, Cardinal(segccBlack));
+        {$else}
+        Node^.Color := Cardinal(segccBlack);
+        {$endif}
       end;
     finally
       GlobalUnlock;
@@ -8455,7 +8463,6 @@ procedure TSEGarbageCollector.WriteBarrier(constref AOwner, AValue: TSEValue);
 var
   NodeOwner, NodeValue: PSEGCNode;
 begin
-  {$ifdef SE_THREADS}
   if Self.FPhase <> segcpMark then
     Exit;
   if AValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject] then
@@ -8471,14 +8478,17 @@ begin
         {$ifdef SE_LOG}
         Writeln('[GC] Write barrier triggered');
         {$endif}
+        {$ifdef SE_THREADS}
         InterlockedExchange(NodeValue^.Color, Cardinal(segccGray));
+        {$else}
+        NodeValue^.Color := Cardinal(segccGray);
+        {$endif}
         Self.FRemainingGrayValueList.Add(AValue);
       end;
     finally
       GlobalUnlock;
     end;
   end;
-  {$endif}
 end;
 
 procedure TSEGarbageCollector.Lock;
