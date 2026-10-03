@@ -559,7 +559,6 @@ type
     FNodeLastOld: Cardinal;
     FRunCount: QWord;
     FTicks: NativeUInt;
-    FIntervalWhenBlocked,
     FInterval: Cardinal;
     FPromotion: Byte;
     FOldObjectCheckCycle: Byte;
@@ -7845,7 +7844,6 @@ end;
 procedure TSEGarbageCollector.SetInterval(const AValue: Cardinal);
 begin
   Self.FInterval := AValue;
-  Self.FIntervalWhenBlocked := Max(100, AValue div 4);
 end;
 
 procedure TSEGarbageCollector.ResetColor(const AValue: PSEGCNode);
@@ -8232,7 +8230,7 @@ begin
   {$ifdef SE_THREADS}
   if System.TryEnterCriticalSection(CS) = 0 then
   begin
-    Self.FTicks := GetTickCount64 + Self.FIntervalWhenBlocked;
+    Self.FTicks := GetTickCount64;
     {$ifdef SE_LOG}
     Writeln('[GC] Cannot acquire lock... GC is not running');
     {$endif}
