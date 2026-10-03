@@ -516,7 +516,7 @@ type
     Color: Cardinal;
     Lock: Boolean;
     Visit: Byte;
-    Marked,
+    Marked: QWord;
     Prev,
     Next: Cardinal;
   end;
@@ -557,7 +557,7 @@ type
     FNodeAvailStack: TSEGCNodeAvailStack;
     FNodeLastYoung,
     FNodeLastOld: Cardinal;
-    FRunCount: Cardinal;
+    FRunCount: QWord;
     FTicks: NativeUInt;
     FInterval: Cardinal;
     FPromotion: Byte;
@@ -586,7 +586,7 @@ type
     property ValueList: TSEGCNodeList read FNodeList;
     property ObjectCount: Cardinal read FObjects;
     property OldObjectCount: Cardinal read FObjectsOld;
-    property RunCount: Cardinal read FRunCount;
+    property RunCount: QWord read FRunCount;
     property Interval: Cardinal read FInterval write FInterval;
     property Promotion: Byte read FPromotion write FPromotion;
     property OldObjectCheckCycle: Byte read FOldObjectCheckCycle write FOldObjectCheckCycle;
