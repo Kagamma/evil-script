@@ -337,13 +337,13 @@ for value, index in [1, 2, 5, 7, 9] {
 For-of block takes a `generator` function, which is basically a coroutine, as an argument, and iterates over the result of the generator function.
 
 ```
-fn range(minv, maxv) {
+fn irange(minv, maxv) {
   for i = minv to maxv {
     yield(i)
   }
 }
 
-for i of coroutine_create(range, 3, 12) {
+for i of coroutine_create(irange, 3, 12) {
   writeln(i)
 }
 writeln('END')
