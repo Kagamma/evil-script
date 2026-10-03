@@ -8286,7 +8286,7 @@ begin
       begin
         {$ifdef SE_LOG}
         Writeln('[GC] ', Self.FPhase);
-        Writeln('[GC] Number of gray values before markings: ', Self.FRemainingGrayValueList.Count);
+        Writeln('[GC] Number of gray values captured by write barriers: ', Self.FRemainingGrayValueList.Count);
         {$endif}
         MarkingRemainingGrayValues;
         Self.FPhase := segcpSweep;
