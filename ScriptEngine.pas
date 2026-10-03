@@ -8787,6 +8787,7 @@ begin
   Self.SetGlobalVariable(AName, AValue);
 end;
 
+// Do not call the API while the script is running
 procedure TSEVM.SetGlobalVariable(const AName: String; constref AValue: TSEValue);
 var
   I: NativeInt;
@@ -8795,6 +8796,8 @@ begin
   begin
     if Self.Parent.GlobalVarSymbols[I] = AName then
     begin
+      // No write barrier here, because the API is not supposed to be used
+      // while the script is running
       Self.Global.Value^.Data[I] := AValue;
       break;
     end;
