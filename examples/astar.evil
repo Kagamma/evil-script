@@ -2,12 +2,6 @@
 // See https://forum.castle-engine.io/t/bb001-must-be-at-least-15-characters/2012
 
 // The language does not support structs, so this is how we speed things up a bit...
-const X = 0
-const Y = 1
-const G = 2
-const H = 3
-const F = 4
-const PREV = 5
 
 var map = [
   size: 10,
@@ -80,8 +74,8 @@ fn astar_find_lowest_f(list, count) {
   local min_f = 0xffffffff
   result = 0
   for i = 0 to count - 1 {
-    if list[i][F] < min_f {
-      min_f = list[i][F]
+    if list[i].f < min_f {
+      min_f = list[i].f
       result = i
     }
   }
@@ -91,10 +85,10 @@ fn astar_reconstruct_path(start, current) {
   // Reconstruct path
   local path_len = 0
   result = []
-  while current[PREV] {
-    result[path_len] = [current[X], current[Y]]
+  while current.prev {
+    result[path_len] = [current.x, current.y]
     path_len += 1
-    current = current[PREV]
+    current = current.prev
   }
   result[path_len] = start
 }
@@ -113,12 +107,12 @@ fn astar_find(map, start, goal) {
   // Add start node
   local h = astar_heuristic(start, goal)
   open_list[0] = [
-    start[0],   // X
-    start[1],   // Y
-    0,       // G - cost from start
-    h,       // H - heuristic
-    h,       // F - total cost
-    null,    // PREV
+    x: start[0],   // X
+    y: start[1],   // Y
+    g: 0,       // G - cost from start
+    h: h,       // H - heuristic
+    f: h,       // F - total cost
+    prev: null,    // PREV
   ]
   local open_count = 1
   local current = null
@@ -131,37 +125,37 @@ fn astar_find(map, start, goal) {
     current = open_list[i]
 
     // Mark this pos in closed list
-    closed_list[current[X]][current[Y]] = true
+    closed_list[current.x][current.y] = true
     local ol1 = open_list[i]
     local ol2 = open_list[open_count - 1]
-    neighbor_list[ol1[X]][ol1[Y]] = neighbor_list[ol2[X]][ol2[Y]]
-    neighbor_list[ol2[X]][ol2[Y]] = null
+    neighbor_list[ol1.x][ol1.y] = neighbor_list[ol2.x][ol2.y]
+    neighbor_list[ol2.x][ol2.y] = null
     open_list[i] = ol2
     open_count -= 1
 
     // Found goal?
-    if (current[X] == goal[0]) && (current[Y] == goal[1]) {
+    if (current.x == goal[0]) && (current.y == goal[1]) {
       return (astar_reconstruct_path(start, current))
     }
 
     // Define 8-directional neighbors (up, right, down, left, up-left, up-right, down-left, down-right)
-    neighbors[0][0] = current[X]
-    neighbors[0][1] = current[Y] - 1
-    neighbors[1][0] = current[X] + 1
-    neighbors[1][1] = current[Y]
-    neighbors[2][0] = current[X]
-    neighbors[2][1] = current[Y] + 1
-    neighbors[3][0] = current[X] - 1
-    neighbors[3][1] = current[Y]
+    neighbors[0][0] = current.x
+    neighbors[0][1] = current.y - 1
+    neighbors[1][0] = current.x + 1
+    neighbors[1][1] = current.y
+    neighbors[2][0] = current.x
+    neighbors[2][1] = current.y + 1
+    neighbors[3][0] = current.x - 1
+    neighbors[3][1] = current.y
 
-    neighbors[4][0] = current[X] - 1
-    neighbors[4][1] = current[Y] - 1
-    neighbors[5][0] = current[X] + 1
-    neighbors[5][1] = current[Y] - 1
-    neighbors[6][0] = current[X] - 1
-    neighbors[6][1] = current[Y] + 1
-    neighbors[7][0] = current[X] + 1
-    neighbors[7][1] = current[Y] + 1
+    neighbors[4][0] = current.x - 1
+    neighbors[4][1] = current.y - 1
+    neighbors[5][0] = current.x + 1
+    neighbors[5][1] = current.y - 1
+    neighbors[6][0] = current.x - 1
+    neighbors[6][1] = current.y + 1
+    neighbors[7][0] = current.x + 1
+    neighbors[7][1] = current.y + 1
 
     // Check all neighbors
     var local g_score
@@ -181,11 +175,11 @@ fn astar_find(map, start, goal) {
       }
       local valid = false
       if i <= 3 {
-        g_score = current[G] + 1
+        g_score = current.g + 1
         valid = astar_valid(flo, current, neighbor, goal)
       } else {
-        g_score = current[G] + 1.4
-        valid = astar_valid3(flo, current, [neighbor[0], current[Y]], [current[X], neighbor[1]], neighbor, goal)
+        g_score = current.g + 1.4
+        valid = astar_valid3(flo, current, [neighbor[0], current.y], [current.x, neighbor[1]], neighbor, goal)
       }
       if valid {
         // Skip if in closed list
@@ -198,23 +192,23 @@ fn astar_find(map, start, goal) {
           // Add new node to open list
           local h = astar_heuristic(neighbor, goal)
           node = [
-            neighbor[0],
-            neighbor[1],
-            g_score,
-            h,
-            g_score + h,
-            current,
+            x: neighbor[0],
+            y: neighbor[1],
+            g: g_score,
+            h: h,
+            f: g_score + h,
+            prev: current,
           ]
           open_list[open_count] = node
           neighbor_list[neighbor[0]][neighbor[1]] = open_count
           open_count += 1
         } else
-        if g_score < open_list[neighbor_index][G] {
+        if g_score < open_list[neighbor_index].g {
           // Update existing node if better path found
           local c = open_list[neighbor_index]
-          c[G] = g_score
-          c[F] = g_score + c[H]
-          c[PREV] = current
+          c.g = g_score
+          c.f = g_score + c.h
+          c.prev = current
         }
       }
     }

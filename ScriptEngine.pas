@@ -8238,11 +8238,10 @@ begin
       begin
         Self.FPhase := segcpInitial;
         SuspendThreads;
-        {$ifdef SE_LOG}
-        Writeln('[GC] ', Self.FPhase);
-        {$endif}
         Inc(Self.FRunCount);
         {$ifdef SE_LOG}
+        Writeln('[GC] Start #', Self.FRunCount);
+        Writeln('[GC] ', Self.FPhase);
         Writeln('[GC] Number of objects before cleaning: ', Self.FObjects);
         Writeln('[GC] Number of old objects before cleaning: ', Self.FObjectsOld);
         Writeln('[GC] Number of objects in object pool: ', Self.FNodeAvailStack.Count);
