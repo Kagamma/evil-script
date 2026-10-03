@@ -345,6 +345,7 @@ type
     function AsString: String; inline;
     function AsNumber: Double; inline;
     function AsPointer: Pointer; inline;
+    function GetKeys: TStringDynArray; inline;
   end;
 
   {$ifdef SE_MAP_AVK959}
@@ -4947,6 +4948,13 @@ end;
 function TSEValueHelper.AsPointer: Pointer;
 begin
   Result := Self.VarPointer;
+end;
+
+function TSEValueHelper.GetKeys: TStringDynArray;
+begin
+  if Self.Kind = sevkMap then
+    if SEMapIsValidArray(Self) then
+      Result := Self.VarMap^.Shape.GetKeys;
 end;
 
 class function TSEBuiltInFunction.SEBufferCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
