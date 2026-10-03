@@ -8471,6 +8471,9 @@ begin
     try
       if Self.FPhase <> segcpMark then
         Exit;
+      // WriteBarrior is only call when the owner is a map
+      // Ref is the first field in map / string / buffer / pascalobject, so
+      // it is perfectl safe to use VarMap to reference it.
       NodeOwner := Self.FNodeList.Ptr(AOwner.VarMap^.Ref);
       NodeValue := Self.FNodeList.Ptr(AValue.VarMap^.Ref);
       if (NodeOwner^.Color <> Cardinal(segccWhite)) and (NodeValue^.Color = Cardinal(segccWhite)) then
