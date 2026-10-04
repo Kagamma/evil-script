@@ -80,6 +80,8 @@ Release GC lock
 Acquire GC lock when shared GC state must be modified
 ```
 
+Note that the GC lock itself does not block mutator threads if no allocation / deallocation is in progress.
+
 ---
 
 ## Write barrier
