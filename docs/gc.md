@@ -108,14 +108,14 @@ At the end of concurrent marking, the VM is stopped and the remaining gray value
 
 Large array maps are scanned incrementally.
 
-`Mark()` processes at most 8192 array entries at a time. If the complete array has not yet been scanned, the object remains gray and is returned to the marking queue with its current scan position.
+By default `Mark()` processes at most 4096 array entries at a time. If the complete array has not yet been scanned, the object remains gray and is returned to the marking queue with its current scan position.
 
 Thus a large array does not become one long indivisible GC operation:
 
 ```text
 Mark(array, 0)
+Mark(array, 4096)
 Mark(array, 8192)
-Mark(array, 16384)
 ...
 ```
 

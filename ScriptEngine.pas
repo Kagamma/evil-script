@@ -581,6 +581,7 @@ type
     procedure Sweep(const AFirst: Cardinal);
     procedure Mark(const PValue: PSEValue);
   public
+    IncrementalScanLimit: Cardinal;
     constructor Create;
     destructor Destroy; override;
     procedure AddToList(const PValue: PSEValue);
@@ -7795,6 +7796,7 @@ begin
   Self.FTicks := GetTickCount64;
   Self.Interval := 2000;
   Self.FPromotion := 10;
+  Self.IncrementalScanLimit := 4096;
   Self.FOldObjectCheckCycle := 10;
   Self.FObjectThreshold := 700;
   Self.FReachableValueList := TSEValueList.Create;
@@ -8068,7 +8070,7 @@ begin
             try
               VArray := QCurrentValue.Value.VarMap^.Items;
               // Incremental marking
-              for I := QCurrentValue.CurrentIndex to Min(QCurrentValue.CurrentIndex + 8192, Length(VArray) - 1) do
+              for I := QCurrentValue.CurrentIndex to Min(QCurrentValue.CurrentIndex + Self.IncrementalScanLimit, Length(VArray) - 1) do
               begin
                 QValue.Value := VArray[I];
                 if not (QValue.Value.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
