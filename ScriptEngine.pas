@@ -512,7 +512,7 @@ type
     segcpRest,
     segcpInitial,
     segcpMark,
-    segcpMarkGray,
+    segcpMarkRemaining,
     segcpSweep
   );
 
@@ -8365,11 +8365,11 @@ begin
 
       SuspendThreads;
       if Self.FRemainingGrayValueList.Count > 0 then
-        Self.FPhase := segcpMarkGray
+        Self.FPhase := segcpMarkRemaining
       else
         Self.FPhase := segcpSweep;
 
-      if Self.FPhase = segcpMarkGray then
+      if Self.FPhase = segcpMarkRemaining then
       begin
         {$ifdef SE_LOG}
         Writeln('[GC] ', Self.FPhase);
