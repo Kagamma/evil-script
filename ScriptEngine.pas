@@ -8545,7 +8545,7 @@ begin
       if NodeValue^.Color = Cardinal(segccWhite) then
       begin
         {$ifdef SE_LOG}
-        Writeln('[GC] Write barrier triggered');
+        Writeln('[GC] Write barrier (stack & global) triggered');
         {$endif}
         {$ifdef SE_THREADS}
         InterlockedExchange(NodeValue^.Color, Cardinal(segccGray));
