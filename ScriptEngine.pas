@@ -8446,7 +8446,7 @@ begin
     if Size > 0 then
     begin
       GetMem(PValue^.VarBuffer^.Base, Size + 16);
-      PValue^.VarBuffer^.Ptr := Pointer(NativeUInt(PValue^.VarBuffer^.Base) + NativeUInt(PValue^.VarBuffer^.Base) mod 16);
+      PValue^.VarBuffer^.Ptr := Pointer(NativeUInt(PValue^.VarBuffer^.Base)) + ((16 - Pointer(NativeUInt(PValue^.VarBuffer^.Base) mod 16)) mod 16);
     end else
     begin
       PValue^.VarBuffer^.Base := nil;
