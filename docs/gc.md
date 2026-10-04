@@ -93,7 +93,7 @@ Because minor collections do not scan the entire old generation, references from
 Evil Script uses a remembered set for this:
 
 ```text
-Old object ─────→ Young object
+Old object ─────> Young object
       │
       └── remembered set
 ```
@@ -205,7 +205,7 @@ The write barrier has two responsibilities.
 When an old object receives a young object:
 
 ```text
-Old ───→ Young
+Old ───> Young
 ```
 
 the old object is added to `FRememberedNodeList`.
@@ -217,13 +217,13 @@ This keeps minor collections correct without scanning the old generation.
 During `segcpMark`, if a black object receives a reference to a white object:
 
 ```text
-Black A ───→ White B
+Black A ───> White B
 ```
 
 the barrier changes `B` to gray and adds it to `FRemainingGrayValueList`.
 
 ```text
-Black A ───→ Gray B
+Black A ───> Gray B
 ```
 
 This preserves the tri-color invariant while the VM modifies the object graph concurrently with the marker.
