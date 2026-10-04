@@ -7783,7 +7783,7 @@ begin
   Self.FNodeAvailStack := TSEGCNodeAvailStack.Create;
   Self.FNodeAvailStack.Capacity := 8192;
   Self.FTicks := GetTickCount64;
-  Self.Interval := 5000;
+  Self.Interval := 2000;
   Self.FPromotion := 10;
   Self.FOldObjectCheckCycle := 10;
   Self.FObjectThreshold := 700;
