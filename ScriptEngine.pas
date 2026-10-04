@@ -8565,8 +8565,6 @@ begin
     finally
       GlobalUnlock;
     end;
-    AOwner.VarMap^.Lock;
-    AOwner.VarMap^.Unlock;
   end;
 end;
 
