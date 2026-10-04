@@ -4,6 +4,8 @@ Evil Script uses a **concurrent, incremental, tri-color mark-and-sweep garbage c
 
 The collector is designed primarily for games and interactive applications, where avoiding long stop-the-world pauses is more important than minimizing the total CPU time spent on garbage collection.
 
+A fallback single-threaded collector is also available for use in single-threaded environments, such as MS DOS.
+
 ## Overview
 
 The collector consists of the following phases:
