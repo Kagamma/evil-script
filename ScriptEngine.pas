@@ -7907,6 +7907,10 @@ end;
 procedure TSEGarbageCollector.Initial;
 
   procedure ExtractYoungValues(const Node: PSEGCNode); inline;
+  var
+    Value, ItemValue: TSEValue;
+    J: NativeInt;
+    Key: String;
   begin
     Value := Node^.Value;
     if Value.IsValidArray then
@@ -7935,9 +7939,7 @@ procedure TSEGarbageCollector.Initial;
 var
   I, J: NativeInt;
   Node, PrevNode: PSEGCNode;
-  Value, ItemValue: TSEValue;
   ValueMap: PSEValueMap;
-  Key: String;
 begin
   Self.FReachableValueList.Count := 0;
   Self.FRemainingGrayValueList.Count := 0;
