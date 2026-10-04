@@ -8033,6 +8033,25 @@ var
   QValue,
   QCurrentValue: TSEValueMark;
   IsGlobalLocked: Boolean = False;
+
+  procedure AcquireLock; inline;
+  begin
+    if Self.EnableParallel and (not IsGlobalLocked) then
+    begin
+      GlobalLock;
+      IsGlobalLocked := True;
+    end;
+  end;
+
+  procedure ReleaseLock; inline;
+  begin
+    if Self.EnableParallel and IsGlobalLocked then
+    begin
+      GlobalUnlock;
+      IsGlobalLocked := False;
+    end;
+  end;
+
 begin
   QCurrentValue.Value := PValue^;
   QCurrentValue.CurrentIndex := 0;
@@ -8042,8 +8061,7 @@ begin
     QCurrentValue := Self.FGrayValueQueue.Dequeue;
     if not (QCurrentValue.Value.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
       continue;
-    GlobalLock;
-    IsGlobalLocked := True;
+    AcquireLock;
     try
       if ((QCurrentValue.Value.Ref >= Self.FNodeList.Count) or (QCurrentValue.Value.Ref = 0)) and (QCurrentValue.CurrentIndex = 0) then
         continue;
@@ -8064,9 +8082,8 @@ begin
           begin
             // Global lock is used to protect NodeList's Node pointer from being relocated
             // It's safe to drop it here because no Node is being used in the below loop
-            GlobalUnlock;
+            ReleaseLock;
             QCurrentValue.Value.VarMap^.Lock;
-            IsGlobalLocked := False;
             try
               VArray := QCurrentValue.Value.VarMap^.Items;
               // Incremental marking
@@ -8092,9 +8109,8 @@ begin
           begin
             // Global lock is used to protect NodeList's Node pointer from being relocated
             // It's safe to drop it here because no Node is being used in the below loop
-            GlobalUnlock;
+            ReleaseLock;
             QCurrentValue.Value.VarMap^.Lock;
-            IsGlobalLocked := False;
             try
               VArray := QCurrentValue.Value.VarMap^.Items;
               // Only mark shapes in single thread mode
@@ -8117,14 +8133,10 @@ begin
         end;
       end;
     finally
-      if IsGlobalLocked then
-      begin
-        // Release the global lock at the end of each queue item so that
-        // the mutator can perform allocation/deallocation objects.
-        // The global lock does not block mutators that do not allocate/deallocate any objects.
-        GlobalUnlock;
-        IsGlobalLocked := False;
-      end;
+      // Release the global lock at the end of each queue item so that
+      // the mutator can perform allocation/deallocation objects.
+      // The global lock does not block mutators that do not allocate/deallocate any objects.
+      ReleaseLock;
     end;
   end;
 end;
