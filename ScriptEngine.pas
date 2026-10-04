@@ -581,7 +581,8 @@ type
     procedure AllocPascalObject(const PValue: PSEValue; const Obj: TObject; const IsManaged: Boolean);
     procedure UnManaged(const PValue: PSEValue);
     procedure Managed(const PValue: PSEValue);
-    procedure WriteBarrier(constref AOwner, AValue: TSEValue); inline;
+    procedure WriteBarrier(constref AOwner, AValue: TSEValue); inline; overload;
+    procedure WriteBarrier(constref AValue: TSEValue); inline; overload;
     procedure Lock;
     procedure Unlock;
     property Ticks: NativeUInt read FTicks write FTicks;
@@ -8519,6 +8520,40 @@ begin
   end;
 end;
 
+procedure TSEGarbageCollector.WriteBarrier(constref AValue: TSEValue);
+var
+  NodeOwner, NodeValue: PSEGCNode;
+begin
+  if Self.FPhase <> segcpMark then
+    Exit;
+  if AValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject] then
+  begin
+    GlobalLock;
+    try
+      if Self.FPhase <> segcpMark then
+        Exit;
+      // WriteBarrior is only call when the owner is a map
+      // Ref is the first field in map / string / buffer / pascalobject, so
+      // it is perfectl safe to use VarMap to reference it.
+      NodeValue := Self.FNodeList.Ptr(AValue.VarMap^.Ref);
+      if NodeValue^.Color = Cardinal(segccWhite) then
+      begin
+        {$ifdef SE_LOG}
+        Writeln('[GC] Write barrier triggered');
+        {$endif}
+        {$ifdef SE_THREADS}
+        InterlockedExchange(NodeValue^.Color, Cardinal(segccGray));
+        {$else}
+        NodeValue^.Color := Cardinal(segccGray);
+        {$endif}
+        Self.FRemainingGrayValueList.Add(AValue);
+      end;
+    finally
+      GlobalUnlock;
+    end;
+  end;
+end;
+
 procedure TSEGarbageCollector.Lock;
 begin
   {$ifdef SE_THREADS}
@@ -9081,6 +9116,13 @@ var
 
   procedure Push(constref Value: TSEValue); inline;
   begin
+    GC.WriteBarrier(Value);
+    StackPtrLocal^ := Value;
+    Inc(StackPtrLocal);
+  end;
+
+  procedure PushConst(constref Value: TSEValue); inline;
+  begin
     StackPtrLocal^ := Value;
     Inc(StackPtrLocal);
   end;
@@ -9093,11 +9135,13 @@ var
 
   procedure AssignGlobal(const I: Pointer; const Value: PSEValue); inline;
   begin
+    GC.WriteBarrier(Value^);
     GlobalLocal[NativeInt(I)] := Value^;
   end;
 
   procedure AssignLocal(const I: Pointer; const F: NativeInt; const Value: PSEValue); inline;
   begin
+    GC.WriteBarrier(Value^);
     ((FramePtrLocal - F)^.StackPtr + NativeInt(I))^ := Value^;
   end;
 
@@ -9109,26 +9153,6 @@ var
   function GetLocal(const I: Pointer; const F: NativeInt): PSEValue; inline;
   begin
     Exit((FramePtrLocal - F)^.StackPtr + NativeInt(I));
-  end;
-
-  function GetGlobalInt(const I: NativeInt): PSEValue; inline;
-  begin
-    Exit(@GlobalLocal[NativeInt(I)]);
-  end;
-
-  function GetLocalInt(const I, F: NativeInt): PSEValue; inline;
-  begin
-    Exit((FramePtrLocal - F)^.StackPtr + NativeInt(I));
-  end;
-
-  procedure AssignGlobalInt(const I: NativeInt; const Value: PSEValue); inline;
-  begin
-    GlobalLocal[NativeInt(I)] := Value^;
-  end;
-
-  procedure AssignLocalInt(const I: NativeInt; const F: NativeInt; const Value: PSEValue); inline;
-  begin
-    ((FramePtrLocal - F)^.StackPtr + NativeInt(I))^ := Value^;
   end;
 
   function GetVariable(const I: Pointer; const F: Pointer): PSEValue; inline;
@@ -11185,7 +11209,7 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opPushConst:{$endif}
         begin
         labelPushConst:
-          Push(CodePtrLocal[1]);
+          PushConst(CodePtrLocal[1]);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
         end;
@@ -11430,7 +11454,7 @@ labelStart:
             sevkPascalObject:
               TV.SetProp(C^, B^);
             sevkString:
-              StringSet(GetGlobalInt(NativeInt(A^.VarPointer)), C^, B^);
+              StringSet(GetGlobal(A^.VarPointer), C^, B^);
           end;
           Inc(CodePtrLocal, 2);
           DispatchGoto;
