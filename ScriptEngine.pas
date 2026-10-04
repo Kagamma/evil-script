@@ -7908,8 +7908,11 @@ procedure TSEGarbageCollector.Initial;
 var
   I, J: NativeInt;
   Node, PrevNode: PSEGCNode;
+  Value, ItemValue: TSEValue;
   ValueMap: PSEValueMap;
+  Key: String;
 begin
+  Self.FReachableValueList.Count := 0;
   Self.FRemainingGrayValueList.Count := 0;
   if Self.FRunCount mod Self.FOldObjectCheckCycle = 0 then
   begin
@@ -7961,10 +7964,32 @@ begin
       end;
       Self.ResetColor(Node);
     end;
+    // Extract the young values from the old values
     for I in Self.FRememberedNodeList do
     begin
       Node := Self.FNodeList.Ptr(I);
-      Self.ResetColor(Node);
+      Value := Node^.Value;
+      if Value.IsValidArray then
+      begin
+        for J := 0 to Length(Value.VarMap^.Items) - 1 do
+        begin
+          ItemValue := Value.VarMap^.Items[J];
+          if not (ItemValue.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer]) then
+            continue;
+          if ItemValue.IsYoung then
+            Self.FReachableValueList.Add(ItemValue);
+        end;
+      end else
+      begin
+        for Key in Value.GetKeys do
+        begin
+          ItemValue := Value.VarMap^.Get2(@Key);
+          if not (ItemValue.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer]) then
+            continue;
+          if ItemValue.IsYoung then
+            Self.FReachableValueList.Add(ItemValue);
+        end;
+      end;
     end;
   end;
 end;
@@ -7972,7 +7997,7 @@ end;
 procedure TSEGarbageCollector.Sweep(const AFirst: Cardinal); inline;
 var
   Node: PSEGCNode;
-  I, J, MS: NativeInt;
+  I, J, MS, NodeIndex: NativeInt;
   Key: String;
   LastPtr: PCardinal;
   IsYoungReference: Boolean;
@@ -8064,7 +8089,8 @@ begin
   for I := Self.FRememberedNodeList.Count - 1 downto 0 do
   begin
     IsYoungReference := False;
-    Node := Self.FNodeList.Ptr(I);
+    NodeIndex := Self.FRememberedNodeList[I];
+    Node := Self.FNodeList.Ptr(NodeIndex);
     Value := Node^.Value;
     // Tombstone found, remove from remembered set
     if Value.VarMap = nil then
@@ -8076,7 +8102,7 @@ begin
     begin
       for J := 0 to Length(Value.VarMap^.Items) - 1 do
       begin
-        ItemValue := Value.VarMap^.Items[I];
+        ItemValue := Value.VarMap^.Items[J];
         if not (ItemValue.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer]) then
           continue;
         if ItemValue.IsYoung then
@@ -8297,7 +8323,6 @@ var
     var
       I, J: NativeInt;
     begin
-      Self.FReachableValueList.Count := 0;
       for I := 0 to VMList.Count - 1 do
       begin
         VM := VMList[I];
