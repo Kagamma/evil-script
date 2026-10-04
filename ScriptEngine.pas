@@ -9163,14 +9163,6 @@ var
       Exit((FramePtrLocal - NativeInt(F))^.StackPtr + NativeInt(I));
   end;
 
-  procedure SetVariable(const I: Pointer; const F: Pointer; const Value: PSEValue); inline;
-  begin
-    if F = Pointer(SE_REG_GLOBAL) then
-      GlobalLocal[NativeInt(I)] := Value^
-    else
-      ((FramePtrLocal - NativeInt(F))^.StackPtr + NativeInt(I))^ := Value^;
-  end;
-
   procedure CallImportFunc;
   var
     I: NativeInt;
