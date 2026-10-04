@@ -7943,12 +7943,6 @@ var
 begin
   Self.FReachableValueList.Count := 0;
   Self.FRemainingGrayValueList.Count := 0;
-  // Extract the young values from the old values first before promotion
-  for I in Self.FRememberedNodeList do
-  begin
-    Node := Self.FNodeList.Ptr(I);
-    ExtractYoungValues(Node);
-  end;
   if Self.FRunCount mod Self.FOldObjectCheckCycle = 0 then
   begin
     I := Self.FNodeLastOld;
@@ -7967,6 +7961,12 @@ begin
     end;
   end else
   begin
+    // Extract the young values from the old values first before promotion
+    for I in Self.FRememberedNodeList do
+    begin
+      Node := Self.FNodeList.Ptr(I);
+      ExtractYoungValues(Node);
+    end;
     I := Self.FNodeLastYoung;
     while I <> 1 do
     begin
