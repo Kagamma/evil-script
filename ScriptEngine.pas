@@ -8071,7 +8071,9 @@ begin
             ValueLocal.VarMap^.Lock;
             try
               VArray := ValueLocal.VarMap^.Items;
-              ShapeManager.Mark(ValueLocal.VarMap^.Shape);
+              // Only mark shapes in single thread mode
+              if not Self.EnableParallel then
+                ShapeManager.Mark(ValueLocal.VarMap^.Shape);
               for Key in ValueLocal.VarMap^.Shape.GetKeys do
               begin
                 RValue := ValueLocal.VarMap^.Get2(@Key);
