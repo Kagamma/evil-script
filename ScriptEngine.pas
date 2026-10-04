@@ -7905,6 +7905,33 @@ begin
 end;
 
 procedure TSEGarbageCollector.Initial;
+
+  procedure ExtractYoungValues(const Node: PSEGCNode); inline;
+  begin
+    Value := Node^.Value;
+    if Value.IsValidArray then
+    begin
+      for J := 0 to Length(Value.VarMap^.Items) - 1 do
+      begin
+        ItemValue := Value.VarMap^.Items[J];
+        if not (ItemValue.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer]) then
+          continue;
+        if ItemValue.IsYoung then
+          Self.FReachableValueList.Add(ItemValue);
+      end;
+    end else
+    begin
+      for Key in Value.GetKeys do
+      begin
+        ItemValue := Value.VarMap^.Get2(@Key);
+        if not (ItemValue.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer]) then
+          continue;
+        if ItemValue.IsYoung then
+          Self.FReachableValueList.Add(ItemValue);
+      end;
+    end;
+  end;
+
 var
   I, J: NativeInt;
   Node, PrevNode: PSEGCNode;
@@ -7914,6 +7941,12 @@ var
 begin
   Self.FReachableValueList.Count := 0;
   Self.FRemainingGrayValueList.Count := 0;
+  // Extract the young values from the old values first before promotion
+  for I in Self.FRememberedNodeList do
+  begin
+    Node := Self.FNodeList.Ptr(I);
+    ExtractYoungValues(Node);
+  end;
   if Self.FRunCount mod Self.FOldObjectCheckCycle = 0 then
   begin
     I := Self.FNodeLastOld;
@@ -7963,33 +7996,6 @@ begin
         Inc(ValueMap^.Header.Visit);
       end;
       Self.ResetColor(Node);
-    end;
-    // Extract the young values from the old values
-    for I in Self.FRememberedNodeList do
-    begin
-      Node := Self.FNodeList.Ptr(I);
-      Value := Node^.Value;
-      if Value.IsValidArray then
-      begin
-        for J := 0 to Length(Value.VarMap^.Items) - 1 do
-        begin
-          ItemValue := Value.VarMap^.Items[J];
-          if not (ItemValue.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer]) then
-            continue;
-          if ItemValue.IsYoung then
-            Self.FReachableValueList.Add(ItemValue);
-        end;
-      end else
-      begin
-        for Key in Value.GetKeys do
-        begin
-          ItemValue := Value.VarMap^.Get2(@Key);
-          if not (ItemValue.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer]) then
-            continue;
-          if ItemValue.IsYoung then
-            Self.FReachableValueList.Add(ItemValue);
-        end;
-      end;
     end;
   end;
 end;
