@@ -7724,7 +7724,6 @@ end;
 constructor TSEGarbageCollectorMarkJob.Create;
 begin
   inherited Create(True);
-  Self.FreeOnTerminate := True;
 end;
 
 destructor TSEGarbageCollectorMarkJob.Destroy;
@@ -8036,13 +8035,13 @@ begin
       Node := Self.FNodeList.Ptr(ValueLocal.Ref);
       if Node^.Marked >= Self.FRunCount then
         continue;
-      {$ifdef SE_THREADS}
-      InterlockedExchange(Node^.Color, Cardinal(segccBlack));
-      {$else}
-      Node^.Color := Cardinal(segccBlack);
-      {$endif}
       if Node^.Value.VarPointer = ValueLocal.VarPointer then
       begin
+        {$ifdef SE_THREADS}
+        InterlockedExchange(Node^.Color, Cardinal(segccBlack));
+        {$else}
+        Node^.Color := Cardinal(segccBlack);
+        {$endif}
         Node^.Marked := Self.FRunCount;
         if (Node^.Value.Kind = sevkMap) and (ValueLocal.VarMap <> nil) then
         begin
@@ -16571,7 +16570,6 @@ initialization
   {$ifdef SE_THREADS}
   GCMarkJob := TSEGarbageCollectorMarkJob.Create;
   GCTicksJob := TSETicksJob.Create(True);
-  GCTicksJob.FreeOnTerminate := True;
   GCTicksJob.Start;
   {$endif}
   GC.AllocMap(@ScriptVarMap);
@@ -16610,7 +16608,10 @@ finalization
   {$ifdef SE_THREADS}
   GCMarkJob.Terminate;
   GCMarkJob.Resume;
+  GCMarkJob.WaitFor;
+  GCMarkJob.Free;
   GCTicksJob.Terminate;
+  GCTicksJob.Free;
   {$endif}
   GC.Free;
   DynlibMap.Free;
