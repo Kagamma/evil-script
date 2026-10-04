@@ -8435,8 +8435,8 @@ begin
     try
       if Self.FPhase = segcpRest then
       begin
-        Self.FPhase := segcpInitial;
         SuspendThreads;
+        Self.FPhase := segcpInitial;
         Inc(Self.FRunCount);
         {$ifdef SE_LOG}
         Writeln('[GC] Start #', Self.FRunCount);
