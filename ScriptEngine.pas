@@ -520,8 +520,14 @@ type
   TSEGCNode = record
     Value: TSEValue;
     Color: Cardinal;
-    Lock: Boolean;
+    Lock: Boolean; // Pin
     Visit: Byte;
+    // Since the current generational implementation is mean to reduce the time need to STW during
+    // the initial phase and the sweep phase. Mark still scan the old objects and use Marked to
+    // check current mark status rather than color.
+    // Does not matter much for games/interactive apps, because the marking phase is done on a separate thread,
+    // unless you run it on a single thread environment like MS DOS, so no pressure on frame time despite it has
+    // to scan old objects.
     Marked: QWord;
     Prev,
     Next: Cardinal;
