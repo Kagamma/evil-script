@@ -16611,6 +16611,7 @@ finalization
   GCMarkJob.WaitFor;
   GCMarkJob.Free;
   GCTicksJob.Terminate;
+  GCTicksJob.WaitFor;
   GCTicksJob.Free;
   {$endif}
   GC.Free;
