@@ -8197,10 +8197,22 @@ var
   procedure Marking;
 
     procedure ScanRoot;
+
+      procedure AddReachableAbleValue(constref AValue: TSEValue); inline;
+      var
+        Node: PSEGCNode;
+      begin
+        Self.FReachableValueList.Add(AValue);
+        if not (AValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
+          exit;
+        if (AValue.Ref >= Self.FNodeList.Count) or (AValue.Ref = 0) then
+          exit;
+        Node := Self.FNodeList.Ptr(AValue.Ref);
+        Node^.Color := Cardinal(segccGray);
+      end;
+            
     var
       I, J: NativeInt;
-      QCurrentValue: TSEValue;
-      Node: PSEGCNode;
     begin
       Self.FReachableValueList.Count := 0;
       for I := 0 to VMList.Count - 1 do
@@ -8209,7 +8221,7 @@ var
         P := @VM.Stack[0];
         while P < VM.StackPtr do
         begin
-          Self.FReachableValueList.Add(P^);
+          AddReachableAbleValue(P^);
           Inc(P);
         end;
         if VM.Owner = nil then
@@ -8218,27 +8230,16 @@ var
           P2 := @VM.Global.Value^.Data[VM.Global.Value^.Size - 1];
           while P <= P2 do
           begin
-            Self.FReachableValueList.Add(P^);
+            AddReachableAbleValue(P^);
             Inc(P);
           end;
           for J := 0 to VM.Parent.ConstList.Count - 1 do
           begin
-            Self.FReachableValueList.Add(VM.Parent.ConstList[J]);
+            AddReachableAbleValue(VM.Parent.ConstList[J]);
           end;
         end;
       end;
-      Self.FReachableValueList.Add(ScriptVarMap);
-      // Mark root objects as gray
-      for I := 0 to Self.FReachableValueList.Count - 1 do
-      begin
-        QCurrentValue := Self.FReachableValueList[I];
-        if not (QCurrentValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
-          continue;
-        if (QCurrentValue.Ref >= Self.FNodeList.Count) or (QCurrentValue.Ref = 0) then
-          continue;
-        Node := Self.FNodeList.Ptr(QCurrentValue.Ref);
-        Node^.Color := Cardinal(segccGray);
-      end;
+      AddReachableAbleValue(ScriptVarMap);
     end;
 
     procedure MarkDeep;
@@ -8445,8 +8446,9 @@ begin
     New(PValue^.VarBuffer);
     if Size > 0 then
     begin
-      GetMem(PValue^.VarBuffer^.Base, Size + 16);
-      PValue^.VarBuffer^.Ptr := Pointer(NativeUInt(PValue^.VarBuffer^.Base)) + ((16 - Pointer(NativeUInt(PValue^.VarBuffer^.Base) mod 16)) mod 16);
+      GetMem(PValue^.VarBuffer^.Base, Size);
+      // PValue^.VarBuffer^.Ptr := Pointer(NativeUInt(PValue^.VarBuffer^.Base)) + ((16 - Pointer(NativeUInt(PValue^.VarBuffer^.Base) mod 16)) mod 16);
+      PValue^.VarBuffer^.Ptr := PValue^.VarBuffer^.Base;//Pointer(NativeUInt(PValue^.VarBuffer^.Base) + NativeUInt(PValue^.VarBuffer^.Base) mod 16);
     end else
     begin
       PValue^.VarBuffer^.Base := nil;
