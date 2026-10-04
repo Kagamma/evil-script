@@ -8035,9 +8035,9 @@ begin
       if Node^.Marked >= Self.FRunCount then
         continue;
       {$ifdef SE_THREADS}
-      InterlockedExchange(Node^.Color, Cardinal(segccGray));
+      InterlockedExchange(Node^.Color, Cardinal(segccBlack));
       {$else}
-      Node^.Color := Cardinal(segccGray);
+      Node^.Color := Cardinal(segccBlack);
       {$endif}
       if Node^.Value.VarPointer = ValueLocal.VarPointer then
       begin
@@ -8087,12 +8087,6 @@ begin
             end;
           end;
         end;
-        {$ifdef SE_THREADS}
-        Node := Self.FNodeList.Ptr(ValueLocal.Ref);
-        InterlockedExchange(Node^.Color, Cardinal(segccBlack));
-        {$else}
-        Node^.Color := Cardinal(segccBlack);
-        {$endif}
       end;
     finally
       GlobalUnlock;
@@ -8170,6 +8164,8 @@ var
     procedure ScanRoot;
     var
       I, J: NativeInt;
+      ValueLocal: TSEValue;
+      Node: PSEGCNode;
     begin
       Self.FReachableValueList.Count := 0;
       for I := 0 to VMList.Count - 1 do
@@ -8197,9 +8193,20 @@ var
         end;
       end;
       Self.FReachableValueList.Add(ScriptVarMap);
+      // Mark root objects as gray
+      for I := 0 to Self.FReachableValueList.Count - 1 do
+      begin
+        ValueLocal := Self.FReachableValueList[I];
+        if not (ValueLocal.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
+          continue;
+        if (ValueLocal.Ref >= Self.FNodeList.Count) or (ValueLocal.Ref = 0) then
+          continue;
+        Node := Self.FNodeList.Ptr(ValueLocal.Ref);
+        Node^.Color := Cardinal(segccGray);
+      end;
     end;
 
-    procedure MarkReachableValues;
+    procedure MarkDeep;
     var
       I: NativeInt;
     begin
@@ -8234,7 +8241,7 @@ var
       {$endif}
       ShapeManager.BeginMark;
       ScanRoot;
-      MarkReachableValues;
+      MarkDeep;
 
       Self.FPhase := segcpSweep;
       if ShapeManager.ShapeCount - ShapeManager.LastShapeCount > ShapeManager.ShapeCeiling then
@@ -8506,7 +8513,7 @@ begin
       // it is perfectl safe to use VarMap to reference it.
       NodeOwner := Self.FNodeList.Ptr(AOwner.VarMap^.Ref);
       NodeValue := Self.FNodeList.Ptr(AValue.VarMap^.Ref);
-      if (NodeOwner^.Color <> Cardinal(segccWhite)) and (NodeValue^.Color = Cardinal(segccWhite)) then
+      if (NodeOwner^.Color = Cardinal(segccBlack)) and (NodeValue^.Color = Cardinal(segccWhite)) then
       begin
         {$ifdef SE_LOG}
         Writeln('[GC] Write barrier triggered');
