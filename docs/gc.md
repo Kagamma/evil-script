@@ -136,11 +136,11 @@ During a full collection, both the young and old generations are reset to white 
 The sweep phase also sweeps both generations:
 
 ```text
-minor collection:
+young collection:
     Sweep(Young)
 
-full collection:
-    Sweep(Young + Old)
+old collection:
+    Sweep(Old)
 ```
 
 This periodically discovers garbage that survived previous minor collections or is otherwise no longer reachable from the root set.
@@ -351,13 +351,13 @@ Objects currently collected include:
 
 For managed Pascal objects, the wrapped `TObject` is also freed.
 
-Minor collection:
+Young collection:
 
 ```text
 Sweep(1)
 ```
 
-Full collection:
+Old collection:
 
 ```text
 Sweep(2)
