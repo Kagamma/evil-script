@@ -8020,6 +8020,7 @@ var
   I: NativeInt;
   VArray: TSEValueArray;
   ValueLocal: TSEValue;
+  IsGlobalLocked: Boolean = False;
 begin
   Self.FGrayValueQueue.Enqueue(PValue^);
   while Self.FGrayValueQueue.Count > 0 do
@@ -8028,6 +8029,7 @@ begin
     if not (ValueLocal.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
       continue;
     GlobalLock;
+    IsGlobalLocked := True;
     try
       if (ValueLocal.Ref >= Self.FNodeList.Count) or (ValueLocal.Ref = 0) then
         continue;
@@ -8050,6 +8052,7 @@ begin
             // It's safe to drop it here because no Node is being used in the below loop
             GlobalUnlock;
             ValueLocal.VarMap^.Lock;
+            IsGlobalLocked := False;
             try
               VArray := ValueLocal.VarMap^.Items;
               for I := 0 to Length(VArray) - 1 do
@@ -8061,7 +8064,6 @@ begin
               end;
             finally
               ValueLocal.VarMap^.Unlock;
-              GlobalLock;
             end;
           end else
           begin
@@ -8069,6 +8071,7 @@ begin
             // It's safe to drop it here because no Node is being used in the below loop
             GlobalUnlock;
             ValueLocal.VarMap^.Lock;
+            IsGlobalLocked := False;
             try
               VArray := ValueLocal.VarMap^.Items;
               // Only mark shapes in single thread mode
@@ -8083,13 +8086,16 @@ begin
               end;
             finally
               ValueLocal.VarMap^.Unlock;
-              GlobalLock;
             end;
           end;
         end;
       end;
     finally
-      GlobalUnlock;
+      if IsGlobalLocked then
+      begin
+        GlobalUnlock;
+        IsGlobalLocked := False;
+      end;
     end;
   end;
 end;
