@@ -8046,6 +8046,8 @@ begin
         begin
           if SEMapIsValidArray(ValueLocal) then
           begin
+            // Global lock is used to protect NodeList's Node pointer from being relocated
+            // It's safe to drop it here because no Node is being used in the below loop
             GlobalUnlock;
             ValueLocal.VarMap^.Lock;
             try
@@ -8063,6 +8065,8 @@ begin
             end;
           end else
           begin
+            // Global lock is used to protect NodeList's Node pointer from being relocated
+            // It's safe to drop it here because no Node is being used in the below loop
             GlobalUnlock;
             ValueLocal.VarMap^.Lock;
             try
