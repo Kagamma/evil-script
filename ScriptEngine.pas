@@ -8111,6 +8111,9 @@ begin
     finally
       if IsGlobalLocked then
       begin
+        // Release the global lock at the end of each queue item so that
+        // the mutator can perform allocation/deallocation objects.
+        // The global lock does not block mutators that do not allocate/deallocate any objects.
         GlobalUnlock;
         IsGlobalLocked := False;
       end;
