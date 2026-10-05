@@ -359,6 +359,7 @@ type
     function AsPointer: Pointer; inline;
     function GetKeys: TStringDynArray; inline;
     function IsYoung: Boolean; inline;
+    function IsYoungOrJustPromoted: Boolean; inline;
     function IsOld: Boolean; inline;
   end;
 
@@ -4977,6 +4978,11 @@ begin
   Result := Self.VarMap^.Header.Visit < GC.Promotion;
 end;
 
+function TSEValueHelper.IsYoungOrJustPromoted: Boolean;
+begin
+  Result := Self.VarMap^.Header.Visit <= GC.Promotion;
+end;
+
 function TSEValueHelper.IsOld: Boolean;
 begin
   Result := Self.VarMap^.Header.Visit >= GC.Promotion;
@@ -7906,13 +7912,14 @@ end;
 
 procedure TSEGarbageCollector.Initial;
 
-  procedure ExtractYoungValues(const Node: PSEGCNode); inline;
+  function ExtractYoungValues(const Node: PSEGCNode): Boolean; inline;
   var
     Value, ItemValue: TSEValue;
     J: NativeInt;
     Key: String;
   begin
     Value := Node^.Value;
+    Result := False;
     if Value.IsValidArray then
     begin
       for J := 0 to Length(Value.VarMap^.Items) - 1 do
@@ -7920,8 +7927,11 @@ procedure TSEGarbageCollector.Initial;
         ItemValue := Value.VarMap^.Items[J];
         if not (ItemValue.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer]) then
           continue;
-        if ItemValue.IsYoung then
+        if ItemValue.IsYoungOrJustPromoted then
+        begin
           Self.FReachableValueList.Add(ItemValue);
+          Result := True;
+        end;
       end;
     end else
     begin
@@ -7930,14 +7940,17 @@ procedure TSEGarbageCollector.Initial;
         ItemValue := Value.VarMap^.Get2(@Key);
         if not (ItemValue.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer]) then
           continue;
-        if ItemValue.IsYoung then
+        if ItemValue.IsYoungOrJustPromoted then
+        begin
           Self.FReachableValueList.Add(ItemValue);
+          Result := True;
+        end;
       end;
     end;
   end;
 
 var
-  I, J: NativeInt;
+  I, NodeIndex, J: NativeInt;
   Node, PrevNode: PSEGCNode;
   ValueMap: PSEValueMap;
 begin
@@ -7961,12 +7974,6 @@ begin
     end;
   end else
   begin
-    // Extract the young values from the old values first before promotion
-    for I in Self.FRememberedNodeList do
-    begin
-      Node := Self.FNodeList.Ptr(I);
-      ExtractYoungValues(Node);
-    end;
     I := Self.FNodeLastYoung;
     while I <> 1 do
     begin
@@ -7992,12 +7999,28 @@ begin
         Node^.Next := 0;
         Self.FNodeList.Ptr(Self.FNodeLastOld)^.Next := J;
         Self.FNodeLastOld := J;
+        if Node^.Value.Kind = sevkMap then
+        begin
+          Self.FRememberedNodeList.Add(J); // Add to remembered list to check for young values
+          Node^.Value.VarMap^.Header.Remembered := True;
+        end;
         Inc(Self.FObjectsOld);
       end else
       begin
         Inc(ValueMap^.Header.Visit);
       end;
       Self.ResetColor(Node);
+    end;
+    // Extract the young (or recently promoted) values from the old values
+    for I := Self.FRememberedNodeList.Count - 1 downto 0 do
+    begin
+      NodeIndex := Self.FRememberedNodeList[I];
+      Node := Self.FNodeList.Ptr(NodeIndex);
+      if not ExtractYoungValues(Node) then
+      begin
+        Self.FRememberedNodeList.Delete(I);
+        Node^.Value.VarMap^.Header.Remembered := False;
+      end;
     end;
   end;
 end;
