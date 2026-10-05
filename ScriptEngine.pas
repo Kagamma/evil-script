@@ -359,8 +359,8 @@ type
     function AsPointer: Pointer; inline;
     function GetKeys: TStringDynArray; inline;
     function IsYoung: Boolean; inline;
-    function IsYoungOrJustPromoted: Boolean; inline;
-    function IsPromoted: Boolean; inline;
+    function IsYoungOrPromoteCandidate: Boolean; inline;
+    function IsPromoteCandidate: Boolean; inline;
     function IsOld: Boolean; inline;
   end;
 
@@ -4979,12 +4979,12 @@ begin
   Result := Self.VarMap^.Header.Visit < GC.Promotion;
 end;
 
-function TSEValueHelper.IsYoungOrJustPromoted: Boolean;
+function TSEValueHelper.IsYoungOrPromoteCandidate: Boolean;
 begin
   Result := Self.VarMap^.Header.Visit <= GC.Promotion;
 end;
 
-function TSEValueHelper.IsPromoted: Boolean;
+function TSEValueHelper.IsPromoteCandidate: Boolean;
 begin
   Result := Self.VarMap^.Header.Visit = GC.Promotion;
 end;
@@ -7933,7 +7933,7 @@ procedure TSEGarbageCollector.Initial;
         ItemValue := Value.VarMap^.Items[J];
         if not (ItemValue.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer]) then
           continue;
-        if ItemValue.IsYoungOrJustPromoted then
+        if ItemValue.IsYoungOrPromoteCandidate then
         begin
           Self.FReachableValueList.Add(ItemValue);
           Result := True;
@@ -7946,7 +7946,7 @@ procedure TSEGarbageCollector.Initial;
         ItemValue := Value.VarMap^.Get2(@Key);
         if not (ItemValue.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer]) then
           continue;
-        if ItemValue.IsYoungOrJustPromoted then
+        if ItemValue.IsYoungOrPromoteCandidate then
         begin
           Self.FReachableValueList.Add(ItemValue);
           Result := True;
@@ -7985,15 +7985,15 @@ begin
       Node := Self.FNodeList.Ptr(I);
       J := I;
       I := Node^.Prev;
-      if Node^.Value.IsPromoted then
+      if Node^.Value.IsPromoteCandidate then
       begin
         if Node^.Value.Kind = sevkMap then
         begin
           Self.FRememberedNodeList.Add(J); // Add to remembered list to check for young values
           Node^.Value.VarMap^.Header.Remembered := True;
         end;
-      end;
-      Inc(Node^.Value.VarMap^.Header.Visit);
+      end else
+        Inc(Node^.Value.VarMap^.Header.Visit);
       Self.ResetColor(Node);
     end;
     // Extract the young (or recently promoted) values from the old values
@@ -8105,7 +8105,7 @@ begin
     if (AFirst = 1) and (Node^.Value.VarBuffer <> nil) then
     begin
       // Promote here
-      if Node^.Value.IsOld then
+      if Node^.Value.IsPromoteCandidate then
       begin
         // Detach from young generation
         if J <> Self.FNodeLastYoung then
@@ -8118,6 +8118,7 @@ begin
           Self.FNodeLastYoung := Node^.Prev;
           Self.FNodeList.Ptr(Self.FNodeLastYoung)^.Next := 0;
         end;
+        Inc(Node^.Value.VarMap^.Header.Visit);
         // Attach to old generation
         Node^.Prev := Self.FNodeLastOld;
         Node^.Next := 0;
