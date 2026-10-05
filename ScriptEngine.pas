@@ -574,8 +574,8 @@ type
     FRunCount: QWord;
     FTicks: NativeUInt;
     FInterval: Cardinal;
-    FPromotion: Byte;
-    FOldObjectCheckCycle: Byte;
+    FPromotion: Word;
+    FOldObjectCheckCycle: Word;
     FEnableParallel: Boolean;
     FIncrementalScanLimit: Cardinal;
     procedure SetInterval(const AValue: Cardinal);
@@ -606,8 +606,8 @@ type
     property OldObjectCount: Cardinal read FObjectsOld;
     property RunCount: QWord read FRunCount;
     property Interval: Cardinal read FInterval write SetInterval;
-    property Promotion: Byte read FPromotion write FPromotion;
-    property OldObjectCheckCycle: Byte read FOldObjectCheckCycle write FOldObjectCheckCycle;
+    property Promotion: Word read FPromotion write FPromotion;
+    property OldObjectCheckCycle: Word read FOldObjectCheckCycle write FOldObjectCheckCycle;
     property ObjectThreshold: Cardinal read FObjectThreshold write FObjectThreshold;
     property ReachableValueList: TSEValueList read FReachableValueList;
     property RemainingGrayValueList: TSEValueList read FRemainingGrayValueList;
@@ -8061,7 +8061,6 @@ begin
             begin
               Node^.Value.VarMap^.Done;
               Dispose(Node^.Value.VarMap);
-              Node^.Value.VarMap := nil;
             end;
             Detach;
           end;
@@ -8231,6 +8230,12 @@ begin
       ReleaseLock;
     end;
 
+    if NodeVarMap = nil then
+    begin
+      Writeln('WHY???');
+      continue;
+    end;
+
     if (NodeVarMap^.Header.Color = Cardinal(segccBlack)) and (QCurrentValue.CurrentIndex = 0) then
       continue;
     if NodeValue.VarPointer = QCurrentValue.Value.VarPointer then
@@ -8367,8 +8372,10 @@ var
         Node := Self.FNodeList.Ptr(AValue.Ref);
         // Check to see if this is an invalid node
         if (AValue.VarPointer = nil) or (Node^.Value.VarPointer <> AValue.VarPointer) then
+        begin
           exit;
-        Node^.Value.VarMap^.Header.Color := Cardinal(segccGray);
+        end;
+        AValue.VarMap^.Header.Color := Cardinal(segccGray);
         Self.FReachableValueList.Add(AValue);
       end;
 
