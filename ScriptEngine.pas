@@ -7957,7 +7957,7 @@ procedure TSEGarbageCollector.Initial;
 
 var
   I, NodeIndex, J: NativeInt;
-  Node, PrevNode: PSEGCNode;
+  Node: PSEGCNode;
 begin
   Self.FReachableValueList.Count := 0;
   Self.FRemainingGrayValueList.Count := 0;
@@ -7987,28 +7987,11 @@ begin
       I := Node^.Prev;
       if Node^.Value.IsPromoted then
       begin
-        // Detach from young generation
-        if J <> Self.FNodeLastYoung then
-        begin
-          PrevNode := Self.FNodeList.Ptr(Node^.Prev);
-          PrevNode^.Next := Node^.Next;
-          Self.FNodeList.Ptr(Node^.Next)^.Prev := Node^.Prev;
-        end else
-        begin
-          Self.FNodeLastYoung := Node^.Prev;
-          Self.FNodeList.Ptr(Self.FNodeLastYoung)^.Next := 0;
-        end;
-        // Attach to old generation
-        Node^.Prev := Self.FNodeLastOld;
-        Node^.Next := 0;
-        Self.FNodeList.Ptr(Self.FNodeLastOld)^.Next := J;
-        Self.FNodeLastOld := J;
         if Node^.Value.Kind = sevkMap then
         begin
           Self.FRememberedNodeList.Add(J); // Add to remembered list to check for young values
           Node^.Value.VarMap^.Header.Remembered := True;
         end;
-        Inc(Self.FObjectsOld);
       end;
       Inc(Node^.Value.VarMap^.Header.Visit);
       Self.ResetColor(Node);
@@ -8029,7 +8012,7 @@ end;
 
 procedure TSEGarbageCollector.Sweep(const AFirst: Cardinal); inline;
 var
-  Node: PSEGCNode;
+  Node, PrevNode: PSEGCNode;
   I, J, MS, NodeIndex: NativeInt;
   Key: String;
   LastPtr: PCardinal;
@@ -8116,7 +8099,33 @@ begin
           end;
       end;
     end;
+    J := I;
     I := Node^.Prev;
+    // Node survived, check to see if we need to promote it
+    if (AFirst = 1) and (Node^.Value.VarBuffer <> nil) then
+    begin
+      // Promote here
+      if Node^.Value.IsOld then
+      begin
+        // Detach from young generation
+        if J <> Self.FNodeLastYoung then
+        begin
+          PrevNode := Self.FNodeList.Ptr(Node^.Prev);
+          PrevNode^.Next := Node^.Next;
+          Self.FNodeList.Ptr(Node^.Next)^.Prev := Node^.Prev;
+        end else
+        begin
+          Self.FNodeLastYoung := Node^.Prev;
+          Self.FNodeList.Ptr(Self.FNodeLastYoung)^.Next := 0;
+        end;
+        // Attach to old generation
+        Node^.Prev := Self.FNodeLastOld;
+        Node^.Next := 0;
+        Self.FNodeList.Ptr(Self.FNodeLastOld)^.Next := J;
+        Self.FNodeLastOld := J;
+        Inc(Self.FObjectsOld);
+      end;
+    end;
   end;
   // Rebuild remembered set
   for I := Self.FRememberedNodeList.Count - 1 downto 0 do
