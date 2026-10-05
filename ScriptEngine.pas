@@ -7749,7 +7749,7 @@ begin
   Self.FRememberedNodeList := TSEIntegerList.Create;
   Self.FGrayValueQueue := TSEValueMark.Create;
   Self.FVMThreadList := TSEVMList.Create;
-  Self.FEnableGenerational := True;
+  Self.FEnableGenerational := False;
 end;
 
 destructor TSEGarbageCollector.Destroy;
