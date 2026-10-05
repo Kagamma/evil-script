@@ -7933,7 +7933,7 @@ procedure TSEGarbageCollector.Initial;
         ItemValue := Value.VarMap^.Items[J];
         if not (ItemValue.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer]) then
           continue;
-        if ItemValue.IsYoungOrPromoteCandidate then
+        if ItemValue.IsYoung then
         begin
           Self.FReachableValueList.Add(ItemValue);
           Result := True;
@@ -7946,7 +7946,7 @@ procedure TSEGarbageCollector.Initial;
         ItemValue := Value.VarMap^.Get2(@Key);
         if not (ItemValue.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer]) then
           continue;
-        if ItemValue.IsYoungOrPromoteCandidate then
+        if ItemValue.IsYoung then
         begin
           Self.FReachableValueList.Add(ItemValue);
           Result := True;
@@ -8116,8 +8116,11 @@ begin
         Inc(Self.FObjectsOld);
         // Put it to remembered set to check for young nodes later
         // When we rebuild the remembered set
-        Node^.Value.VarMap^.Header.Remembered := True;
-        Self.FRememberedNodeList.Add(J);
+        if Node^.Value.Kind = sevkMap then
+        begin
+          Node^.Value.VarMap^.Header.Remembered := True;
+          Self.FRememberedNodeList.Add(J);
+        end;
       end;
     end;
   end;
