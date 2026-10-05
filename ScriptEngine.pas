@@ -7918,14 +7918,13 @@ end;
 
 procedure TSEGarbageCollector.Initial;
 
-  function ExtractYoungValues(const Node: PSEGCNode): Boolean; inline;
+  procedure ExtractYoungValues(const Node: PSEGCNode); inline;
   var
     Value, ItemValue: TSEValue;
     J: NativeInt;
     Key: String;
   begin
     Value := Node^.Value;
-    Result := False;
     if Value.IsValidArray then
     begin
       for J := 0 to Length(Value.VarMap^.Items) - 1 do
@@ -7936,7 +7935,14 @@ procedure TSEGarbageCollector.Initial;
         if ItemValue.IsYoung then
         begin
           Self.FReachableValueList.Add(ItemValue);
-          Result := True;
+        end else
+        // Because we cannot put a promote candidate value into root
+        // We attempt to rescan the old value if a promote candidate value is found
+        if ItemValue.IsPromoteCandidate then
+        begin
+          Self.ResetColor(Node);
+          Self.FReachableValueList.Add(Value);
+          Exit;
         end;
       end;
     end else
@@ -7949,7 +7955,14 @@ procedure TSEGarbageCollector.Initial;
         if ItemValue.IsYoung then
         begin
           Self.FReachableValueList.Add(ItemValue);
-          Result := True;
+        end else
+        // Because we cannot put a promote candidate value into root
+        // We attempt to rescan the old value if a promote candidate value is found
+        if ItemValue.IsPromoteCandidate then
+        begin
+          Self.ResetColor(Node);
+          Self.FReachableValueList.Add(Value);
+          Exit;
         end;
       end;
     end;
@@ -8688,7 +8701,7 @@ begin
   begin
     if AValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject] then
     begin
-      if AOwner.IsOld and AValue.IsYoung then
+      if AOwner.IsOld and AValue.IsYoungOrPromoteCandidate then
       begin
         AOwner.VarMap^.Header.Remembered := True;
         GlobalLock;
