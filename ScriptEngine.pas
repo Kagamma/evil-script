@@ -314,11 +314,6 @@ type
         );
   end;
 
-  TSEValueMark = record
-    Value: TSEValue;
-    CurrentIndex: NativeInt;
-  end;
-
   PSEStackTraceSymbol = ^TSEStackTraceSymbol;
   TSEStackTraceSymbol = record
     Name,
@@ -497,7 +492,7 @@ type
   PPSEValue = ^PSEValue;
 
   TSEValueList = specialize TSEListPtr<TSEValue>;
-  TSEValueMarkQueue = specialize TQueue<TSEValueMark>;
+  TSEValueMark = specialize TQueue<TSEValue>;
   TSEJITBlock = record
     Code: PByte;
     AllocSize,
@@ -563,7 +558,7 @@ type
     FObjectThreshold,
     FObjectsLastTimeVisited,
     FObjectsOld: Cardinal;
-    FGrayValueQueue: TSEValueMarkQueue;
+    FGrayValueQueue: TSEValueMark;
     FRemainingGrayValueList,
     FReachableValueList: TSEValueList;
     FRememberedNodeList: TSEIntegerList;
@@ -577,7 +572,6 @@ type
     FPromotion: Word;
     FOldObjectCheckCycle: Word;
     FEnableParallel: Boolean;
-    FIncrementalScanLimit: Cardinal;
     procedure SetInterval(const AValue: Cardinal);
     procedure ResetColor(const ANode: PSEGCNode); inline;
     procedure Initial;
@@ -599,7 +593,6 @@ type
     procedure WriteBarrier(constref AValue: TSEValue); inline; overload;
     procedure Lock;
     procedure Unlock;
-    property IncrementalScanLimit: Cardinal read FIncrementalScanLimit write FIncrementalScanLimit;
     property Ticks: NativeUInt read FTicks write FTicks;
     property ValueList: TSEGCNodeList read FNodeList;
     property ObjectCount: Cardinal read FObjects;
@@ -7820,7 +7813,6 @@ begin
   Self.FTicks := GetTickCount64;
   Self.Interval := 1000;
   Self.FPromotion := 2;
-  Self.IncrementalScanLimit := 4096;
   Self.FOldObjectCheckCycle := 10;
   Self.FObjectThreshold := 700;
   Self.FReachableValueList := TSEValueList.Create;
@@ -7828,7 +7820,7 @@ begin
   Self.FRemainingGrayValueList := TSEValueList.Create;
   Self.FRemainingGrayValueList.Capacity := 128;
   Self.FRememberedNodeList := TSEIntegerList.Create;
-  Self.FGrayValueQueue := TSEValueMarkQueue.Create;
+  Self.FGrayValueQueue := TSEValueMark.Create;
   Self.FVMThreadList := TSEVMList.Create;
   Self.EnableParallel := True;
 end;
@@ -7927,7 +7919,7 @@ procedure TSEGarbageCollector.Initial;
     Value := Node^.Value;
     if Value.IsValidArray then
     begin
-      for J := 0 to Length(Value.VarMap^.Items) - 1 do
+      for J := 0 to Value.VarMap^.Count - 1 do
       begin
         ItemValue := Value.VarMap^.Items[J];
         if not (ItemValue.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer]) then
@@ -8148,7 +8140,7 @@ begin
     end;
     if Value.IsValidArray then
     begin
-      for J := 0 to Length(Value.VarMap^.Items) - 1 do
+      for J := 0 to Value.VarMap^.Items.Count - 1 do
       begin
         ItemValue := Value.VarMap^.Items[J];
         if not (ItemValue.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer]) then
@@ -8191,7 +8183,7 @@ var
   I: NativeInt;
   VArray: TSEValueArray;
   QValue,
-  QCurrentValue: TSEValueMark;
+  QCurrentValue: TSEValue;
 
   procedure AcquireLock; inline;
   begin
@@ -8210,84 +8202,71 @@ var
   end;
 
 begin
-  QCurrentValue.Value := PValue^;
-  QCurrentValue.CurrentIndex := 0;
+  QCurrentValue := PValue^;
   Self.FGrayValueQueue.Enqueue(QCurrentValue);
   while Self.FGrayValueQueue.Count > 0 do
   begin
     QCurrentValue := Self.FGrayValueQueue.Dequeue;
-    if not (QCurrentValue.Value.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
+    if not (QCurrentValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
       continue;
 
     AcquireLock;
     try
-      if ((QCurrentValue.Value.Ref >= Self.FNodeList.Count) or (QCurrentValue.Value.Ref = 0)) and (QCurrentValue.CurrentIndex = 0) then
+      if (QCurrentValue.Ref >= Self.FNodeList.Count) or (QCurrentValue.Ref = 0) then
         continue;
-      Node := Self.FNodeList.Ptr(QCurrentValue.Value.Ref);
+      Node := Self.FNodeList.Ptr(QCurrentValue.Ref);
       NodeValue := Node^.Value;
       NodeVarMap := NodeValue.VarMap;
-    finally
-      ReleaseLock;
-    end;
 
-    if NodeValue.VarPointer = QCurrentValue.Value.VarPointer then
-    begin
-      if (NodeVarMap^.Header.Color = Cardinal(segccBlack)) and (QCurrentValue.CurrentIndex = 0) then
-        continue;
-      {$ifdef SE_THREADS}
-      InterlockedExchange(NodeVarMap^.Header.Color, Cardinal(segccBlack));
-      {$else}
-      NodeVarMap^.Header.Color := Cardinal(segccBlack);
-      {$endif}
-      if (NodeValue.Kind = sevkMap) and (QCurrentValue.Value.VarMap <> nil) then
+      if NodeValue.VarPointer = QCurrentValue.VarPointer then
       begin
-        if SEMapIsValidArray(QCurrentValue.Value) then
+        if (NodeVarMap^.Header.Color = Cardinal(segccBlack)) then
+          continue;
+        {$ifdef SE_THREADS}
+        InterlockedExchange(NodeVarMap^.Header.Color, Cardinal(segccBlack));
+        {$else}
+        NodeVarMap^.Header.Color := Cardinal(segccBlack);
+        {$endif}
+        if (NodeValue.Kind = sevkMap) and (QCurrentValue.VarMap <> nil) then
         begin
-          QCurrentValue.Value.VarMap^.Lock;
-          try
-            VArray := QCurrentValue.Value.VarMap^.Items;
-            // Incremental marking
-            for I := QCurrentValue.CurrentIndex to Min(QCurrentValue.CurrentIndex + Self.IncrementalScanLimit, Length(VArray) - 1) do
-            begin
-              QValue.Value := VArray[I];
-              if not (QValue.Value.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
-                Continue;
-              QValue.CurrentIndex := 0;
-              Self.FGrayValueQueue.Enqueue(QValue);
-              QCurrentValue.CurrentIndex := I;
+          if SEMapIsValidArray(QCurrentValue) then
+          begin
+            QCurrentValue.VarMap^.Lock;
+            try
+              VArray := QCurrentValue.VarMap^.Items;
+              for I := 0 to QCurrentValue.VarMap^.Count - 1 do
+              begin
+                QValue := VArray[I];
+                if not (QValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
+                  Continue;
+                Self.FGrayValueQueue.Enqueue(QValue);
+              end;
+            finally
+              QCurrentValue.VarMap^.Unlock;
             end;
-            // Put it into queue again if the marking has't finished
-            Inc(QCurrentValue.CurrentIndex);
-            if QCurrentValue.CurrentIndex < Length(VArray) - 1 then
-            begin
-              Self.FGrayValueQueue.Enqueue(QCurrentValue);
+          end else
+          begin
+            QCurrentValue.VarMap^.Lock;
+            try
+              VArray := QCurrentValue.VarMap^.Items;
+              // Only mark shapes in single thread mode
+              if not Self.EnableParallel then
+                ShapeManager.Mark(QCurrentValue.VarMap^.Shape);
+              for Key in QCurrentValue.VarMap^.Shape.GetKeys do
+              begin
+                QValue := QCurrentValue.VarMap^.Get2(@Key);
+                if not (QValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
+                  Continue;
+                Self.FGrayValueQueue.Enqueue(QValue);
+              end;
+            finally
+              QCurrentValue.VarMap^.Unlock;
             end;
-          finally
-            QCurrentValue.Value.VarMap^.Unlock;
-          end;
-        end else
-        begin
-          QCurrentValue.Value.VarMap^.Lock;
-          try
-            VArray := QCurrentValue.Value.VarMap^.Items;
-            // Only mark shapes in single thread mode
-            if not Self.EnableParallel then
-              ShapeManager.Mark(QCurrentValue.Value.VarMap^.Shape);
-            // It is incredible rare for a map to contain more than 8192 entries, so we do not need
-            // to implement incremental marking for it
-            for Key in QCurrentValue.Value.VarMap^.Shape.GetKeys do
-            begin
-              QValue.Value := QCurrentValue.Value.VarMap^.Get2(@Key);
-              if not (QValue.Value.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
-                Continue;
-              QValue.CurrentIndex := 0;
-              Self.FGrayValueQueue.Enqueue(QValue);
-            end;
-          finally
-            QCurrentValue.Value.VarMap^.Unlock;
           end;
         end;
       end;
+    finally
+      ReleaseLock;
     end;
   end;
 end;
@@ -8721,18 +8700,27 @@ begin
     Exit;
   if AValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject] then
   begin
-    if (AOwner.VarMap^.Header.Color = Cardinal(segccBlack)) and (AValue.VarMap^.Header.Color = Cardinal(segccWhite)) then
-    begin
-      {$ifdef SE_LOG}
-      Writeln('[GC] Write barrier triggered');
-      {$endif}
-      {$ifdef SE_THREADS}
-      InterlockedExchange(AValue.VarMap^.Header.Color, Cardinal(segccGray));
-      {$else}
-      AValue.VarMap^.Header.Color := Cardinal(segccGray);
-      {$endif}
-      Self.FRemainingGrayValueList.Add(AValue);
+    GlobalLock;
+    try
+      if Self.FPhase <> segcpMark then
+        Exit;
+      if (AOwner.VarMap^.Header.Color = Cardinal(segccBlack)) and (AValue.VarMap^.Header.Color = Cardinal(segccWhite)) then
+      begin
+        {$ifdef SE_LOG}
+        Writeln('[GC] Write barrier triggered');
+        {$endif}
+        {$ifdef SE_THREADS}
+        InterlockedExchange(AValue.VarMap^.Header.Color, Cardinal(segccGray));
+        {$else}
+        AValue.VarMap^.Header.Color := Cardinal(segccGray);
+        {$endif}
+        Self.FRemainingGrayValueList.Add(AValue);
+      end;
+    finally
+      GlobalUnlock;
     end;
+    AOwner.VarMap^.Lock;
+    AOwner.VarMap^.Unlock;
   end;
 end;
 
@@ -8742,19 +8730,24 @@ begin
     Exit;
   if AValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject] then
   begin
-    if Self.FPhase <> segcpMark then
-      Exit;
-    if AValue.VarMap^.Header.Color = Cardinal(segccWhite) then
-    begin
-      {$ifdef SE_LOG}
-      Writeln('[GC] Write barrier (stack & global) triggered');
-      {$endif}
-      {$ifdef SE_THREADS}
-      InterlockedExchange(AValue.VarMap^.Header.Color, Cardinal(segccGray));
-      {$else}
-      AValue.VarMap^.Header.Color := Cardinal(segccGray);
-      {$endif}
-      Self.FRemainingGrayValueList.Add(AValue);
+    GlobalLock;
+    try
+      if Self.FPhase <> segcpMark then
+        Exit;
+      if AValue.VarMap^.Header.Color = Cardinal(segccWhite) then
+      begin
+        {$ifdef SE_LOG}
+        Writeln('[GC] Write barrier (stack & global) triggered');
+        {$endif}
+        {$ifdef SE_THREADS}
+        InterlockedExchange(AValue.VarMap^.Header.Color, Cardinal(segccGray));
+        {$else}
+        AValue.VarMap^.Header.Color := Cardinal(segccGray);
+        {$endif}
+        Self.FRemainingGrayValueList.Add(AValue);
+      end;
+    finally
+      GlobalUnlock;
     end;
   end;
 end;
