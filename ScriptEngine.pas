@@ -224,7 +224,7 @@ type
   TSEValueHeader = record
     Ref: Cardinal;
     Color: Cardinal;
-    Visit: QWord;
+    Visit: Cardinal;
     Remembered: Boolean;
     Lock: Boolean; // Pin
   end;
@@ -7998,8 +7998,6 @@ begin
       Node := Self.FNodeList.Ptr(I);
       J := I;
       I := Node^.Prev;
-      if not Node^.Value.IsPromoteCandidate then
-        Inc(Node^.Value.VarMap^.Header.Visit);
       Self.ResetColor(Node);
     end;
     // Extract the young or promote candidate values from the old values
@@ -8120,7 +8118,6 @@ begin
           Self.FNodeLastYoung := Node^.Prev;
           Self.FNodeList.Ptr(Self.FNodeLastYoung)^.Next := 0;
         end;
-        Inc(Node^.Value.VarMap^.Header.Visit);
         // Attach to old generation
         Node^.Prev := Self.FNodeLastOld;
         Node^.Next := 0;
@@ -8135,6 +8132,8 @@ begin
           Self.FRememberedNodeList.Add(J);
         end;
       end;
+      //
+      Inc(Node^.Value.VarMap^.Header.Visit);
     end;
   end;
   // Rebuild remembered set
