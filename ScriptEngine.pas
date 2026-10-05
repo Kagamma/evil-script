@@ -8140,7 +8140,7 @@ begin
     end;
     if Value.IsValidArray then
     begin
-      for J := 0 to Value.VarMap^.Items.Count - 1 do
+      for J := 0 to Value.VarMap^.Count - 1 do
       begin
         ItemValue := Value.VarMap^.Items[J];
         if not (ItemValue.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer]) then
