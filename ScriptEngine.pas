@@ -8034,6 +8034,7 @@ var
       Self.FNodeList.Ptr(LastPtr^)^.Next := 0;
     end;
     Node^.Value := Default(TSEValue);
+    Node^.Value.VarMap := nil;
     Self.FNodeAvailStack.Push(I);
     Dec(Self.FObjects);
     if AFirst = 2 then
@@ -8069,7 +8070,6 @@ begin
             if Node^.Value.VarString <> nil then
             begin
               Dispose(Node^.Value.VarString);
-              Node^.Value.VarString := nil;
             end;
             Detach;
           end;
@@ -8082,7 +8082,6 @@ begin
                 FreeMem(Node^.Value.VarBuffer^.Base);
               end;
               Dispose(Node^.Value.VarBuffer);
-              Node^.Value.VarBuffer := nil;
             end;
             Detach;
           end;
@@ -8093,7 +8092,6 @@ begin
               if Node^.Value.VarPascalObject^.IsManaged then
                 Node^.Value.VarPascalObject^.Value.Free;
               Dispose(Node^.Value.VarPascalObject);
-              Node^.Value.VarPascalObject := nil;
             end;
             Detach;
           end;
@@ -8132,7 +8130,7 @@ begin
           Self.FRememberedNodeList.Add(J);
         end;
       end;
-      //
+      // Visit will stop increase once the node is old
       Inc(Node^.Value.VarMap^.Header.Visit);
     end;
   end;
@@ -8156,7 +8154,7 @@ begin
         ItemValue := Value.VarMap^.Items[J];
         if not (ItemValue.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer]) then
           continue;
-        if ItemValue.IsYoung then
+        if ItemValue.IsYoungOrPromoteCandidate then
         begin
           IsYoungReference := True;
           break;
@@ -8169,7 +8167,7 @@ begin
         ItemValue := Value.VarMap^.Get2(@Key);
         if not (ItemValue.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer]) then
           continue;
-        if ItemValue.IsYoung then
+        if ItemValue.IsYoungOrPromoteCandidate then
         begin
           IsYoungReference := True;
           break;
@@ -8358,17 +8356,20 @@ var
 
     procedure ScanRoot;
 
-      procedure AddReachableAbleValue(constref AValue: TSEValue); inline;
+      procedure AddReachableValue(constref AValue: TSEValue); inline;
       var
         Node: PSEGCNode;
       begin
-        Self.FReachableValueList.Add(AValue);
         if not (AValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
           exit;
         if (AValue.Ref >= Self.FNodeList.Count) or (AValue.Ref = 0) then
           exit;
         Node := Self.FNodeList.Ptr(AValue.Ref);
+        // Check to see if this is an invalid node
+        if (AValue.VarPointer = nil) or (Node^.Value.VarPointer <> AValue.VarPointer) then
+          exit;
         Node^.Value.VarMap^.Header.Color := Cardinal(segccGray);
+        Self.FReachableValueList.Add(AValue);
       end;
 
     var
@@ -8380,7 +8381,7 @@ var
         P := @VM.Stack[0];
         while P < VM.StackPtr do
         begin
-          AddReachableAbleValue(P^);
+          AddReachableValue(P^);
           Inc(P);
         end;
         if VM.Owner = nil then
@@ -8389,16 +8390,16 @@ var
           P2 := @VM.Global.Value^.Data[VM.Global.Value^.Size - 1];
           while P <= P2 do
           begin
-            AddReachableAbleValue(P^);
+            AddReachableValue(P^);
             Inc(P);
           end;
           for J := 0 to VM.Parent.ConstList.Count - 1 do
           begin
-            AddReachableAbleValue(VM.Parent.ConstList[J]);
+            AddReachableValue(VM.Parent.ConstList[J]);
           end;
         end;
       end;
-      AddReachableAbleValue(ScriptVarMap);
+      AddReachableValue(ScriptVarMap);
     end;
 
     procedure MarkDeep;
