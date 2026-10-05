@@ -7846,7 +7846,7 @@ procedure TSEGarbageCollector.Initial;
     Value := Node^.Value;
     if Value.IsValidArray then
     begin
-      for J := 0 to Length(Value.VarMap^.Items) - 1 do
+      for J := 0 to Value.VarMap^.Count - 1 do
       begin
         ItemValue := Value.VarMap^.Items[J];
         if not (ItemValue.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer]) then
@@ -8071,7 +8071,7 @@ begin
     end;
     if Value.IsValidArray then
     begin
-      for J := 0 to Length(Value.VarMap^.Items) - 1 do
+      for J := 0 to Value.VarMap^.Count - 1 do
       begin
         ItemValue := Value.VarMap^.Items[J];
         if not (ItemValue.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer]) then
@@ -8145,7 +8145,7 @@ begin
         if SEMapIsValidArray(QCurrentValue) then
         begin
           VArray := QCurrentValue.VarMap^.Items;
-          for I := 0 to Length(VArray) - 1 do
+          for I := 0 to QCurrentValue.VarMap^.Count - 1 do
           begin
             QValue := VArray[I];
             if not (QValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
