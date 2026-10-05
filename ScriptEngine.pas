@@ -7952,7 +7952,6 @@ procedure TSEGarbageCollector.Initial;
 var
   I, NodeIndex, J: NativeInt;
   Node, PrevNode: PSEGCNode;
-  ValueMap: PSEValueMap;
 begin
   Self.FReachableValueList.Count := 0;
   Self.FRemainingGrayValueList.Count := 0;
@@ -7978,10 +7977,10 @@ begin
     while I <> 1 do
     begin
       Node := Self.FNodeList.Ptr(I);
-      ValueMap := Node^.Value.VarMap;
       J := I;
       I := Node^.Prev;
-      if (ValueMap^.Header.Visit >= Self.FPromotion) then
+      Inc(Node^.Value.VarMap^.Header.Visit);
+      if Node^.Value.IsOld then
       begin
         // Detach from young generation
         if J <> Self.FNodeLastYoung then
@@ -8006,7 +8005,6 @@ begin
         end;
         Inc(Self.FObjectsOld);
       end;
-      Inc(ValueMap^.Header.Visit);
       Self.ResetColor(Node);
     end;
     // Extract the young (or recently promoted) values from the old values
