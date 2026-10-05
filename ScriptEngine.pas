@@ -7985,27 +7985,16 @@ begin
       Node := Self.FNodeList.Ptr(I);
       J := I;
       I := Node^.Prev;
-      if Node^.Value.IsPromoteCandidate then
-      begin
-        if Node^.Value.Kind = sevkMap then
-        begin
-          Self.FRememberedNodeList.Add(J); // Add to remembered list to check for young values
-          Node^.Value.VarMap^.Header.Remembered := True;
-        end;
-      end else
+      if not Node^.Value.IsPromoteCandidate then
         Inc(Node^.Value.VarMap^.Header.Visit);
       Self.ResetColor(Node);
     end;
-    // Extract the young (or recently promoted) values from the old values
+    // Extract the young or promote candidate values from the old values
     for I := Self.FRememberedNodeList.Count - 1 downto 0 do
     begin
       NodeIndex := Self.FRememberedNodeList[I];
       Node := Self.FNodeList.Ptr(NodeIndex);
-      if not ExtractYoungValues(Node) then
-      begin
-        Self.FRememberedNodeList.Delete(I);
-        Node^.Value.VarMap^.Header.Remembered := False;
-      end;
+      ExtractYoungValues(Node);
     end;
   end;
 end;
@@ -8125,6 +8114,10 @@ begin
         Self.FNodeList.Ptr(Self.FNodeLastOld)^.Next := J;
         Self.FNodeLastOld := J;
         Inc(Self.FObjectsOld);
+        // Put it to remembered set to check for young nodes later
+        // When we rebuild the remembered set
+        Node^.Value.VarMap^.Header.Remembered := True;
+        Self.FRememberedNodeList.Add(J);
       end;
     end;
   end;
