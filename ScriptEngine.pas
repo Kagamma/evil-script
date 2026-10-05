@@ -468,9 +468,11 @@ type
     procedure Set2(const Key: PSEString; constref AValue: TSEValue; var CacheValue: TSECacheValue); overload; inline;
     procedure Set2(const Key: PString; constref AValue: TSEValue); overload; inline;
     procedure Set2(const Index: NativeInt; constref AValue: TSEValue); overload; inline;
+    procedure Set2NoBoundCheck(const Index: NativeInt; constref AValue: TSEValue); overload; inline;
     function Get2(const Key: PString): TSEValue; overload; inline;
     function Get2(const Key: PSEString; var CacheValue: TSECacheValue): TSEValue;
     function Get2(const Index: NativeUInt): TSEValue; overload; inline;
+    function Get2NoBoundaryCheck(const Index: NativeUInt): TSEValue; overload; inline;
     procedure Del2(const Key: PString); overload; inline;
     procedure Del2(const Index: NativeUInt); overload; inline;
     function GetID: Cardinal; inline;
@@ -7494,68 +7496,74 @@ procedure TSEValueMapHelper.Resize(const NewSize: NativeInt);
 begin
   if NewSize < 0 then
     Exit;
-  Self.Lock;
-  try
-    Self.Count := NewSize;
-    if Self.Capacity > 127 then
-      Self.IncSize := Self.Capacity shr 2
-    else
-    if Self.Capacity > 8 then
-      Inc(IncSize, 8)
-    else
-    if Self.Capacity > 3 then
-      Inc(IncSize, 4);
-    Self.Capacity := NewSize + Self.IncSize;
-    SetLength(Self.Items, Self.Capacity);
-    if NewSize = 0 then
-      Self.PossibleKinds := [];
-  finally
-    Self.Unlock;
-  end;
+  Self.Count := NewSize;
+  if Self.Capacity > 127 then
+    Self.IncSize := Self.Capacity shr 2
+  else
+  if Self.Capacity > 8 then
+    Inc(IncSize, 8)
+  else
+  if Self.Capacity > 3 then
+    Inc(IncSize, 4);
+  Self.Capacity := NewSize + Self.IncSize;
+  SetLength(Self.Items, Self.Capacity);
+  if NewSize = 0 then
+    Self.PossibleKinds := [];
 end;
 
 procedure TSEValueMapHelper.ExpandArray(const NewSize: NativeInt);
 begin
   if NewSize > Self.Count - 1 then
   begin
-    Self.Lock;
-    try
-      Self.Count := NewSize + 1;
-      if Self.Count > Self.Capacity then
-      begin
-        if Self.Capacity > 127 then
-          Self.IncSize := Self.Capacity shr 2
-        else
-        if Self.Capacity > 8 then
-          Inc(IncSize, 8)
-        else
-        if Self.Capacity > 3 then
-          Inc(IncSize, 4);
-        Self.Capacity := Self.Count + Self.IncSize;
-        SetLength(Self.Items, Self.Capacity);
-      end;
-    finally
-      Self.Unlock;
+    Self.Count := NewSize + 1;
+    if Self.Count > Self.Capacity then
+    begin
+      if Self.Capacity > 127 then
+        Self.IncSize := Self.Capacity shr 2
+      else
+      if Self.Capacity > 8 then
+        Inc(IncSize, 8)
+      else
+      if Self.Capacity > 3 then
+        Inc(IncSize, 4);
+      Self.Capacity := Self.Count + Self.IncSize;
+      SetLength(Self.Items, Self.Capacity);
     end;
   end;
 end;
 
 procedure TSEValueMapHelper.Set2(const Key: PSEString; constref AValue: TSEValue; var CacheValue: TSECacheValue);
+
+  procedure Handle; inline;
+  begin
+    if Self.Shape.TryGetOffsetHash(Key^.Hash, Key^.Data, CacheValue.Index) then
+    begin
+      Self.Items[CacheValue.Index] := AValue;
+    end else
+    begin
+      Self.Shape := ShapeManager.AddProperty(Self.Shape, Key^.Data);
+      CacheValue.Index := Self.Shape.PropertyOffset;
+      Self.ExpandArray(CacheValue.Index);
+      Self.Items[CacheValue.Index] := AValue;
+      Self.PossibleKinds := Self.PossibleKinds + [AValue.Kind];
+    end;
+  end;
+
 begin
   if Self.Shape = nil then
     Self.ToMap;
   if Key^.Hash = 0 then
     Key^.Hash := SEHashString(Key^.Data);
-  if Self.Shape.TryGetOffsetHash(Key^.Hash, Key^.Data, CacheValue.Index) then
+  if GC.Phase = segcpRest then
+    Handle
+  else
   begin
-    Self.Items[CacheValue.Index] := AValue;
-  end else
-  begin
-    Self.Shape := ShapeManager.AddProperty(Self.Shape, Key^.Data);
-    CacheValue.Index := Self.Shape.PropertyOffset;
-    Self.ExpandArray(CacheValue.Index);
-    Self.Items[CacheValue.Index] := AValue;
-    Self.PossibleKinds := Self.PossibleKinds + [AValue.Kind];
+    Self.Lock;
+    try
+      Handle;
+    finally
+      Self.Unlock;
+    end;
   end;
   CacheValue.ID := Self.GetID;
 end;
@@ -7563,27 +7571,77 @@ end;
 procedure TSEValueMapHelper.Set2(const Key: PString; constref AValue: TSEValue);
 var
   Index: Integer;
+
+  procedure Handle; inline;
+  begin
+    if Self.Shape.TryGetOffset(Key^, Index) then
+    begin
+      Self.Items[Index] := AValue;
+    end else
+    begin
+      Self.Shape := ShapeManager.AddProperty(Self.Shape, Key^);
+      Index := Self.Shape.PropertyOffset;
+      Self.ExpandArray(Index);
+      Self.Items[Index] := AValue;
+      Self.PossibleKinds := Self.PossibleKinds + [AValue.Kind];
+    end;
+  end;
+
 begin
   if Self.Shape = nil then
     Self.ToMap;
-  if Self.Shape.TryGetOffset(Key^, Index) then
+  if GC.Phase = segcpRest then
+    Handle
+  else
   begin
-    Self.Items[Index] := AValue;
-  end else
-  begin
-    Self.Shape := ShapeManager.AddProperty(Self.Shape, Key^);
-    Index := Self.Shape.PropertyOffset;
-    Self.ExpandArray(Index);
-    Self.Items[Index] := AValue;
-    Self.PossibleKinds := Self.PossibleKinds + [AValue.Kind];
+    Self.Lock;
+    try
+      Handle;
+    finally
+      Self.Unlock;
+    end;
   end;
 end;
 
 procedure TSEValueMapHelper.Set2(const Index: NativeInt; constref AValue: TSEValue);
+  procedure Handle; inline;
+  begin
+    Self.ExpandArray(Index);
+    Self.Items[Index] := AValue;
+    Self.PossibleKinds := Self.PossibleKinds + [AValue.Kind];
+  end;
 begin
-  Self.ExpandArray(Index);
-  Self.Items[Index] := AValue;
-  Self.PossibleKinds := Self.PossibleKinds + [AValue.Kind];
+  if GC.Phase = segcpRest then
+    Handle
+  else
+  begin
+    Self.Lock;
+    try
+      Handle;
+    finally
+      Self.Unlock;
+    end;
+  end;
+end;
+
+procedure TSEValueMapHelper.Set2NoBoundCheck(const Index: NativeInt; constref AValue: TSEValue);
+  procedure Handle; inline;
+  begin
+    Self.Items[Index] := AValue;
+    Self.PossibleKinds := Self.PossibleKinds + [AValue.Kind];
+  end;
+begin
+  if GC.Phase = segcpRest then
+    Handle
+  else
+  begin
+    Self.Lock;
+    try
+      Handle;
+    finally
+      Self.Unlock;
+    end;
+  end;
 end;
 
 procedure TSEValueMapHelper.Del2(const Key: PString);
@@ -7592,11 +7650,11 @@ var
   NewValues: array of TSEValue;
   I: Integer;
 begin
-  Self.Shape := ShapeManager.RemoveProperty(Self.Shape, Key^);
-  if Self.Shape.NeedsCompaction then
-  begin
-    Self.Lock;
-    try
+  Self.Lock;
+  try
+    Self.Shape := ShapeManager.RemoveProperty(Self.Shape, Key^);
+    if Self.Shape.NeedsCompaction then
+    begin
       Self.Shape := ShapeManager.Compact(Self.Shape, Remap);
       SetLength(NewValues, Self.Shape.SlotCount + Self.IncSize);
       for I := 0 to High(Remap) do
@@ -7606,9 +7664,9 @@ begin
       Self.Count := Self.Shape.SlotCount;
       Self.Capacity := Self.Count + Self.IncSize;
       Self.Items := NewValues;
-    finally
-      Self.Unlock;
     end;
+  finally
+    Self.Unlock;
   end;
 end;
 
@@ -7638,7 +7696,17 @@ begin
   begin
     if Self.Shape.TryGetOffset(Key^, Index) then
     begin
-      Result := Self.Items[Index];
+      if GC.Phase = segcpRest then
+        Result := Self.Items[Index]
+      else
+      begin
+        Self.Lock;
+        try
+          Result := Self.Items[Index];
+        finally
+          Self.Unlock;
+        end;
+      end;
     end;
   end;
 end;
@@ -7652,7 +7720,17 @@ begin
       Key^.Hash := SEHashString(Key^.Data);
     if Self.Shape.TryGetOffsetHash(Key^.Hash, Key^.Data, CacheValue.Index) then
     begin
-      Result := Self.Items[CacheValue.Index];
+      if GC.Phase = segcpRest then
+        Result := Self.Items[CacheValue.Index]
+      else
+      begin
+        Self.Lock;
+        try
+          Result := Self.Items[CacheValue.Index];
+        finally
+          Self.Unlock;
+        end;
+      end;
     end;
     CacheValue.ID := Self.GetID;
   end;
@@ -7661,9 +7739,35 @@ end;
 function TSEValueMapHelper.Get2(const Index: NativeUInt): TSEValue;
 begin
   if Index <= Self.Count - 1 then
+  begin
+    if GC.Phase = segcpRest then
+      Result := Self.Items[Index]
+    else
+    begin
+      Self.Lock;
+      try
+        Result := Self.Items[Index];
+      finally
+        Self.Unlock;
+      end;
+    end;
+  end else
+    Result := SENull;
+end;
+
+function TSEValueMapHelper.Get2NoBoundaryCheck(const Index: NativeUInt): TSEValue;
+begin
+  if GC.Phase = segcpRest then
     Result := Self.Items[Index]
   else
-    Result := SENull;
+  begin
+    Self.Lock;
+    try
+      Result := Self.Items[Index];
+    finally
+      Self.Unlock;
+    end;
+  end;
 end;
 
 function TSEValueMapHelper.GetID: Cardinal;
@@ -7783,9 +7887,9 @@ begin
   Self.FNodeAvailStack.Capacity := 8192;
   Self.FTicks := GetTickCount64;
   Self.Interval := 2000;
-  Self.FPromotion := 10;
+  Self.FPromotion := 2;
   Self.FOldObjectCheckCycle := 10;
-  Self.FObjectThreshold := 700;
+  Self.FObjectThreshold := 7000;
   Self.FReachableValueList := TSEValueList.Create;
   Self.FReachableValueList.Capacity := 2048;
   Self.FRemainingGrayValueList := TSEValueList.Create;
@@ -8519,8 +8623,6 @@ begin
     finally
       GlobalUnlock;
     end;
-    AOwner.VarMap^.Lock;
-    AOwner.VarMap^.Unlock;
   end;
 end;
 
@@ -8921,11 +9023,11 @@ begin
   QWord(CacheValue) := CacheSite^.VarData;
   if (CacheValue.ID = P^.GetID) and (CacheValue.Index >= 0) then
   begin
-    Result := P^.Items[CacheValue.Index];
+    Result := P^.Get2NoBoundaryCheck(CacheValue.Index);
   end else
   begin
     Result := P^.Get2(ConstStrings.Ptr(I)^.VarString, CacheValue);
-    {$ifdef CPU32}
+    {$ifdef CPU32}c
       {$ifdef SE_THREADS}
       InterlockedExchange64(CacheSite^.VarData, QWord(CacheValue));
       {$else}
@@ -8949,7 +9051,7 @@ begin
   QWord(CacheValue) := CacheSite^.VarData;
   if (CacheValue.ID = P^.GetID) and (CacheValue.Index >= 0) then
   begin
-    P^.Items[CacheValue.Index] := V;
+    P^.Set2NoBoundCheck(CacheValue.Index, V);
   end else
   begin
     P^.Set2(ConstStrings.Ptr(Round(I))^.VarString, V, CacheValue);
@@ -9449,7 +9551,7 @@ var
           QWord(CacheValue) := CacheSite^.VarData;
           if (CacheValue.ID = B.VarMap^.GetID) and (CacheValue.Index >= 0) then
           begin
-            Result := B.VarMap^.Items[CacheValue.Index];
+            Result := B.VarMap^.Get2NoBoundaryCheck(CacheValue.Index);
           end else
           begin
             Result := B.VarMap^.Get2(ConstStrings.Ptr(A.VarConstStringIndex)^.VarString, CacheValue);
@@ -9482,7 +9584,7 @@ var
           QWord(CacheValue) := CacheSite^.VarData;
           if (CacheValue.ID = TV.VarMap^.GetID) and (CacheValue.Index >= 0) then
           begin
-            TV.VarMap^.Items[CacheValue.Index] := B;
+            TV.VarMap^.Set2NoBoundCheck(CacheValue.Index, B);
             TV.VarMap^.PossibleKinds := TV.VarMap^.PossibleKinds + [B.Kind];
           end else
           begin
