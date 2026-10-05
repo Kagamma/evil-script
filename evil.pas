@@ -69,7 +69,6 @@ begin
     Writeln(' -do : Disable optimizations');
     Writeln(' -dj : Disable JIT');
     Writeln(' -da : Disable assertions');
-    Writeln(' -dp : Disable parallel garbage collector');
     Halt;
   end;
   if ParamCount > 1 then
@@ -84,12 +83,9 @@ begin
           IsO := False;
         '-da':
           IsA := True;
-        '-dp':
-          IsP := False;
       end;
   end;
   Randomize;
-  GC.EnableParallel := IsP;
   SE := TScriptEngine.Create;
   SE.OptimizeTailCalls := IsO;
   SE.OptimizeTailRecursives := IsO;

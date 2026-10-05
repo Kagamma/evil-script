@@ -101,8 +101,6 @@ The virtual machine utilizes a simple generational garbage collector that period
 
 Users can invoke the garbage collector manually by calling the mem_gc() function.
 
-By default, the garbage collector runs in concurrent mode, which means that it will not block mutator threads during marking phase. Optionally, you can run the garbage collector in single thread mode by setting GC.EnableParallel to False.
-
 ## Syntax
 
 ### Code reuse

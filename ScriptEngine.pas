@@ -221,20 +221,27 @@ type
   );
   TSEValueKindSet = set of TSEValueKind;
   PSECommonString = ^RawByteString;
-  TSEBuffer = record
+  TSEValueHeader = record
     Ref: Cardinal;
+    Color: Cardinal;
+    Visit: Cardinal;
+    Remembered: Boolean;
+    Lock: Boolean; // Pin
+  end;
+  TSEBuffer = record
+    Header: TSEValueHeader;
     Base: Pointer;
     Ptr: Pointer;
   end;
   PSEBuffer = ^TSEBuffer;
   TSEPascalObject = record
-    Ref: Cardinal;
+    Header: TSEValueHeader;
     Value: TObject;
     IsManaged: Boolean;
   end;
   PSEPascalObject = ^TSEPascalObject;
   TSEString = record
-    Ref: Cardinal;
+    Header: TSEValueHeader;
     Data: RawByteString;
     Hash: NativeUInt;
   end;
@@ -346,6 +353,10 @@ type
     function AsNumber: Double; inline;
     function AsPointer: Pointer; inline;
     function GetKeys: TStringDynArray; inline;
+    function IsYoung: Boolean; inline;
+    function IsYoungOrPromoteCandidate: Boolean; inline;
+    function IsPromoteCandidate: Boolean; inline;
+    function IsOld: Boolean; inline;
   end;
 
   {$ifdef SE_MAP_AVK959}
@@ -444,23 +455,18 @@ type
   end;
 
   TSEValueMap = record
-    Ref: Cardinal;
+    Header: TSEValueHeader;
     Items: array of TSEValue;
     Count,
     Capacity,
     IncSize: NativeInt;
     Shape: TSEShape;
-    {$ifdef SE_THREADS}
-    FLock: TRTLCriticalSection;
-    {$endif}
     PossibleKinds: TSEValueKindSet;
   end;
 
   TSEValueMapHelper = record helper for TSEValueMap
     procedure Init;
     procedure Done;
-    procedure Lock; inline;
-    procedure Unlock; inline;
     procedure ToMap;
     procedure Insert(const Index: NativeInt; constref AValue: TSEValue);
     procedure Resize(const NewSize: NativeInt);
@@ -468,22 +474,22 @@ type
     procedure Set2(const Key: PSEString; constref AValue: TSEValue; var CacheValue: TSECacheValue); overload; inline;
     procedure Set2(const Key: PString; constref AValue: TSEValue); overload; inline;
     procedure Set2(const Index: NativeInt; constref AValue: TSEValue); overload; inline;
-    procedure Set2NoBoundCheck(const Index: NativeInt; constref AValue: TSEValue); overload; inline;
+    procedure Set2Fast(const Index: NativeInt; constref AValue: TSEValue); overload; inline;
     function Get2(const Key: PString): TSEValue; overload; inline;
     function Get2(const Key: PSEString; var CacheValue: TSECacheValue): TSEValue;
     function Get2(const Index: NativeUInt): TSEValue; overload; inline;
-    function Get2NoBoundaryCheck(const Index: NativeUInt): TSEValue; overload; inline;
     procedure Del2(const Key: PString); overload; inline;
     procedure Del2(const Index: NativeUInt); overload; inline;
     function GetID: Cardinal; inline;
     procedure Reset;
+    function IsOld: Boolean; inline;
   end;
 
   TSEValueArray = array of TSEValue;
   PPSEValue = ^PSEValue;
 
   TSEValueList = specialize TSEListPtr<TSEValue>;
-  TSEValueQueue = specialize TQueue<TSEValue>;
+  TSEValueMark = specialize TQueue<TSEValue>;
   TSEJITBlock = record
     Code: PByte;
     AllocSize,
@@ -509,17 +515,13 @@ type
     segcpRest,
     segcpInitial,
     segcpMark,
-    segcpMarkGray,
+    segcpMarkRemaining,
     segcpSweep
   );
 
   PSEGCNode = ^TSEGCNode;
   TSEGCNode = record
     Value: TSEValue;
-    Color: Cardinal;
-    Lock: Boolean;
-    Visit: Byte;
-    Marked: QWord;
     Prev,
     Next: Cardinal;
   end;
@@ -528,13 +530,6 @@ type
   TSEGCNodeAvailStack = specialize TStack<NativeInt>;
 
   {$ifdef SE_THREADS}
-  TSEGarbageCollectorMarkJob = class(TThread)
-  public
-    constructor Create;
-    destructor Destroy; override;
-    procedure Execute; override;
-  end;
-
   TSETicksJob = class(TThread)
   public
     procedure Execute; override;
@@ -553,9 +548,10 @@ type
     FObjectThreshold,
     FObjectsLastTimeVisited,
     FObjectsOld: Cardinal;
-    FGrayValueQueue: TSEValueQueue;
+    FGrayValueQueue: TSEValueMark;
     FRemainingGrayValueList,
     FReachableValueList: TSEValueList;
+    FRememberedNodeList: TSEIntegerList;
     FNodeList: TSEGCNodeList;
     FNodeAvailStack: TSEGCNodeAvailStack;
     FNodeLastYoung,
@@ -563,11 +559,11 @@ type
     FRunCount: QWord;
     FTicks: NativeUInt;
     FInterval: Cardinal;
-    FPromotion: Byte;
-    FOldObjectCheckCycle: Byte;
-    FEnableParallel: Boolean;
+    FPromotion: Word;
+    FOldObjectCheckCycle: Word;
+    FEnableGenerational: Boolean;
     procedure SetInterval(const AValue: Cardinal);
-    procedure ResetColor(const AValue: PSEGCNode); inline;
+    procedure ResetColor(const ANode: PSEGCNode); inline;
     procedure Initial;
     procedure Sweep(const AFirst: Cardinal);
     procedure Mark(const PValue: PSEValue);
@@ -583,7 +579,7 @@ type
     procedure AllocPascalObject(const PValue: PSEValue; const Obj: TObject; const IsManaged: Boolean);
     procedure UnManaged(const PValue: PSEValue);
     procedure Managed(const PValue: PSEValue);
-    procedure WriteBarrier(constref AOwner, AValue: TSEValue); inline; overload;
+    procedure WriteBarrier(var AOwner: TSEValueMap; constref AValue: TSEValue); inline; overload;
     procedure WriteBarrier(constref AValue: TSEValue); inline; overload;
     procedure Lock;
     procedure Unlock;
@@ -593,14 +589,14 @@ type
     property OldObjectCount: Cardinal read FObjectsOld;
     property RunCount: QWord read FRunCount;
     property Interval: Cardinal read FInterval write SetInterval;
-    property Promotion: Byte read FPromotion write FPromotion;
-    property OldObjectCheckCycle: Byte read FOldObjectCheckCycle write FOldObjectCheckCycle;
+    property Promotion: Word read FPromotion write FPromotion;
+    property OldObjectCheckCycle: Word read FOldObjectCheckCycle write FOldObjectCheckCycle;
     property ObjectThreshold: Cardinal read FObjectThreshold write FObjectThreshold;
     property ReachableValueList: TSEValueList read FReachableValueList;
     property RemainingGrayValueList: TSEValueList read FRemainingGrayValueList;
+    property RememberedNodeList: TSEIntegerList read FRememberedNodeList;
     property Phase: TSEGarbageCollectorPhase read FPhase write FPhase;
-    // Despite the name, this enables concurrent marking with a single helper thread, not parallel STW marking.
-    property EnableParallel: Boolean read FEnableParallel write FEnableParallel;
+    property EnableGenerational: Boolean read FEnableGenerational write FEnableGenerational;
   end;
 
   TSECallingConvention = (
@@ -1814,7 +1810,6 @@ var
   ScriptVarMap: TSEVarMap;
   GC: TSEGarbageCollector;
   {$ifdef SE_THREADS}
-  GCMarkJob: TSEGarbageCollectorMarkJob;
   GCTicksJob: TSETicksJob;
   PrecomputedTicks: NativeInt;
   {$endif}
@@ -4504,19 +4499,16 @@ end;
 
 procedure SEMapSet(constref V: TSEValue; const I: NativeInt; constref A: TSEValue); inline; overload;
 begin
-  GC.WriteBarrier(V, A);
   V.VarMap^.Set2(I, A);
 end;
 
 procedure SEMapSet(constref V: TSEValue; constref S: String; constref A: TSEValue); inline; overload;
 begin
-  GC.WriteBarrier(V, A);
   V.VarMap^.Set2(@S, A);
 end;
 
 procedure SEMapSet(constref V, I: TSEValue; constref A: TSEValue); inline; overload;
 begin
-  GC.WriteBarrier(V, A);
   case I.Kind of
     sevkString:
       V.VarMap^.Set2(@I.VarString^.Data, A);
@@ -4958,6 +4950,26 @@ begin
   if Self.Kind = sevkMap then
     if SEMapIsValidArray(Self) then
       Result := Self.VarMap^.Shape.GetKeys;
+end;
+
+function TSEValueHelper.IsYoung: Boolean;
+begin
+  Result := Self.VarMap^.Header.Visit < GC.Promotion;
+end;
+
+function TSEValueHelper.IsYoungOrPromoteCandidate: Boolean;
+begin
+  Result := Self.VarMap^.Header.Visit <= GC.Promotion;
+end;
+
+function TSEValueHelper.IsPromoteCandidate: Boolean;
+begin
+  Result := Self.VarMap^.Header.Visit = GC.Promotion;
+end;
+
+function TSEValueHelper.IsOld: Boolean;
+begin
+  Result := Self.VarMap^.Header.Visit > GC.Promotion;
 end;
 
 class function TSEBuiltInFunction.SEBufferCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -5616,7 +5628,6 @@ begin
     begin
       for I := 0 to Args[0].VarMap^.Count - 1 do
       begin
-        GC.WriteBarrier(Args[0], Args[1]);
         Args[0].VarMap^.Items[I] := Args[1];
       end;
     end else
@@ -7427,9 +7438,6 @@ begin
   Self.Count := 0;
   Self.IncSize := 4;
   Self.Capacity := 4;
-  {$ifdef SE_THREADS}
-  InitCriticalSection(Self.FLock);
-  {$endif}
   Self.PossibleKinds := [];
   SetLength(Self.Items, Capacity);
 end;
@@ -7439,26 +7447,7 @@ begin
   Self.Capacity := 0;
   Self.Count := 0;
   Self.Shape := nil;
-  {$ifdef SE_THREADS}
-  DoneCriticalSection(Self.FLock);
-  {$endif}
   SetLength(Self.Items, 0);
-end;
-
-procedure TSEValueMapHelper.Lock;
-begin
-  {$ifdef SE_THREADS}
-  if GC.EnableParallel then
-    EnterCriticalSection(Self.FLock);
-  {$endif}
-end;
-
-procedure TSEValueMapHelper.Unlock;
-begin
-  {$ifdef SE_THREADS}
-  if GC.EnableParallel then
-    LeaveCriticalSection(Self.FLock);
-  {$endif}
 end;
 
 procedure TSEValueMapHelper.ToMap;
@@ -7533,37 +7522,22 @@ begin
 end;
 
 procedure TSEValueMapHelper.Set2(const Key: PSEString; constref AValue: TSEValue; var CacheValue: TSECacheValue);
-
-  procedure Handle; inline;
-  begin
-    if Self.Shape.TryGetOffsetHash(Key^.Hash, Key^.Data, CacheValue.Index) then
-    begin
-      Self.Items[CacheValue.Index] := AValue;
-    end else
-    begin
-      Self.Shape := ShapeManager.AddProperty(Self.Shape, Key^.Data);
-      CacheValue.Index := Self.Shape.PropertyOffset;
-      Self.ExpandArray(CacheValue.Index);
-      Self.Items[CacheValue.Index] := AValue;
-      Self.PossibleKinds := Self.PossibleKinds + [AValue.Kind];
-    end;
-  end;
-
 begin
+  GC.WriteBarrier(Self, AValue);
   if Self.Shape = nil then
     Self.ToMap;
   if Key^.Hash = 0 then
     Key^.Hash := SEHashString(Key^.Data);
-  if GC.Phase = segcpRest then
-    Handle
-  else
+  if Self.Shape.TryGetOffsetHash(Key^.Hash, Key^.Data, CacheValue.Index) then
   begin
-    Self.Lock;
-    try
-      Handle;
-    finally
-      Self.Unlock;
-    end;
+    Self.Items[CacheValue.Index] := AValue;
+  end else
+  begin
+    Self.Shape := ShapeManager.AddProperty(Self.Shape, Key^.Data);
+    CacheValue.Index := Self.Shape.PropertyOffset;
+    Self.ExpandArray(CacheValue.Index);
+    Self.Items[CacheValue.Index] := AValue;
+    Self.PossibleKinds := Self.PossibleKinds + [AValue.Kind];
   end;
   CacheValue.ID := Self.GetID;
 end;
@@ -7571,77 +7545,36 @@ end;
 procedure TSEValueMapHelper.Set2(const Key: PString; constref AValue: TSEValue);
 var
   Index: Integer;
-
-  procedure Handle; inline;
-  begin
-    if Self.Shape.TryGetOffset(Key^, Index) then
-    begin
-      Self.Items[Index] := AValue;
-    end else
-    begin
-      Self.Shape := ShapeManager.AddProperty(Self.Shape, Key^);
-      Index := Self.Shape.PropertyOffset;
-      Self.ExpandArray(Index);
-      Self.Items[Index] := AValue;
-      Self.PossibleKinds := Self.PossibleKinds + [AValue.Kind];
-    end;
-  end;
-
 begin
+  GC.WriteBarrier(Self, AValue);
   if Self.Shape = nil then
     Self.ToMap;
-  if GC.Phase = segcpRest then
-    Handle
-  else
+  if Self.Shape.TryGetOffset(Key^, Index) then
   begin
-    Self.Lock;
-    try
-      Handle;
-    finally
-      Self.Unlock;
-    end;
-  end;
-end;
-
-procedure TSEValueMapHelper.Set2(const Index: NativeInt; constref AValue: TSEValue);
-  procedure Handle; inline;
+    Self.Items[Index] := AValue;
+  end else
   begin
+    Self.Shape := ShapeManager.AddProperty(Self.Shape, Key^);
+    Index := Self.Shape.PropertyOffset;
     Self.ExpandArray(Index);
     Self.Items[Index] := AValue;
     Self.PossibleKinds := Self.PossibleKinds + [AValue.Kind];
   end;
-begin
-  if GC.Phase = segcpRest then
-    Handle
-  else
-  begin
-    Self.Lock;
-    try
-      Handle;
-    finally
-      Self.Unlock;
-    end;
-  end;
 end;
 
-procedure TSEValueMapHelper.Set2NoBoundCheck(const Index: NativeInt; constref AValue: TSEValue);
-  procedure Handle; inline;
-  begin
-    Self.Items[Index] := AValue;
-    Self.PossibleKinds := Self.PossibleKinds + [AValue.Kind];
-  end;
+procedure TSEValueMapHelper.Set2(const Index: NativeInt; constref AValue: TSEValue);
 begin
-  if GC.Phase = segcpRest then
-    Handle
-  else
-  begin
-    Self.Lock;
-    try
-      Handle;
-    finally
-      Self.Unlock;
-    end;
-  end;
+  GC.WriteBarrier(Self, AValue);
+  Self.ExpandArray(Index);
+  Self.Items[Index] := AValue;
+  Self.PossibleKinds := Self.PossibleKinds + [AValue.Kind];
+end;
+
+procedure TSEValueMapHelper.Set2Fast(const Index: NativeInt; constref AValue: TSEValue);
+begin
+  GC.WriteBarrier(Self, AValue);
+  Self.Items[Index] := AValue;
+  Self.PossibleKinds := Self.PossibleKinds + [AValue.Kind];
 end;
 
 procedure TSEValueMapHelper.Del2(const Key: PString);
@@ -7650,23 +7583,18 @@ var
   NewValues: array of TSEValue;
   I: Integer;
 begin
-  Self.Lock;
-  try
-    Self.Shape := ShapeManager.RemoveProperty(Self.Shape, Key^);
-    if Self.Shape.NeedsCompaction then
-    begin
-      Self.Shape := ShapeManager.Compact(Self.Shape, Remap);
-      SetLength(NewValues, Self.Shape.SlotCount + Self.IncSize);
-      for I := 0 to High(Remap) do
-        if Remap[I] >= 0 then
-          NewValues[Remap[I]] := Self.Items[I];
-      //
-      Self.Count := Self.Shape.SlotCount;
-      Self.Capacity := Self.Count + Self.IncSize;
-      Self.Items := NewValues;
-    end;
-  finally
-    Self.Unlock;
+  Self.Shape := ShapeManager.RemoveProperty(Self.Shape, Key^);
+  if Self.Shape.NeedsCompaction then
+  begin
+    Self.Shape := ShapeManager.Compact(Self.Shape, Remap);
+    SetLength(NewValues, Self.Shape.SlotCount + Self.IncSize);
+    for I := 0 to High(Remap) do
+      if Remap[I] >= 0 then
+        NewValues[Remap[I]] := Self.Items[I];
+    //
+    Self.Count := Self.Shape.SlotCount;
+    Self.Capacity := Self.Count + Self.IncSize;
+    Self.Items := NewValues;
   end;
 end;
 
@@ -7676,14 +7604,9 @@ var
 begin
   if Index <= Self.Count - 1 then
   begin
-    Self.Lock;
-    try
-      for I := Index to Count - 2 do
-        Self.Items[I] := Self.Items[I + 1];
-      Dec(Self.Count);
-    finally
-      Self.Unlock;
-    end;
+    for I := Index to Count - 2 do
+      Self.Items[I] := Self.Items[I + 1];
+    Dec(Self.Count);
   end;
 end;
 
@@ -7696,17 +7619,7 @@ begin
   begin
     if Self.Shape.TryGetOffset(Key^, Index) then
     begin
-      if GC.Phase = segcpRest then
-        Result := Self.Items[Index]
-      else
-      begin
-        Self.Lock;
-        try
-          Result := Self.Items[Index];
-        finally
-          Self.Unlock;
-        end;
-      end;
+      Result := Self.Items[Index];
     end;
   end;
 end;
@@ -7720,17 +7633,7 @@ begin
       Key^.Hash := SEHashString(Key^.Data);
     if Self.Shape.TryGetOffsetHash(Key^.Hash, Key^.Data, CacheValue.Index) then
     begin
-      if GC.Phase = segcpRest then
-        Result := Self.Items[CacheValue.Index]
-      else
-      begin
-        Self.Lock;
-        try
-          Result := Self.Items[CacheValue.Index];
-        finally
-          Self.Unlock;
-        end;
-      end;
+      Result := Self.Items[CacheValue.Index];
     end;
     CacheValue.ID := Self.GetID;
   end;
@@ -7739,35 +7642,9 @@ end;
 function TSEValueMapHelper.Get2(const Index: NativeUInt): TSEValue;
 begin
   if Index <= Self.Count - 1 then
-  begin
-    if GC.Phase = segcpRest then
-      Result := Self.Items[Index]
-    else
-    begin
-      Self.Lock;
-      try
-        Result := Self.Items[Index];
-      finally
-        Self.Unlock;
-      end;
-    end;
-  end else
-    Result := SENull;
-end;
-
-function TSEValueMapHelper.Get2NoBoundaryCheck(const Index: NativeUInt): TSEValue;
-begin
-  if GC.Phase = segcpRest then
     Result := Self.Items[Index]
   else
-  begin
-    Self.Lock;
-    try
-      Result := Self.Items[Index];
-    finally
-      Self.Unlock;
-    end;
-  end;
+    Result := SENull;
 end;
 
 function TSEValueMapHelper.GetID: Cardinal;
@@ -7788,6 +7665,11 @@ begin
   Self.Capacity := 4;
   Self.PossibleKinds := [];
   SetLength(Self.Items, Self.Capacity);
+end;
+
+function TSEValueMapHelper.IsOld: Boolean;
+begin
+  Result := Self.Header.Visit > GC.Promotion;
 end;
 
 function DumpCallStack: String;
@@ -7825,36 +7707,6 @@ begin
 end;
 
 {$ifdef SE_THREADS}
-constructor TSEGarbageCollectorMarkJob.Create;
-begin
-  inherited Create(True);
-end;
-
-destructor TSEGarbageCollectorMarkJob.Destroy;
-begin
-  inherited;
-end;
-
-procedure TSEGarbageCollectorMarkJob.Execute;
-var
-  I: NativeInt;
-begin
-  while True do
-  begin
-    if Self.Terminated then
-      Exit;
-    if GC.Phase = segcpMark then
-    begin
-      {$ifdef SE_LOG}
-      Writeln('[GC] ', GC.Phase);
-      {$endif}
-      for I := 0 to GC.ReachableValueList.Count - 1 do
-        GC.Mark(GC.ReachableValueList.Ptr(I));
-      Self.Suspend;
-    end;
-  end;
-end;
-
 procedure TSETicksJob.Execute;
 begin
   while True do
@@ -7886,17 +7738,18 @@ begin
   Self.FNodeAvailStack := TSEGCNodeAvailStack.Create;
   Self.FNodeAvailStack.Capacity := 8192;
   Self.FTicks := GetTickCount64;
-  Self.Interval := 2000;
+  Self.Interval := 1000;
   Self.FPromotion := 2;
   Self.FOldObjectCheckCycle := 10;
-  Self.FObjectThreshold := 7000;
+  Self.FObjectThreshold := 700;
   Self.FReachableValueList := TSEValueList.Create;
   Self.FReachableValueList.Capacity := 2048;
   Self.FRemainingGrayValueList := TSEValueList.Create;
   Self.FRemainingGrayValueList.Capacity := 128;
-  Self.FGrayValueQueue := TSEValueQueue.Create;
+  Self.FRememberedNodeList := TSEIntegerList.Create;
+  Self.FGrayValueQueue := TSEValueMark.Create;
   Self.FVMThreadList := TSEVMList.Create;
-  Self.EnableParallel := True;
+  Self.FEnableGenerational := False;
 end;
 
 destructor TSEGarbageCollector.Destroy;
@@ -7905,14 +7758,14 @@ var
   Value: PSEGCNode;
 begin
   I := Self.FNodeLastOld;
-  while I <> 0 do
+  while I <> 2 do
   begin
     Value := Self.FNodeList.Ptr(I);
     Self.ResetColor(Value);
     I := Value^.Prev;
   end;
   I := Self.FNodeLastYoung;
-  while I <> 0 do
+  while I <> 1 do
   begin
     Value := Self.FNodeList.Ptr(I);
     Self.ResetColor(Value);
@@ -7926,6 +7779,7 @@ begin
   Self.FRemainingGrayValueList.Free;
   Self.FGrayValueQueue.Free;
   Self.FVMThreadList.Free;
+  Self.FRememberedNodeList.Free;
   {$ifdef SE_THREADS}
   DoneCriticalSection(Self.FLock);
   {$endif}
@@ -7934,23 +7788,24 @@ end;
 
 procedure TSEGarbageCollector.AddToList(const PValue: PSEValue); inline;
 var
-  Value: TSEGCNode;
+  Node: TSEGCNode;
 begin
-  Value := Default(TSEGCNode);
-  Value.Color := Cardinal(segccBlack);
-  Value.Prev := Self.FNodeLastYoung;
+  Node := Default(TSEGCNode);
+  PValue^.VarMap^.Header := Default(TSEValueHeader);
+  PValue^.VarMap^.Header.Color := Cardinal(segccBlack);
+  Node.Prev := Self.FNodeLastYoung;
   if Self.FNodeAvailStack.Count = 0 then
   begin
     PValue^.Ref := Self.FNodeList.Count;
-    Value.Value := PValue^;
-    Self.FNodeList.Add(Value);
+    Node.Value := PValue^;
+    Self.FNodeList.Add(Node);
   end else
   begin
     PValue^.Ref := Self.FNodeAvailStack.Pop;
-    Value.Value := PValue^;
-    Self.FNodeList[PValue^.Ref] := Value;
+    Node.Value := PValue^;
+    Self.FNodeList[PValue^.Ref] := Node;
   end;
-  PValue^.VarMap^.Ref := PValue^.Ref;
+  PValue^.VarMap^.Header.Ref := PValue^.Ref;
   Self.FNodeList.Ptr(Self.FNodeLastYoung)^.Next := PValue^.Ref;
   Self.FNodeLastYoung := PValue^.Ref;
   Inc(Self.FObjects);
@@ -7969,86 +7824,137 @@ begin
   Self.FInterval := AValue;
 end;
 
-procedure TSEGarbageCollector.ResetColor(const AValue: PSEGCNode);
+procedure TSEGarbageCollector.ResetColor(const ANode: PSEGCNode);
+var
+  ValueMap: PSEValueMap;
 begin
-  if not AValue^.Lock then
-    AValue^.Color := Cardinal(segccWhite)
+  ValueMap := ANode^.Value.VarMap;
+  if not ValueMap^.Header.Lock then
+    ValueMap^.Header.Color := Cardinal(segccWhite)
   else
-    AValue^.Color := Cardinal(segccGray);
+    ValueMap^.Header.Color := Cardinal(segccGray);
 end;
 
 procedure TSEGarbageCollector.Initial;
+
+  procedure ExtractYoungValues(const Node: PSEGCNode); inline;
+  var
+    Value, ItemValue: TSEValue;
+    J: NativeInt;
+    Key: String;
+  begin
+    Value := Node^.Value;
+    if Value.IsValidArray then
+    begin
+      for J := 0 to Length(Value.VarMap^.Items) - 1 do
+      begin
+        ItemValue := Value.VarMap^.Items[J];
+        if not (ItemValue.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer]) then
+          continue;
+        if ItemValue.IsYoung then
+        begin
+          Self.FReachableValueList.Add(ItemValue);
+        end else
+        // Because we cannot put a promote candidate value into root
+        // We attempt to rescan the old value if a promote candidate value is found
+        if ItemValue.IsPromoteCandidate then
+        begin
+          Self.ResetColor(Node);
+          Self.FReachableValueList.Add(Value);
+          Exit;
+        end;
+      end;
+    end else
+    begin
+      for Key in Value.GetKeys do
+      begin
+        ItemValue := Value.VarMap^.Get2(@Key);
+        if not (ItemValue.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer]) then
+          continue;
+        if ItemValue.IsYoung then
+        begin
+          Self.FReachableValueList.Add(ItemValue);
+        end else
+        // Because we cannot put a promote candidate value into root
+        // We attempt to rescan the old value if a promote candidate value is found
+        if ItemValue.IsPromoteCandidate then
+        begin
+          Self.ResetColor(Node);
+          Self.FReachableValueList.Add(Value);
+          Exit;
+        end;
+      end;
+    end;
+  end;
+
 var
-  I, J: NativeInt;
-  Value, PrevValue: PSEGCNode;
+  I, NodeIndex, J: NativeInt;
+  Node: PSEGCNode;
 begin
+  Self.FReachableValueList.Count := 0;
   Self.FRemainingGrayValueList.Count := 0;
   if Self.FRunCount mod Self.FOldObjectCheckCycle = 0 then
   begin
     I := Self.FNodeLastOld;
-    while I <> 0 do
+    while I <> 2 do
     begin
-      Value := Self.FNodeList.Ptr(I);
-      Self.ResetColor(Value);
-      I := Value^.Prev;
+      Node := Self.FNodeList.Ptr(I);
+      I := Node^.Prev;
+      Self.ResetColor(Node);
+    end;
+    I := Self.FNodeLastYoung;
+    while I <> 1 do
+    begin
+      Node := Self.FNodeList.Ptr(I);
+      I := Node^.Prev;
+      Self.ResetColor(Node);
     end;
   end else
   begin
     I := Self.FNodeLastYoung;
-    while I <> 0 do
+    while I <> 1 do
     begin
-      Value := Self.FNodeList.Ptr(I);
-      J := I;
-      I := Value^.Prev;
-      if Value^.Visit >= Self.FPromotion then
-      begin
-        // Detach from young generation                        5
-        if J <> Self.FNodeLastYoung then
-        begin
-          PrevValue := Self.FNodeList.Ptr(Value^.Prev);
-          PrevValue^.Next := Value^.Next;
-          Self.FNodeList.Ptr(Value^.Next)^.Prev := Value^.Prev;
-        end else
-        begin
-          Self.FNodeLastYoung := Value^.Prev;
-          Self.FNodeList.Ptr(Self.FNodeLastYoung)^.Next := 0;
-        end;
-        // Attach to old generation
-        Value^.Prev := Self.FNodeLastOld;
-        Value^.Next := 0;
-        Self.FNodeList.Ptr(Self.FNodeLastOld)^.Next := J;
-        Self.FNodeLastOld := J;
-        Inc(Self.FObjectsOld);
-      end else
-      begin
-        Self.ResetColor(Value);
-        Inc(Value^.Visit);
-      end;
+      Node := Self.FNodeList.Ptr(I);
+      I := Node^.Prev;
+      Self.ResetColor(Node);
+    end;
+    // Extract the young or promote candidate values from the old values
+    for I := Self.FRememberedNodeList.Count - 1 downto 0 do
+    begin
+      NodeIndex := Self.FRememberedNodeList[I];
+      Node := Self.FNodeList.Ptr(NodeIndex);
+      Self.ResetColor(Node);
+      Self.FReachableValueList.Add(Node^.Value);
+    //  ExtractYoungValues(Node);
     end;
   end;
 end;
 
 procedure TSEGarbageCollector.Sweep(const AFirst: Cardinal); inline;
 var
-  Value: PSEGCNode;
-  I, MS: NativeInt;
+  Node, PrevNode: PSEGCNode;
+  I, J, MS, NodeIndex: NativeInt;
+  Key: String;
   LastPtr: PCardinal;
+  IsYoungReference: Boolean;
+  Value, ItemValue: TSEValue;
 
-  procedure Detach;
+  procedure Detach; inline;
   var
-    PrevValue: PSEGCNode;
+    PrevNode: PSEGCNode;
   begin
     if I <> LastPtr^ then
     begin
-      PrevValue := Self.FNodeList.Ptr(Value^.Prev);
-      PrevValue^.Next := Value^.Next;
-      Self.FNodeList.Ptr(Value^.Next)^.Prev := Value^.Prev;
+      PrevNode := Self.FNodeList.Ptr(Node^.Prev);
+      PrevNode^.Next := Node^.Next;
+      Self.FNodeList.Ptr(Node^.Next)^.Prev := Node^.Prev;
     end else
     begin
-      LastPtr^ := Value^.Prev;
+      LastPtr^ := Node^.Prev;
       Self.FNodeList.Ptr(LastPtr^)^.Next := 0;
     end;
-    Value^.Value := Default(TSEValue);
+    Node^.Value := Default(TSEValue);
+    Node^.Value.VarMap := nil;
     Self.FNodeAvailStack.Push(I);
     Dec(Self.FObjects);
     if AFirst = 2 then
@@ -8063,54 +7969,138 @@ begin
       raise Exception.Create('AFirst must be 1 or 2!');
   end;
   I := LastPtr^;
-  while I <> 0 do
+  while I <> AFirst do
   begin
-    Value := Self.FNodeList.Ptr(I);
-    if Value^.Color = Cardinal(segccWhite) then
+    Node := Self.FNodeList.Ptr(I);
+    if Node^.Value.VarMap^.Header.Color = Cardinal(segccWhite) then
     begin
-      case Value^.Value.Kind of
+      case Node^.Value.Kind of
         sevkMap:
           begin
-            if Value^.Value.VarMap <> nil then
+            if Node^.Value.VarMap <> nil then
             begin
-              Value^.Value.VarMap^.Done;
-              Dispose(Value^.Value.VarMap);
+              Node^.Value.VarMap^.Done;
+              Dispose(Node^.Value.VarMap);
             end;
             Detach;
           end;
         sevkString:
           begin
-            if Value^.Value.VarString <> nil then
+            if Node^.Value.VarString <> nil then
             begin
-              Dispose(Value^.Value.VarString);
+              Dispose(Node^.Value.VarString);
             end;
             Detach;
           end;
         sevkBuffer:
           begin
-            if Value^.Value.VarBuffer <> nil then
+            if Node^.Value.VarBuffer <> nil then
             begin
-              if Value^.Value.VarBuffer^.Base <> nil then
+              if Node^.Value.VarBuffer^.Base <> nil then
               begin
-                FreeMem(Value^.Value.VarBuffer^.Base);
+                FreeMem(Node^.Value.VarBuffer^.Base);
               end;
-              Dispose(Value^.Value.VarBuffer);
+              Dispose(Node^.Value.VarBuffer);
             end;
             Detach;
           end;
         sevkPascalObject:
           begin
-            if Value^.Value.VarPascalObject <> nil then
+            if Node^.Value.VarPascalObject <> nil then
             begin
-              if Value^.Value.VarPascalObject^.IsManaged then
-                Value^.Value.VarPascalObject^.Value.Free;
-              Dispose(Value^.Value.VarPascalObject);
+              if Node^.Value.VarPascalObject^.IsManaged then
+                Node^.Value.VarPascalObject^.Value.Free;
+              Dispose(Node^.Value.VarPascalObject);
             end;
             Detach;
           end;
       end;
     end;
-    I := Value^.Prev;
+    J := I;
+    I := Node^.Prev;
+    // Node survived, check to see if we need to promote it
+    if (AFirst = 1) and (Node^.Value.VarBuffer <> nil) then
+    begin
+      // Promote here
+      if Node^.Value.IsPromoteCandidate then
+      begin
+        // Detach from young generation
+        if J <> Self.FNodeLastYoung then
+        begin
+          PrevNode := Self.FNodeList.Ptr(Node^.Prev);
+          PrevNode^.Next := Node^.Next;
+          Self.FNodeList.Ptr(Node^.Next)^.Prev := Node^.Prev;
+        end else
+        begin
+          Self.FNodeLastYoung := Node^.Prev;
+          Self.FNodeList.Ptr(Self.FNodeLastYoung)^.Next := 0;
+        end;
+        // Attach to old generation
+        Node^.Prev := Self.FNodeLastOld;
+        Node^.Next := 0;
+        Self.FNodeList.Ptr(Self.FNodeLastOld)^.Next := J;
+        Self.FNodeLastOld := J;
+        Inc(Self.FObjectsOld);
+        // Put it to remembered set to check for young nodes later
+        // When we rebuild the remembered set
+        if Node^.Value.Kind = sevkMap then
+        begin
+          Node^.Value.VarMap^.Header.Remembered := True;
+          Self.FRememberedNodeList.Add(J);
+        end;
+      end;
+      // Visit will stop increase once the node is old
+      if Self.FEnableGenerational then
+        Inc(Node^.Value.VarMap^.Header.Visit)
+      else
+        Node^.Value.VarMap^.Header.Visit := 0;
+    end;
+  end;
+  // Rebuild remembered set
+  for I := Self.FRememberedNodeList.Count - 1 downto 0 do
+  begin
+    IsYoungReference := False;
+    NodeIndex := Self.FRememberedNodeList[I];
+    Node := Self.FNodeList.Ptr(NodeIndex);
+    Value := Node^.Value;
+    // Tombstone found, remove from remembered set
+    if Value.VarMap = nil then
+    begin
+      Self.FRememberedNodeList.Delete(I);
+      continue;
+    end;
+    if Value.IsValidArray then
+    begin
+      for J := 0 to Length(Value.VarMap^.Items) - 1 do
+      begin
+        ItemValue := Value.VarMap^.Items[J];
+        if not (ItemValue.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer]) then
+          continue;
+        if ItemValue.IsYoungOrPromoteCandidate then
+        begin
+          IsYoungReference := True;
+          break;
+        end;
+      end;
+    end else
+    begin
+      for Key in Value.GetKeys do
+      begin
+        ItemValue := Value.VarMap^.Get2(@Key);
+        if not (ItemValue.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer]) then
+          continue;
+        if ItemValue.IsYoungOrPromoteCandidate then
+        begin
+          IsYoungReference := True;
+          break;
+        end;
+      end;
+    end;
+    if not IsYoungReference then
+    begin
+      Self.FRememberedNodeList.Delete(I);
+      Value.VarMap^.Header.Remembered := False;
+    end;
   end;
   Self.FObjectsLastTimeVisited := Self.FObjects;
 end;
@@ -8118,87 +8108,72 @@ end;
 procedure TSEGarbageCollector.Mark(const PValue: PSEValue);
 var
   Node: PSEGCNode;
-  RValue: TSEValue;
+  NodeValue: TSEValue;
+  NodeVarMap: PSEValueMap;
   Key: String;
   I: NativeInt;
   VArray: TSEValueArray;
-  ValueLocal: TSEValue;
+  QValue,
+  QCurrentValue: TSEValue;
+
 begin
-  Self.FGrayValueQueue.Enqueue(PValue^);
+  QCurrentValue := PValue^;
+  Self.FGrayValueQueue.Enqueue(QCurrentValue);
   while Self.FGrayValueQueue.Count > 0 do
   begin
-    ValueLocal := Self.FGrayValueQueue.Dequeue;
-    if not (ValueLocal.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
+    QCurrentValue := Self.FGrayValueQueue.Dequeue;
+    if not (QCurrentValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
       continue;
-    GlobalLock;
-    try
-      if (ValueLocal.Ref >= Self.FNodeList.Count) or (ValueLocal.Ref = 0) then
+
+    if (QCurrentValue.Ref >= Self.FNodeList.Count) or (QCurrentValue.Ref = 0) then
+      continue;
+    Node := Self.FNodeList.Ptr(QCurrentValue.Ref);
+    NodeValue := Node^.Value;
+    NodeVarMap := NodeValue.VarMap;
+
+    if NodeValue.VarPointer = QCurrentValue.VarPointer then
+    begin
+      if (NodeVarMap^.Header.Color = Cardinal(segccBlack)) then
         continue;
-      Node := Self.FNodeList.Ptr(ValueLocal.Ref);
-      if Node^.Marked >= Self.FRunCount then
-        continue;
-      if Node^.Value.VarPointer = ValueLocal.VarPointer then
+      {$ifdef SE_THREADS}
+      InterlockedExchange(NodeVarMap^.Header.Color, Cardinal(segccBlack));
+      {$else}
+      NodeVarMap^.Header.Color := Cardinal(segccBlack);
+      {$endif}
+      if (NodeValue.Kind = sevkMap) and (QCurrentValue.VarMap <> nil) then
       begin
-        {$ifdef SE_THREADS}
-        InterlockedExchange(Node^.Color, Cardinal(segccBlack));
-        {$else}
-        Node^.Color := Cardinal(segccBlack);
-        {$endif}
-        Node^.Marked := Self.FRunCount;
-        if (Node^.Value.Kind = sevkMap) and (ValueLocal.VarMap <> nil) then
+        if SEMapIsValidArray(QCurrentValue) then
         begin
-          if SEMapIsValidArray(ValueLocal) then
+          VArray := QCurrentValue.VarMap^.Items;
+          for I := 0 to Length(VArray) - 1 do
           begin
-            ValueLocal.VarMap^.Lock;
-            try
-              VArray := ValueLocal.VarMap^.Items;
-              for I := 0 to Length(VArray) - 1 do
-              begin
-                RValue := VArray[I];
-                if not (RValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
-                  Continue;
-                Self.FGrayValueQueue.Enqueue(RValue);
-              end;
-            finally
-              ValueLocal.VarMap^.Unlock;
-            end;
-          end else
+            QValue := VArray[I];
+            if not (QValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
+              Continue;
+            Self.FGrayValueQueue.Enqueue(QValue);
+          end;
+        end else
+        begin
+          VArray := QCurrentValue.VarMap^.Items;
+          // Only mark shapes in single thread mode
+          ShapeManager.Mark(QCurrentValue.VarMap^.Shape);
+          for Key in QCurrentValue.VarMap^.Shape.GetKeys do
           begin
-            ValueLocal.VarMap^.Lock;
-            try
-              VArray := ValueLocal.VarMap^.Items;
-              // Only mark shapes in single thread mode
-              if not Self.EnableParallel then
-                ShapeManager.Mark(ValueLocal.VarMap^.Shape);
-              for Key in ValueLocal.VarMap^.Shape.GetKeys do
-              begin
-                RValue := ValueLocal.VarMap^.Get2(@Key);
-                if not (RValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
-                  Continue;
-                Self.FGrayValueQueue.Enqueue(RValue);
-              end;
-            finally
-              ValueLocal.VarMap^.Unlock;
-            end;
+            QValue := QCurrentValue.VarMap^.Get2(@Key);
+            if not (QValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
+              Continue;
+            Self.FGrayValueQueue.Enqueue(QValue);
           end;
         end;
       end;
-    finally
-      GlobalUnlock;
     end;
   end;
 end;
 
 procedure TSEGarbageCollector.GC(const Forced: Boolean = False);
 var
-  Value: PSEGCNode;
-  PrevValue: PSEGCNode;
   P, P2: PSEValue;
-  V: TSEValue;
   VM: TSEVM;
-  I: NativeInt;
-  Key: String;
-  Binary: TSEBinary;
   {$ifdef SE_PROFILER}
   ProfilerItem: TSEProfilerItem;
   {$endif}
@@ -8257,19 +8232,35 @@ var
   procedure Marking;
 
     procedure ScanRoot;
+
+      procedure AddReachableValue(constref AValue: TSEValue); inline;
+      var
+        Node: PSEGCNode;
+      begin
+        if not (AValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
+          exit;
+        if (AValue.Ref >= Self.FNodeList.Count) or (AValue.Ref = 0) then
+          exit;
+        Node := Self.FNodeList.Ptr(AValue.Ref);
+        // Check to see if this is an invalid node
+        if (AValue.VarPointer = nil) or (Node^.Value.VarPointer <> AValue.VarPointer) then
+        begin
+          exit;
+        end;
+        AValue.VarMap^.Header.Color := Cardinal(segccGray);
+        Self.FReachableValueList.Add(AValue);
+      end;
+
     var
       I, J: NativeInt;
-      ValueLocal: TSEValue;
-      Node: PSEGCNode;
     begin
-      Self.FReachableValueList.Count := 0;
       for I := 0 to VMList.Count - 1 do
       begin
         VM := VMList[I];
         P := @VM.Stack[0];
         while P < VM.StackPtr do
         begin
-          Self.FReachableValueList.Add(P^);
+          AddReachableValue(P^);
           Inc(P);
         end;
         if VM.Owner = nil then
@@ -8278,27 +8269,16 @@ var
           P2 := @VM.Global.Value^.Data[VM.Global.Value^.Size - 1];
           while P <= P2 do
           begin
-            Self.FReachableValueList.Add(P^);
+            AddReachableValue(P^);
             Inc(P);
           end;
           for J := 0 to VM.Parent.ConstList.Count - 1 do
           begin
-            Self.FReachableValueList.Add(VM.Parent.ConstList[J]);
+            AddReachableValue(VM.Parent.ConstList[J]);
           end;
         end;
       end;
-      Self.FReachableValueList.Add(ScriptVarMap);
-      // Mark root objects as gray
-      for I := 0 to Self.FReachableValueList.Count - 1 do
-      begin
-        ValueLocal := Self.FReachableValueList[I];
-        if not (ValueLocal.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
-          continue;
-        if (ValueLocal.Ref >= Self.FNodeList.Count) or (ValueLocal.Ref = 0) then
-          continue;
-        Node := Self.FNodeList.Ptr(ValueLocal.Ref);
-        Node^.Color := Cardinal(segccGray);
-      end;
+      AddReachableValue(ScriptVarMap);
     end;
 
     procedure MarkDeep;
@@ -8309,54 +8289,25 @@ var
         Self.Mark(Self.FReachableValueList.Ptr(I));
     end;
 
-  var
-    EnableParallelBackup: Boolean;
   begin
     {$ifdef SE_LOG}
-    Writeln('[GC] EnableParallel before marking: ', Self.EnableParallel);
+    Writeln('[GC] Start marking (single thread)');
     {$endif}
-  {$ifdef SE_THREADS}
-    EnableParallelBackup := Self.EnableParallel;
+    ShapeManager.BeginMark;
+    ScanRoot;
+    MarkDeep;
+
+    Self.FPhase := segcpSweep;
     if ShapeManager.ShapeCount - ShapeManager.LastShapeCount > ShapeManager.ShapeCeiling then
     begin
-      Self.EnableParallel := False;
-    end;
-    if Self.EnableParallel then
-    begin
       {$ifdef SE_LOG}
-      Writeln('[GC] Start marking (concurrent)');
+      Writeln('[GC] Shape count before sweep: ', ShapeManager.ShapeCount);
       {$endif}
-      ScanRoot;
-      GCMarkJob.Resume;
-    end else
-  {$endif}
-    begin
+      ShapeManager.Sweep;
       {$ifdef SE_LOG}
-      Writeln('[GC] Start marking (single thread)');
-      {$endif}
-      ShapeManager.BeginMark;
-      ScanRoot;
-      MarkDeep;
-
-      Self.FPhase := segcpSweep;
-      if ShapeManager.ShapeCount - ShapeManager.LastShapeCount > ShapeManager.ShapeCeiling then
-      begin
-        {$ifdef SE_LOG}
-        Writeln('[GC] Shape count before sweep: ', ShapeManager.ShapeCount);
-        {$endif}
-        ShapeManager.Sweep;
-        {$ifdef SE_LOG}
-        Writeln('[GC] Shape count after sweep: ', ShapeManager.ShapeCount);
-        {$endif}
-      end;
-
-      {$ifdef SE_THREADS}
-      Self.EnableParallel := EnableParallelBackup;
+      Writeln('[GC] Shape count after sweep: ', ShapeManager.ShapeCount);
       {$endif}
     end;
-    {$ifdef SE_LOG}
-    Writeln('[GC] EnableParallel after marking: ', Self.EnableParallel);
-    {$endif}
   end;
 
 begin
@@ -8382,19 +8333,20 @@ begin
   {$ifdef SE_CGE_PROFILER}
   FrameProfiler.Start('TEvilC.GC');
   {$endif}
+  SuspendThreads;
   try
     try
       if Self.FPhase = segcpRest then
       begin
         Self.FPhase := segcpInitial;
-        SuspendThreads;
         Inc(Self.FRunCount);
         {$ifdef SE_LOG}
         Writeln('[GC] Start #', Self.FRunCount);
         Writeln('[GC] ', Self.FPhase);
-        Writeln('[GC] Number of objects before cleaning: ', Self.FObjects);
-        Writeln('[GC] Number of old objects before cleaning: ', Self.FObjectsOld);
+        Writeln('[GC] Number of objects: ', Self.FObjects);
+        Writeln('[GC] Number of old objects: ', Self.FObjectsOld);
         Writeln('[GC] Number of objects in object pool: ', Self.FNodeAvailStack.Count);
+        Writeln('[GC] Number of old - young references: ', Self.FRememberedNodeList.Count);
         {$endif}
         {$ifdef SE_PROFILER}
         ProfilerItem.FuncName := 'GC <Mark>';
@@ -8410,28 +8362,14 @@ begin
         {$ifdef SE_PROFILER}
         SEProfiler.AddReport(ProfilerItem);
         {$endif}
-        if Self.EnableParallel then
-        begin
-          {$ifdef SE_LOG}
-          Writeln('[GC] Parallel is enabled, waiting for next visit.');
-          {$endif}
-          Exit;
-        end;
       end;
 
-      // Wait for the thread to finish it's job
-      {$ifdef SE_THREADS}
-      if Self.EnableParallel then
-        if (Self.FPhase = segcpMark) and (not GCMarkJob.Suspended) then
-          Exit;
-
-      SuspendThreads;
       if Self.FRemainingGrayValueList.Count > 0 then
-        Self.FPhase := segcpMarkGray
+        Self.FPhase := segcpMarkRemaining
       else
         Self.FPhase := segcpSweep;
 
-      if Self.FPhase = segcpMarkGray then
+      if Self.FPhase = segcpMarkRemaining then
       begin
         {$ifdef SE_LOG}
         Writeln('[GC] ', Self.FPhase);
@@ -8440,11 +8378,9 @@ begin
         MarkingRemainingGrayValues;
         Self.FPhase := segcpSweep;
       end;
-      {$endif}
 
       if Self.FPhase = segcpSweep then
       begin
-        SuspendThreads;
         {$ifdef SE_LOG}
         Writeln('[GC] ', Self.FPhase);
         {$endif}
@@ -8463,13 +8399,11 @@ begin
         SEProfiler.AddReport(ProfilerItem);
         {$endif}
         {$ifdef SE_LOG}
-        Writeln('[GC] Number of objects after cleaning: ', Self.FObjects);
-        Writeln('[GC] Number of old objects after cleaning: ', Self.FObjectsOld);
+        Writeln('[GC] Number of objects after sweeping: ', Self.FObjects);
+        Writeln('[GC] Number of old objects after sweeping: ', Self.FObjectsOld);
         Writeln('[GC] Number of objects in object pool: ', Self.FNodeAvailStack.Count);
+        Writeln('[GC] Number of old - young references after sweeping: ', Self.FRememberedNodeList.Count);
         Writeln('[GC] Time: ', GetTickCount64 - Self.FTicks, 'ms');
-        {$endif}
-        {$ifdef SE_THREADS}
-        ResumeThreads;
         {$endif}
       end;
     except
@@ -8505,8 +8439,9 @@ begin
     New(PValue^.VarBuffer);
     if Size > 0 then
     begin
-      GetMem(PValue^.VarBuffer^.Base, Size + 16);
-      PValue^.VarBuffer^.Ptr := Pointer(NativeUInt(PValue^.VarBuffer^.Base) + NativeUInt(PValue^.VarBuffer^.Base) mod 16);
+      GetMem(PValue^.VarBuffer^.Base, Size);
+      // PValue^.VarBuffer^.Ptr := Pointer(NativeUInt(PValue^.VarBuffer^.Base)) + ((16 - Pointer(NativeUInt(PValue^.VarBuffer^.Base) mod 16)) mod 16);
+      PValue^.VarBuffer^.Ptr := PValue^.VarBuffer^.Base;//Pointer(NativeUInt(PValue^.VarBuffer^.Base) + NativeUInt(PValue^.VarBuffer^.Base) mod 16);
     end else
     begin
       PValue^.VarBuffer^.Base := nil;
@@ -8561,15 +8496,15 @@ end;
 
 procedure TSEGarbageCollector.UnManaged(const PValue: PSEValue);
 var
-  Value: TSEGCNode;
+  Node: TSEGCNode;
 begin
   GlobalLock;
   try
     if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) and (PValue^.Kind <> sevkPascalObject) then
       Exit;
-    Value := Self.FNodeList[PValue^.Ref];
-    Value.Lock := True;
-    Self.FNodeList[PValue^.Ref] := Value;
+    Node := Self.FNodeList[PValue^.Ref];
+    Node.Value.VarMap^.Header.Lock := True;
+    Self.FNodeList[PValue^.Ref] := Node;
   finally
     GlobalUnlock;
   end;
@@ -8577,85 +8512,87 @@ end;
 
 procedure TSEGarbageCollector.Managed(const PValue: PSEValue);
 var
-  Value: TSEGCNode;
+  Node: TSEGCNode;
 begin
   GlobalLock;
   try
     if (PValue^.Kind <> sevkMap) and (PValue^.Kind <> sevkString) and (PValue^.Kind <> sevkBuffer) and (PValue^.Kind <> sevkPascalObject) then
       Exit;
-    Value := Self.FNodeList[PValue^.Ref];
-    Value.Lock := False;
-    Self.FNodeList[PValue^.Ref] := Value;
+    Node := Self.FNodeList[PValue^.Ref];
+    Node.Value.VarMap^.Header.Lock := False;
+    Self.FNodeList[PValue^.Ref] := Node;
   finally
     GlobalUnlock;
   end;
 end;
 
-procedure TSEGarbageCollector.WriteBarrier(constref AOwner, AValue: TSEValue);
-var
-  NodeOwner, NodeValue: PSEGCNode;
+procedure TSEGarbageCollector.WriteBarrier(var AOwner: TSEValueMap; constref AValue: TSEValue);
 begin
+  if not AOwner.Header.Remembered then
+  begin
+    if AValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject] then
+    begin
+      if AOwner.IsOld and AValue.IsYoungOrPromoteCandidate then
+      begin
+        AOwner.Header.Remembered := True;
+        GlobalLock;
+        try
+          {$ifdef SE_LOG}
+          Writeln('[GC] Old - Young reference triggered');
+          {$endif}
+          Self.FRememberedNodeList.Add(AOwner.Header.Ref);
+        finally
+          GlobalUnlock;
+        end;
+      end;
+    end;
+  end;
   if Self.FPhase <> segcpMark then
     Exit;
   if AValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject] then
   begin
-    GlobalLock;
-    try
-      if Self.FPhase <> segcpMark then
-        Exit;
-      // WriteBarrior is only call when the owner is a map
-      // Ref is the first field in map / string / buffer / pascalobject, so
-      // it is perfectl safe to use VarMap to reference it.
-      NodeOwner := Self.FNodeList.Ptr(AOwner.VarMap^.Ref);
-      NodeValue := Self.FNodeList.Ptr(AValue.VarMap^.Ref);
-      if (NodeOwner^.Color = Cardinal(segccBlack)) and (NodeValue^.Color = Cardinal(segccWhite)) then
-      begin
-        {$ifdef SE_LOG}
-        Writeln('[GC] Write barrier triggered');
-        {$endif}
-        {$ifdef SE_THREADS}
-        InterlockedExchange(NodeValue^.Color, Cardinal(segccGray));
-        {$else}
-        NodeValue^.Color := Cardinal(segccGray);
-        {$endif}
+    if (AOwner.Header.Color = Cardinal(segccBlack)) and (AValue.VarMap^.Header.Color = Cardinal(segccWhite)) then
+    begin
+      {$ifdef SE_LOG}
+      Writeln('[GC] Write barrier triggered');
+      {$endif}
+      {$ifdef SE_THREADS}
+      InterlockedExchange(AValue.VarMap^.Header.Color, Cardinal(segccGray));
+      {$else}
+      AValue.VarMap^.Header.Color := Cardinal(segccGray);
+      {$endif}
+      GlobalLock;
+      try
         Self.FRemainingGrayValueList.Add(AValue);
+      finally
+        GlobalUnlock;
       end;
-    finally
-      GlobalUnlock;
     end;
   end;
 end;
 
 procedure TSEGarbageCollector.WriteBarrier(constref AValue: TSEValue);
-var
-  NodeOwner, NodeValue: PSEGCNode;
 begin
   if Self.FPhase <> segcpMark then
     Exit;
   if AValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject] then
   begin
-    GlobalLock;
-    try
-      if Self.FPhase <> segcpMark then
-        Exit;
-      // WriteBarrior is only call when the owner is a map
-      // Ref is the first field in map / string / buffer / pascalobject, so
-      // it is perfectl safe to use VarMap to reference it.
-      NodeValue := Self.FNodeList.Ptr(AValue.VarMap^.Ref);
-      if NodeValue^.Color = Cardinal(segccWhite) then
-      begin
-        {$ifdef SE_LOG}
-        Writeln('[GC] Write barrier (stack & global) triggered');
-        {$endif}
-        {$ifdef SE_THREADS}
-        InterlockedExchange(NodeValue^.Color, Cardinal(segccGray));
-        {$else}
-        NodeValue^.Color := Cardinal(segccGray);
-        {$endif}
+    if AValue.VarMap^.Header.Color = Cardinal(segccWhite) then
+    begin
+      {$ifdef SE_LOG}
+      Writeln('[GC] Write barrier (stack & global) triggered');
+      {$endif}
+      {$ifdef SE_THREADS}
+      InterlockedExchange(AValue.VarMap^.Header.Color, Cardinal(segccGray));
+      {$else}
+      AValue.VarMap^.Header.Color := Cardinal(segccGray);
+      {$endif}
+      GlobalLock;
+      try
         Self.FRemainingGrayValueList.Add(AValue);
+      finally
+        GlobalUnlock;
       end;
-    finally
-      GlobalUnlock;
     end;
   end;
 end;
@@ -9023,11 +8960,11 @@ begin
   QWord(CacheValue) := CacheSite^.VarData;
   if (CacheValue.ID = P^.GetID) and (CacheValue.Index >= 0) then
   begin
-    Result := P^.Get2NoBoundaryCheck(CacheValue.Index);
+    Result := P^.Items[CacheValue.Index];
   end else
   begin
     Result := P^.Get2(ConstStrings.Ptr(I)^.VarString, CacheValue);
-    {$ifdef CPU32}c
+    {$ifdef CPU32}
       {$ifdef SE_THREADS}
       InterlockedExchange64(CacheSite^.VarData, QWord(CacheValue));
       {$else}
@@ -9051,7 +8988,7 @@ begin
   QWord(CacheValue) := CacheSite^.VarData;
   if (CacheValue.ID = P^.GetID) and (CacheValue.Index >= 0) then
   begin
-    P^.Set2NoBoundCheck(CacheValue.Index, V);
+    P^.Items[CacheValue.Index] := V;
   end else
   begin
     P^.Set2(ConstStrings.Ptr(Round(I))^.VarString, V, CacheValue);
@@ -9150,15 +9087,10 @@ var
               end;
             end else
             begin
-              AValue^.VarMap^.Lock;
-              try
-                for Key in AValue^.VarMap^.Shape.GetKeys do
-                begin
-                  V := SEMapGet(AValue^, Key);
-                  AddChildNode(Node, Key, @V);
-                end;
-              finally
-                AValue^.VarMap^.Unlock;
+              for Key in AValue^.VarMap^.Shape.GetKeys do
+              begin
+                V := SEMapGet(AValue^, Key);
+                AddChildNode(Node, Key, @V);
               end;
             end;
           end;
@@ -9551,7 +9483,7 @@ var
           QWord(CacheValue) := CacheSite^.VarData;
           if (CacheValue.ID = B.VarMap^.GetID) and (CacheValue.Index >= 0) then
           begin
-            Result := B.VarMap^.Get2NoBoundaryCheck(CacheValue.Index);
+            Result := B.VarMap^.Items[CacheValue.Index];
           end else
           begin
             Result := B.VarMap^.Get2(ConstStrings.Ptr(A.VarConstStringIndex)^.VarString, CacheValue);
@@ -9573,7 +9505,6 @@ var
   var
     CacheValue: TSECacheValue;
   begin
-    GC.WriteBarrier(TV, B);
     case C.Kind of
       sevkNumber:
         TV.VarMap^.Set2(Round(C.VarNumber), B);
@@ -9584,7 +9515,7 @@ var
           QWord(CacheValue) := CacheSite^.VarData;
           if (CacheValue.ID = TV.VarMap^.GetID) and (CacheValue.Index >= 0) then
           begin
-            TV.VarMap^.Set2NoBoundCheck(CacheValue.Index, B);
+            TV.VarMap^.Set2Fast(CacheValue.Index, B);
             TV.VarMap^.PossibleKinds := TV.VarMap^.PossibleKinds + [B.Kind];
           end else
           begin
@@ -16656,7 +16587,6 @@ initialization
   ConstStrings := TSEValueList.Create;
   ConstStringsLookup := TSEStringLookupMap.Create;
   {$ifdef SE_THREADS}
-  GCMarkJob := TSEGarbageCollectorMarkJob.Create;
   GCTicksJob := TSETicksJob.Create(True);
   GCTicksJob.Start;
   {$endif}
@@ -16694,10 +16624,6 @@ finalization
   end;
   VMList := nil;
   {$ifdef SE_THREADS}
-  GCMarkJob.Terminate;
-  GCMarkJob.Resume;
-  GCMarkJob.WaitFor;
-  GCMarkJob.Free;
   GCTicksJob.Terminate;
   GCTicksJob.WaitFor;
   GCTicksJob.Free;
