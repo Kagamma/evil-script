@@ -7749,7 +7749,7 @@ begin
   Self.FRememberedNodeList := TSEIntegerList.Create;
   Self.FGrayValueQueue := TSEValueMark.Create;
   Self.FVMThreadList := TSEVMList.Create;
-  Self.FEnableGenerational := False;
+  Self.FEnableGenerational := True;
 end;
 
 destructor TSEGarbageCollector.Destroy;
@@ -7923,9 +7923,7 @@ begin
     begin
       NodeIndex := Self.FRememberedNodeList[I];
       Node := Self.FNodeList.Ptr(NodeIndex);
-      Self.ResetColor(Node);
-      Self.FReachableValueList.Add(Node^.Value);
-    //  ExtractYoungValues(Node);
+      ExtractYoungValues(Node);
     end;
   end;
 end;
