@@ -8230,16 +8230,10 @@ begin
       ReleaseLock;
     end;
 
-    if NodeVarMap = nil then
-    begin
-      Writeln('WHY???');
-      continue;
-    end;
-
-    if (NodeVarMap^.Header.Color = Cardinal(segccBlack)) and (QCurrentValue.CurrentIndex = 0) then
-      continue;
     if NodeValue.VarPointer = QCurrentValue.Value.VarPointer then
     begin
+      if (NodeVarMap^.Header.Color = Cardinal(segccBlack)) and (QCurrentValue.CurrentIndex = 0) then
+        continue;
       {$ifdef SE_THREADS}
       InterlockedExchange(NodeVarMap^.Header.Color, Cardinal(segccBlack));
       {$else}
