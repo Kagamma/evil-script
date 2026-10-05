@@ -307,11 +307,6 @@ type
         );
   end;
 
-  TSEValueMark = record
-    Value: TSEValue;
-    CurrentIndex: NativeInt;
-  end;
-
   PSEStackTraceSymbol = ^TSEStackTraceSymbol;
   TSEStackTraceSymbol = record
     Name,
@@ -486,7 +481,7 @@ type
   PPSEValue = ^PSEValue;
 
   TSEValueList = specialize TSEListPtr<TSEValue>;
-  TSEValueMarkQueue = specialize TQueue<TSEValueMark>;
+  TSEValueQueue = specialize TQueue<TSEValue>;
   TSEJITBlock = record
     Code: PByte;
     AllocSize,
@@ -512,7 +507,7 @@ type
     segcpRest,
     segcpInitial,
     segcpMark,
-    segcpMarkRemaining,
+    segcpMarkGray,
     segcpSweep
   );
 
@@ -520,14 +515,8 @@ type
   TSEGCNode = record
     Value: TSEValue;
     Color: Cardinal;
-    Lock: Boolean; // Pin
+    Lock: Boolean;
     Visit: Byte;
-    // Since the current generational implementation is mean to reduce the time need to STW during
-    // the initial phase and the sweep phase. Mark still scan the old objects and use Marked to
-    // check current mark status rather than color.
-    // Does not matter much for games/interactive apps, because the marking phase is done on a separate thread,
-    // unless you run it on a single thread environment like MS DOS, so no pressure on frame time despite it has
-    // to scan old objects.
     Marked: QWord;
     Prev,
     Next: Cardinal;
@@ -562,7 +551,7 @@ type
     FObjectThreshold,
     FObjectsLastTimeVisited,
     FObjectsOld: Cardinal;
-    FGrayValueQueue: TSEValueMarkQueue;
+    FGrayValueQueue: TSEValueQueue;
     FRemainingGrayValueList,
     FReachableValueList: TSEValueList;
     FNodeList: TSEGCNodeList;
@@ -581,7 +570,6 @@ type
     procedure Sweep(const AFirst: Cardinal);
     procedure Mark(const PValue: PSEValue);
   public
-    IncrementalScanLimit: Cardinal;
     constructor Create;
     destructor Destroy; override;
     procedure AddToList(const PValue: PSEValue);
@@ -7796,14 +7784,13 @@ begin
   Self.FTicks := GetTickCount64;
   Self.Interval := 2000;
   Self.FPromotion := 10;
-  Self.IncrementalScanLimit := 4096;
   Self.FOldObjectCheckCycle := 10;
   Self.FObjectThreshold := 700;
   Self.FReachableValueList := TSEValueList.Create;
   Self.FReachableValueList.Capacity := 2048;
   Self.FRemainingGrayValueList := TSEValueList.Create;
   Self.FRemainingGrayValueList.Capacity := 128;
-  Self.FGrayValueQueue := TSEValueMarkQueue.Create;
+  Self.FGrayValueQueue := TSEValueQueue.Create;
   Self.FVMThreadList := TSEVMList.Create;
   Self.EnableParallel := True;
 end;
@@ -8027,48 +8014,28 @@ end;
 procedure TSEGarbageCollector.Mark(const PValue: PSEValue);
 var
   Node: PSEGCNode;
+  RValue: TSEValue;
   Key: String;
   I: NativeInt;
   VArray: TSEValueArray;
-  QValue,
-  QCurrentValue: TSEValueMark;
+  ValueLocal: TSEValue;
   IsGlobalLocked: Boolean = False;
-
-  procedure AcquireLock; inline;
-  begin
-    if Self.EnableParallel and (not IsGlobalLocked) then
-    begin
-      GlobalLock;
-      IsGlobalLocked := True;
-    end;
-  end;
-
-  procedure ReleaseLock; inline;
-  begin
-    if Self.EnableParallel and IsGlobalLocked then
-    begin
-      GlobalUnlock;
-      IsGlobalLocked := False;
-    end;
-  end;
-
 begin
-  QCurrentValue.Value := PValue^;
-  QCurrentValue.CurrentIndex := 0;
-  Self.FGrayValueQueue.Enqueue(QCurrentValue);
+  Self.FGrayValueQueue.Enqueue(PValue^);
   while Self.FGrayValueQueue.Count > 0 do
   begin
-    QCurrentValue := Self.FGrayValueQueue.Dequeue;
-    if not (QCurrentValue.Value.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
+    ValueLocal := Self.FGrayValueQueue.Dequeue;
+    if not (ValueLocal.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
       continue;
-    AcquireLock;
+    GlobalLock;
+    IsGlobalLocked := True;
     try
-      if ((QCurrentValue.Value.Ref >= Self.FNodeList.Count) or (QCurrentValue.Value.Ref = 0)) and (QCurrentValue.CurrentIndex = 0) then
+      if (ValueLocal.Ref >= Self.FNodeList.Count) or (ValueLocal.Ref = 0) then
         continue;
-      Node := Self.FNodeList.Ptr(QCurrentValue.Value.Ref);
-      if (Node^.Marked >= Self.FRunCount) and (QCurrentValue.CurrentIndex = 0) then
+      Node := Self.FNodeList.Ptr(ValueLocal.Ref);
+      if Node^.Marked >= Self.FRunCount then
         continue;
-      if Node^.Value.VarPointer = QCurrentValue.Value.VarPointer then
+      if Node^.Value.VarPointer = ValueLocal.VarPointer then
       begin
         {$ifdef SE_THREADS}
         InterlockedExchange(Node^.Color, Cardinal(segccBlack));
@@ -8076,67 +8043,58 @@ begin
         Node^.Color := Cardinal(segccBlack);
         {$endif}
         Node^.Marked := Self.FRunCount;
-        if (Node^.Value.Kind = sevkMap) and (QCurrentValue.Value.VarMap <> nil) then
+        if (Node^.Value.Kind = sevkMap) and (ValueLocal.VarMap <> nil) then
         begin
-          if SEMapIsValidArray(QCurrentValue.Value) then
+          if SEMapIsValidArray(ValueLocal) then
           begin
             // Global lock is used to protect NodeList's Node pointer from being relocated
             // It's safe to drop it here because no Node is being used in the below loop
-            ReleaseLock;
-            QCurrentValue.Value.VarMap^.Lock;
+            GlobalUnlock;
+            ValueLocal.VarMap^.Lock;
+            IsGlobalLocked := False;
             try
-              VArray := QCurrentValue.Value.VarMap^.Items;
-              // Incremental marking
-              for I := QCurrentValue.CurrentIndex to Min(QCurrentValue.CurrentIndex + Self.IncrementalScanLimit, Length(VArray) - 1) do
+              VArray := ValueLocal.VarMap^.Items;
+              for I := 0 to Length(VArray) - 1 do
               begin
-                QValue.Value := VArray[I];
-                if not (QValue.Value.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
+                RValue := VArray[I];
+                if not (RValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
                   Continue;
-                QValue.CurrentIndex := 0;
-                Self.FGrayValueQueue.Enqueue(QValue);
-                QCurrentValue.CurrentIndex := I;
-              end;
-              // Put it into queue again if the marking has't finished
-              Inc(QCurrentValue.CurrentIndex);
-              if QCurrentValue.CurrentIndex < Length(VArray) - 1 then
-              begin
-                Self.FGrayValueQueue.Enqueue(QCurrentValue);
+                Self.FGrayValueQueue.Enqueue(RValue);
               end;
             finally
-              QCurrentValue.Value.VarMap^.Unlock;
+              ValueLocal.VarMap^.Unlock;
             end;
           end else
           begin
             // Global lock is used to protect NodeList's Node pointer from being relocated
             // It's safe to drop it here because no Node is being used in the below loop
-            ReleaseLock;
-            QCurrentValue.Value.VarMap^.Lock;
+            GlobalUnlock;
+            ValueLocal.VarMap^.Lock;
+            IsGlobalLocked := False;
             try
-              VArray := QCurrentValue.Value.VarMap^.Items;
+              VArray := ValueLocal.VarMap^.Items;
               // Only mark shapes in single thread mode
               if not Self.EnableParallel then
-                ShapeManager.Mark(QCurrentValue.Value.VarMap^.Shape);
-              // It is incredible rare for a map to contain more than 8192 entries, so we do not need
-              // to implement incremental marking for it
-              for Key in QCurrentValue.Value.VarMap^.Shape.GetKeys do
+                ShapeManager.Mark(ValueLocal.VarMap^.Shape);
+              for Key in ValueLocal.VarMap^.Shape.GetKeys do
               begin
-                QValue.Value := QCurrentValue.Value.VarMap^.Get2(@Key);
-                if not (QValue.Value.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
+                RValue := ValueLocal.VarMap^.Get2(@Key);
+                if not (RValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
                   Continue;
-                QValue.CurrentIndex := 0;
-                Self.FGrayValueQueue.Enqueue(QValue);
+                Self.FGrayValueQueue.Enqueue(RValue);
               end;
             finally
-              QCurrentValue.Value.VarMap^.Unlock;
+              ValueLocal.VarMap^.Unlock;
             end;
           end;
         end;
       end;
     finally
-      // Release the global lock at the end of each queue item so that
-      // the mutator can perform allocation/deallocation objects.
-      // The global lock does not block mutators that do not allocate/deallocate any objects.
-      ReleaseLock;
+      if IsGlobalLocked then
+      begin
+        GlobalUnlock;
+        IsGlobalLocked := False;
+      end;
     end;
   end;
 end;
@@ -8209,22 +8167,10 @@ var
   procedure Marking;
 
     procedure ScanRoot;
-
-      procedure AddReachableAbleValue(constref AValue: TSEValue); inline;
-      var
-        Node: PSEGCNode;
-      begin
-        Self.FReachableValueList.Add(AValue);
-        if not (AValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
-          exit;
-        if (AValue.Ref >= Self.FNodeList.Count) or (AValue.Ref = 0) then
-          exit;
-        Node := Self.FNodeList.Ptr(AValue.Ref);
-        Node^.Color := Cardinal(segccGray);
-      end;
-            
     var
       I, J: NativeInt;
+      ValueLocal: TSEValue;
+      Node: PSEGCNode;
     begin
       Self.FReachableValueList.Count := 0;
       for I := 0 to VMList.Count - 1 do
@@ -8233,7 +8179,7 @@ var
         P := @VM.Stack[0];
         while P < VM.StackPtr do
         begin
-          AddReachableAbleValue(P^);
+          Self.FReachableValueList.Add(P^);
           Inc(P);
         end;
         if VM.Owner = nil then
@@ -8242,16 +8188,27 @@ var
           P2 := @VM.Global.Value^.Data[VM.Global.Value^.Size - 1];
           while P <= P2 do
           begin
-            AddReachableAbleValue(P^);
+            Self.FReachableValueList.Add(P^);
             Inc(P);
           end;
           for J := 0 to VM.Parent.ConstList.Count - 1 do
           begin
-            AddReachableAbleValue(VM.Parent.ConstList[J]);
+            Self.FReachableValueList.Add(VM.Parent.ConstList[J]);
           end;
         end;
       end;
-      AddReachableAbleValue(ScriptVarMap);
+      Self.FReachableValueList.Add(ScriptVarMap);
+      // Mark root objects as gray
+      for I := 0 to Self.FReachableValueList.Count - 1 do
+      begin
+        ValueLocal := Self.FReachableValueList[I];
+        if not (ValueLocal.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
+          continue;
+        if (ValueLocal.Ref >= Self.FNodeList.Count) or (ValueLocal.Ref = 0) then
+          continue;
+        Node := Self.FNodeList.Ptr(ValueLocal.Ref);
+        Node^.Color := Cardinal(segccGray);
+      end;
     end;
 
     procedure MarkDeep;
@@ -8380,11 +8337,11 @@ begin
 
       SuspendThreads;
       if Self.FRemainingGrayValueList.Count > 0 then
-        Self.FPhase := segcpMarkRemaining
+        Self.FPhase := segcpMarkGray
       else
         Self.FPhase := segcpSweep;
 
-      if Self.FPhase = segcpMarkRemaining then
+      if Self.FPhase = segcpMarkGray then
       begin
         {$ifdef SE_LOG}
         Writeln('[GC] ', Self.FPhase);
@@ -8458,9 +8415,8 @@ begin
     New(PValue^.VarBuffer);
     if Size > 0 then
     begin
-      GetMem(PValue^.VarBuffer^.Base, Size);
-      // PValue^.VarBuffer^.Ptr := Pointer(NativeUInt(PValue^.VarBuffer^.Base)) + ((16 - Pointer(NativeUInt(PValue^.VarBuffer^.Base) mod 16)) mod 16);
-      PValue^.VarBuffer^.Ptr := PValue^.VarBuffer^.Base;//Pointer(NativeUInt(PValue^.VarBuffer^.Base) + NativeUInt(PValue^.VarBuffer^.Base) mod 16);
+      GetMem(PValue^.VarBuffer^.Base, Size + 16);
+      PValue^.VarBuffer^.Ptr := Pointer(NativeUInt(PValue^.VarBuffer^.Base) + NativeUInt(PValue^.VarBuffer^.Base) mod 16);
     end else
     begin
       PValue^.VarBuffer^.Base := nil;
@@ -8577,6 +8533,8 @@ begin
     finally
       GlobalUnlock;
     end;
+    AOwner.VarMap^.Lock;
+    AOwner.VarMap^.Unlock;
   end;
 end;
 
