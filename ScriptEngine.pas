@@ -224,9 +224,9 @@ type
   TSEValueHeader = record
     Ref: Cardinal;
     Color: Cardinal;
+    Visit: QWord;
     Remembered: Boolean;
     Lock: Boolean; // Pin
-    Visit: Byte;
   end;
   TSEBuffer = record
     Header: TSEValueHeader;
@@ -8005,10 +8005,8 @@ begin
           Node^.Value.VarMap^.Header.Remembered := True;
         end;
         Inc(Self.FObjectsOld);
-      end else
-      begin
-        Inc(ValueMap^.Header.Visit);
       end;
+      Inc(ValueMap^.Header.Visit);
       Self.ResetColor(Node);
     end;
     // Extract the young (or recently promoted) values from the old values
