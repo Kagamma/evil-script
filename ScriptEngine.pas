@@ -360,6 +360,7 @@ type
     function GetKeys: TStringDynArray; inline;
     function IsYoung: Boolean; inline;
     function IsYoungOrJustPromoted: Boolean; inline;
+    function IsPromoted: Boolean; inline;
     function IsOld: Boolean; inline;
   end;
 
@@ -4983,9 +4984,14 @@ begin
   Result := Self.VarMap^.Header.Visit <= GC.Promotion;
 end;
 
+function TSEValueHelper.IsPromoted: Boolean;
+begin
+  Result := Self.VarMap^.Header.Visit = GC.Promotion;
+end;
+
 function TSEValueHelper.IsOld: Boolean;
 begin
-  Result := Self.VarMap^.Header.Visit >= GC.Promotion;
+  Result := Self.VarMap^.Header.Visit > GC.Promotion;
 end;
 
 class function TSEBuiltInFunction.SEBufferCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -7979,8 +7985,7 @@ begin
       Node := Self.FNodeList.Ptr(I);
       J := I;
       I := Node^.Prev;
-      Inc(Node^.Value.VarMap^.Header.Visit);
-      if Node^.Value.IsOld then
+      if Node^.Value.IsPromoted then
       begin
         // Detach from young generation
         if J <> Self.FNodeLastYoung then
@@ -8005,6 +8010,7 @@ begin
         end;
         Inc(Self.FObjectsOld);
       end;
+      Inc(Node^.Value.VarMap^.Header.Visit);
       Self.ResetColor(Node);
     end;
     // Extract the young (or recently promoted) values from the old values
