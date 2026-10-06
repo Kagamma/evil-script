@@ -10549,9 +10549,9 @@ var
         Result := JITHandler(JitCodePtrBase, @JitCodePtrLocal[BIndex], E, CodeSize, OpCount);
       end else
       begin
-        if (Result = STATUS_INVALID) or (Result = STATUS_OVERFLOW) then
+        if (Result = STATUS_INVALID) or (Result = STATUS_OVERFLOW) or (not (LastOpKind in [sevkBoolean, sevkNumber])) then
         begin
-         // Writeln('REJECTED!!!! ', Result);
+         // Writeln('REJECTED!!!! ', Result, ', ', LastOpKind);
          // Writeln;
           JitCodePtrBase[1] := nil;
           E.Free;
@@ -11220,8 +11220,12 @@ labelStart:
           Dec(FramePtrLocal);
           if FramePtrLocal < @Self.Frame[0] then
           begin
+            Self.CodePtr := CodePtrLocal;
+            Self.CodeSegmentIndex := CodeSegmentIndexLocal;
+            Self.StackPtr := StackPtrLocal;
+            Self.FramePtr := FramePtrLocal;
             Self.IsDone := True;
-            Break;
+            Exit;
           end;
           DispatchGoto;
         end;
@@ -11293,6 +11297,8 @@ labelStart:
         begin
         labelHlt:
           Self.CodePtr := nil;
+          Self.StackPtr := StackPtrLocal;
+          Self.FramePtr := FramePtrLocal;
           Self.CodeSegmentIndex := CodeSegmentIndexLocal;
           Self.IsDone := True;
           Self.Parent.IsDone := True;
@@ -12873,12 +12879,12 @@ var
   begin
     Result := APossibleKinds;
     {$ifndef SE_HAS_JIT}
-    Self.FLastVerifyJITBlockResult := True;
+    Self.FLastVerifyJITBlockResult := False;
     Exit;
     {$endif}
     if not Self.OptimizeJIT then
     begin
-      Self.FLastVerifyJITBlockResult := True;
+      Self.FLastVerifyJITBlockResult := False;
       Exit;
     end;
     Sig := Self.JITBlockSignatureStack.Pop;
@@ -14852,11 +14858,11 @@ var
         end;
       end;
       ParseBlock;
-      MarkJITBlock;
+     // MarkJITBlock;
       JumpBlock := Emit([Pointer(opJumpUnconditionalRel), Pointer(0)]);
-      VerifyJITBlock([sevkNumber]);
-      if not Self.FLastVerifyJITBlockResult then
-        JumpBlock := JumpBlock - 2;
+     // VerifyJITBlock([sevkNumber]);
+     // if not Self.FLastVerifyJITBlockResult then
+     //   JumpBlock := JumpBlock - 2;
       EndBlock := Self.Binary.Count;
       ContinueList := ContinueStack.Pop;
       BreakList := BreakStack.Pop;
@@ -15116,11 +15122,9 @@ var
             PIdent := CreateIdent(ikVariable, Token, True, False);
             VarHiddenArrayIdent := PIdent^;
 
-            MarkJITBlock;
             // We look for it again in case the pointer changed
             PIdentFirst := FindVar(VarIdent.Name);
             PIdentFirst^.PossibleKinds := ParseExpr(False);
-            VerifyJITBlock(PIdentFirst^.PossibleKinds);
             FindFuncNative('___check_array_valid', Ind);
             Emit([Pointer(opCallNative), Pointer(Ind), Pointer(1), Pointer(0)]);
             EmitAssignVar(VarHiddenArrayIdent);
