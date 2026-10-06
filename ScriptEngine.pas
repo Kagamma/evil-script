@@ -8138,6 +8138,7 @@ begin
         Inc(Self.FRunCount);
         {$ifdef SE_LOG}
         Writeln('[GC] Start #', Self.FRunCount);
+        Writeln('[GC] Mode: ', Self.Mode);
         Writeln('[GC] Incremental budget in nsec: ', Self.FIncrementalBudgetInNSec);
         Writeln('[GC] ', Self.FPhase);
         Writeln('[GC] Number of objects: ', Self.FObjects);
