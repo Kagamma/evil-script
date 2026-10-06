@@ -438,6 +438,7 @@ type
     procedure Mark(AShape: TSEShape);
     procedure Sweep;
     function ShapeCount: Integer;
+    property Marking: Boolean read FBeginMark;
     property Root: TSEShape read FShapeRoot;
     property NextID: NativeUInt read FNextID;
     property LastShapeCount: Integer read FLastShapeCount write FLastShapeCount;
@@ -532,12 +533,14 @@ type
     FLock: TRTLCriticalSection;
     {$endif}
     FObjects,
+    FObjectsSweepCount,
     FObjectThreshold,
     FObjectsLastTimeVisited: Cardinal;
     FGrayValueQueue: TSEValueMark;
     FNodeList: TSEGCNodeList;
     FNodeAvailStack: TSEGCNodeAvailStack;
-    FNodeLastYoung: Cardinal;
+    FNodeLast: Cardinal;
+    FNodeSweepLast: Cardinal;
     FRunCount: QWord;
     FIncrementalLastValueInNSec,
     FIncrementalBudgetInNSec: QWord;
@@ -7698,8 +7701,8 @@ begin
   Self.FNodeList.Capacity := 8192;
   Ref0 := Default(TSEGCNode);
   Self.FNodeList.Add(Ref0);
-  Self.FNodeList.Add(Ref0); // Young generation's root
-  Self.FNodeLastYoung := 1;
+  Self.FNodeList.Add(Ref0);
+  Self.FNodeLast := 1;
   Self.FNodeAvailStack := TSEGCNodeAvailStack.Create;
   Self.FNodeAvailStack.Capacity := 8192;
   Self.FTicks := GetTickCount64;
@@ -7717,13 +7720,15 @@ var
   I: NativeInt;
   Node: PSEGCNode;
 begin
-  I := Self.FNodeLastYoung;
+  I := Self.FNodeLast;
+  Self.IncrementalBudget := 10000000; // Super high budget so that the sweep can finish its job in one go
   while I <> 1 do
   begin
     Node := Self.FNodeList.Ptr(I);
     Node^.Value.VarMap^.Header.Color := Self.CurrentWhite;
     I := Node^.Prev;
   end;
+  Self.FNodeSweepLast := Self.FNodeLast;
   Self.Sweep;
   Self.FNodeAvailStack.Free;
   Self.FNodeList.Free;
@@ -7741,11 +7746,11 @@ var
 begin
   Node := Default(TSEGCNode);
   PValue^.VarMap^.Header := Default(TSEValueHeader);
-  if Self.Phase = segcpMark then
+  if (Self.Phase = segcpMark) or (Self.Phase = segcpSweep) then
     PValue^.VarMap^.Header.Color := Self.CurrentBlack
   else
     PValue^.VarMap^.Header.Color := Self.CurrentWhite;
-  Node.Prev := Self.FNodeLastYoung;
+  Node.Prev := Self.FNodeLast;
   if Self.FNodeAvailStack.Count = 0 then
   begin
     PValue^.Ref := Self.FNodeList.Count;
@@ -7758,8 +7763,8 @@ begin
     Self.FNodeList[PValue^.Ref] := Node;
   end;
   PValue^.VarMap^.Header.Ref := PValue^.Ref;
-  Self.FNodeList.Ptr(Self.FNodeLastYoung)^.Next := PValue^.Ref;
-  Self.FNodeLastYoung := PValue^.Ref;
+  Self.FNodeList.Ptr(Self.FNodeLast)^.Next := PValue^.Ref;
+  Self.FNodeLast := PValue^.Ref;
   Inc(Self.FObjects);
 end;
 
@@ -7785,33 +7790,49 @@ var
   Node, PrevNode: PSEGCNode;
   I, J, MS, NodeIndex: NativeInt;
   Key: String;
-  LastPtr: PCardinal;
   Value, ItemValue: TSEValue;
+  ProcessedCount: Cardinal = 0;
+  TicksValue: QWord;
 
   procedure Detach; inline;
   var
     PrevNode: PSEGCNode;
   begin
-    if I <> LastPtr^ then
+    if I <> Self.FNodeLast then
     begin
       PrevNode := Self.FNodeList.Ptr(Node^.Prev);
       PrevNode^.Next := Node^.Next;
       Self.FNodeList.Ptr(Node^.Next)^.Prev := Node^.Prev;
     end else
     begin
-      LastPtr^ := Node^.Prev;
-      Self.FNodeList.Ptr(LastPtr^)^.Next := 0;
+      Self.FNodeLast := Node^.Prev;
+      Self.FNodeList.Ptr(Self.FNodeLast)^.Next := 0;
     end;
     Node^.Value := Default(TSEValue);
     Self.FNodeAvailStack.Push(I);
-    Dec(Self.FObjects);
+    Inc(Self.FObjectsSweepCount);
   end;
 
 begin
-  LastPtr := @Self.FNodeLastYoung;
-  I := LastPtr^;
+  I := Self.FNodeSweepLast;
   while I <> 1 do
   begin
+    if I <> 1 then
+    begin
+      Inc(ProcessedCount);
+      if ProcessedCount mod 512 = 0 then
+      begin
+        TicksValue := TicksInNSec;
+        if TicksValue - Self.FIncrementalLastValueInNSec >= Self.FIncrementalBudgetInNSec then
+        begin
+          {$ifdef SE_LOG}
+          Writeln('[GC] Time spent on current sweep slice: ', TicksValue - Self.FIncrementalLastValueInNSec, ' nsec');
+          {$endif}
+          Self.FNodeSweepLast := I;
+          Exit;
+        end;
+      end;
+    end;
     Node := Self.FNodeList.Ptr(I);
     if (Node^.Value.VarMap^.Header.Color = Self.CurrentWhite) and (Node^.Value.VarMap^.Header.Lock = False) then
     begin
@@ -7859,7 +7880,9 @@ begin
     end;
     I := Node^.Prev;
   end;
+  Self.FObjects := Self.FObjects - Self.FObjectsSweepCount;
   Self.FObjectsLastTimeVisited := Self.FObjects;
+  Self.FNodeSweepLast := 1;
 end;
 
 procedure TSEGarbageCollector.Mark;
@@ -7991,6 +8014,7 @@ var
 
   procedure Initial;
 
+    // Scan roots is usually fast, so we do not need to perform incremental
     procedure ScanRoot;
 
       procedure AddReachableValue(constref AValue: TSEValue); inline;
@@ -8043,7 +8067,7 @@ var
 
   begin
     {$ifdef SE_LOG}
-    Writeln('[GC] Start marking (single thread)');
+    Writeln('[GC] Start scanning roots');
     {$endif}
     ShapeManager.BeginMark;
     ScanRoot;
@@ -8056,6 +8080,8 @@ var
     if Self.FGrayValueQueue.Count = 0 then
     begin
       Self.FPhase := segcpSweep;
+      Self.FNodeSweepLast := Self.FNodeLast;
+      Self.FObjectsSweepCount := 0;
       {$ifdef SE_LOG}
       Writeln('[GC] Done marking');
       {$endif}
@@ -8069,7 +8095,7 @@ begin
     Exit;
   if Self.FLockFlag then
     Exit;
-  if Self.FNodeLastYoung = 0 then
+  if Self.FNodeLast = 0 then
     Exit;
   if IsThread > 0 then
     Exit;
@@ -8102,27 +8128,32 @@ begin
         Writeln('[GC] Number of objects in object pool: ', Self.FNodeAvailStack.Count);
         {$endif}
         {$ifdef SE_PROFILER}
-        ProfilerItem.FuncName := 'GC <Mark>';
+        ProfilerItem.FuncName := 'GC <Scan Root>';
         ProfilerItem.TimeStartInNSec := TSEProfiler.GetTimeInNSec;
         {$endif}
         Initial;
-
         Self.FPhase := segcpMark;
         {$ifdef SE_LOG}
         Writeln('[GC] ', Self.FPhase);
         {$endif}
+        Exit;
+      end;
+
+      if Self.FPhase = segcpMark then
+      begin
+        {$ifdef SE_PROFILER}
+        ProfilerItem.FuncName := 'GC <Mark>';
+        ProfilerItem.TimeStartInNSec := TSEProfiler.GetTimeInNSec;
+        {$endif}
+        MarkDeep;
         {$ifdef SE_PROFILER}
         SEProfiler.AddReport(ProfilerItem);
         {$endif}
       end;
 
-      if Self.FPhase = segcpMark then
-      begin
-        MarkDeep;
-      end;
-
       if Self.FPhase = segcpSweep then
       begin
+        if ShapeManager.Marking then
         begin
           {$ifdef SE_LOG}
           Writeln('[GC] Shape count before sweep: ', ShapeManager.ShapeCount);
@@ -8139,18 +8170,23 @@ begin
         ProfilerItem.FuncName := 'GC <Sweep>';
         ProfilerItem.TimeStartInNSec := TSEProfiler.GetTimeInNSec;
         {$endif}
+        Self.FIncrementalLastValueInNSec := TicksInNSec;
         Sweep;
         {$ifdef SE_PROFILER}
         SEProfiler.AddReport(ProfilerItem);
         {$endif}
-        {$ifdef SE_LOG}
-        Writeln('[GC] Number of objects after sweeping: ', Self.FObjects);
-        Writeln('[GC] Number of objects in object pool: ', Self.FNodeAvailStack.Count);
-        Writeln('[GC] Time: ', GetTickCount64 - Self.FTicks, 'ms');
-        {$endif}
-        Tmp := Self.CurrentWhite;
-        Self.CurrentWhite := Self.CurrentBlack;
-        Self.CurrentBlack := Tmp;
+        if Self.FNodeSweepLast = 1 then
+        begin
+          Self.FPhase := segcpRest;
+          {$ifdef SE_LOG}
+          Writeln('[GC] Number of objects after sweeping: ', Self.FObjects);
+          Writeln('[GC] Number of objects in object pool: ', Self.FNodeAvailStack.Count);
+          Writeln('[GC] Time: ', GetTickCount64 - Self.FTicks, 'ms');
+          {$endif}
+          Tmp := Self.CurrentWhite;
+          Self.CurrentWhite := Self.CurrentBlack;
+          Self.CurrentBlack := Tmp;
+        end;
       end;
     except
       on E: Exception do
@@ -8161,13 +8197,9 @@ begin
       end;
     end;
   finally
-    if Self.FPhase = segcpSweep then
-    begin
-      Self.FPhase := segcpRest;
-      {$ifdef SE_LOG}
-      Writeln('[GC] ', Self.FPhase);
-      {$endif}
-    end;
+    {$ifdef SE_LOG}
+    Writeln('[GC] Current phase after this slice: ', Self.FPhase);
+    {$endif}
     ResumeThreads;
     GlobalUnlock;
     Self.FTicks := GetTickCount64;
