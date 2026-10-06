@@ -4214,7 +4214,7 @@ var
 {$endif}
   IsThread: Cardinal;
 
-{$ifdef WINDOWS}
+{$if defined(WINDOWS)}
 function TicksInNSec: QWord; inline;
 var
   Freq, Counter: Int64;
@@ -4223,13 +4223,18 @@ begin
   QueryPerformanceCounter(Counter);
   Result := Round((Counter * 1000000000) / Freq);
 end;
-{$else}
+{$elseif defined(LINUX)}
 function TicksInNSec: QWord; inline;
 var
   TS: TTimespec;
 begin
   clock_gettime(CLOCK_MONOTONIC, @ts);
   Result := QWord(TS.tv_sec) * 1000000000 + TS.tv_nsec;
+end;
+{$else}
+function TicksInNSec: QWord; inline;
+begin
+  Result := GetTickCount * 1000000000;
 end;
 {$endif}
 
@@ -7820,7 +7825,7 @@ begin
     if I <> 1 then
     begin
       Inc(ProcessedCount);
-      if ProcessedCount mod 512 = 0 then
+      if ProcessedCount mod 64 = 0 then
       begin
         TicksValue := TicksInNSec;
         if TicksValue - Self.FIncrementalLastValueInNSec >= Self.FIncrementalBudgetInNSec then
@@ -7901,7 +7906,7 @@ begin
   while Self.FGrayValueQueue.Count > 0 do
   begin
     Inc(ProcessedCount);
-    if ProcessedCount mod 512 = 0 then
+    if ProcessedCount mod 256 = 0 then
     begin
       TicksValue := TicksInNSec;
       if TicksValue - Self.FIncrementalLastValueInNSec >= Self.FIncrementalBudgetInNSec then
@@ -7940,6 +7945,7 @@ begin
           for I := 0 to QCurrentValue.VarMap^.Count - 1 do
           begin
             QValue := VArray[I];
+            Inc(ProcessedCount);
             if not (QValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
               Continue;
             Self.FGrayValueQueue.Enqueue(QValue);
@@ -7951,6 +7957,7 @@ begin
           for Key in QCurrentValue.VarMap^.Shape.GetKeys do
           begin
             QValue := QCurrentValue.VarMap^.Get2(@Key);
+            Inc(ProcessedCount);
             if not (QValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
               Continue;
             Self.FGrayValueQueue.Enqueue(QValue);
