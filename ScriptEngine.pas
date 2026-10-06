@@ -14478,37 +14478,37 @@ var
         'number':
           begin
            // Ident^.IsForcedKind := True;
-            Ident^.PossibleKinds := [sevkNumber];
+           // Ident^.PossibleKinds := [sevkNumber];
           end;
         'map':
           begin
            // Ident^.IsForcedKind := True;
-            Ident^.PossibleKinds := [sevkMap];
+           // Ident^.PossibleKinds := [sevkMap];
           end;
         'string':
           begin
            // Ident^.IsForcedKind := True;
-            Ident^.PossibleKinds := [sevkString];
+           // Ident^.PossibleKinds := [sevkString];
           end;
         'boolean':
           begin
            // Ident^.IsForcedKind := True;
-            Ident^.PossibleKinds := [sevkBoolean];
+           // Ident^.PossibleKinds := [sevkBoolean];
           end;
         'pasobject':
           begin
            // Ident^.IsForcedKind := True;
-            Ident^.PossibleKinds := [sevkPascalObject];
+           // Ident^.PossibleKinds := [sevkPascalObject];
           end;
         'function':
           begin
            // Ident^.IsForcedKind := True;
-            Ident^.PossibleKinds := [sevkFunction];
+           // Ident^.PossibleKinds := [sevkFunction];
           end;
         'any':
           begin
            // Ident^.IsForcedKind := True;
-            Ident^.PossibleKinds := [sevkNull];
+           // Ident^.PossibleKinds := [sevkNull];
           end;
         else
           Error(Format('Unknown type "%s"', [KindName]), PeekAtNextToken);
