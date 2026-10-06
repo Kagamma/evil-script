@@ -8107,22 +8107,15 @@ begin
   if IsThread > 0 then
     Exit;
   {$ifdef SE_THREADS}
-  if System.TryEnterCriticalSection(CS) = 0 then
-  begin
-    Self.FTicks := GetTickCount64;
-    {$ifdef SE_LOG}
-    Writeln('[GC] Cannot acquire lock... GC is not running');
-    {$endif}
-    Exit;
-  end;
-  {$endif}
-  FVMThreadList := TSEVMList.Create;
-  {$ifdef SE_CGE_PROFILER}
-  FrameProfiler.Start('TEvilC.GC');
-  {$endif}
-  SuspendThreads;
+  System.EnterCriticalSection(CS);
   try
     try
+      {$endif}
+      FVMThreadList := TSEVMList.Create;
+      {$ifdef SE_CGE_PROFILER}
+      FrameProfiler.Start('TEvilC.GC');
+      {$endif}
+      SuspendThreads;
       if Self.FPhase = segcpRest then
       begin
         Self.FPhase := segcpInitial;
