@@ -5468,7 +5468,7 @@ begin
         Exit(SESize(Args[0]));
       end;
     else
-      raise Exception.Create('Length() only accept strings, maps or buffers');
+      raise Exception.Create('Length() only accept strings, maps or buffers, but got ' + ValueKindNames[Args[0].Kind]);
   end;
 end;
 
@@ -8080,7 +8080,7 @@ var
       begin
         VM := VMList[I];
         P := @VM.Stack[0];
-        while P < VM.StackPtr do
+        while P <= VM.StackPtr do
         begin
           AddReachableValue(P^);
           Inc(P);
@@ -11155,11 +11155,11 @@ labelStart:
           SEProfilerStack.Push(SEProfileItem);
           {$endif}
           TV := TSEFunc(FuncNativeInfo^.Func)(Self, StackPtrLocal, ArgCount, This);
+          Push(TV);
           if IsDone then
           begin
             Exit;
           end;
-          Push(TV);
           {$ifdef SE_PROFILER}
           SEProfiler.AddReport(SEProfilerStack.Pop);
           {$endif}
@@ -11515,7 +11515,9 @@ begin
       end;
     except
       on E: Exception do
-        Writeln('[TSEVMCoroutine] ', E.Message);
+      begin
+        Writeln('[TSEVMCoroutine] ', VM.Name, ': ', E.Message);
+      end;
     end;
   end;
 end;
