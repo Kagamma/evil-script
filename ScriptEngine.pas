@@ -500,6 +500,11 @@ type
     destructor Destroy; override;
   end;
 
+  TSEGarbageCollectorMode = (
+    segcmMarkSweep,
+    segcmIncremental
+  );
+
   TSEGarbageCollectorPhase = (
     segcpRest,
     segcpInitial,
@@ -547,6 +552,7 @@ type
     FIncrementalBudget: Single;
     FTicks: NativeUInt;
     FInterval: Cardinal;
+    FMode: TSEGarbageCollectorMode;
     procedure Sweep;
     procedure Mark;
     procedure SetIncrementalBudget(Value: Single);
@@ -576,6 +582,7 @@ type
     property Phase: TSEGarbageCollectorPhase read FPhase write FPhase;
     property IncrementalBudget: Single read FIncrementalBudget write SetIncrementalBudget;
     property Interval: Cardinal read FInterval write FInterval;
+    property Mode: TSEGarbageCollectorMode read FMode write FMode;
   end;
 
   TSECallingConvention = (
@@ -1650,6 +1657,7 @@ type
     class function SEDTGetMinute(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEGCObjectCount(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEGCCollect(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+    class function SEGCMode(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEIsJit(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEChar(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEOrd(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -6016,6 +6024,12 @@ begin
   Result := SENull;
 end;
 
+class function TSEBuiltInFunction.SEGCCollect(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+begin
+  GC.Mode := Round(Args[0]);
+  Result := SENull;
+end;
+
 class function TSEBuiltInFunction.SEIsJIT(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   Result := VM.Parent.OptimizeJIT;
@@ -7718,6 +7732,7 @@ begin
   Self.CurrentWhite := 1;
   Self.FInterval := 32;
   Self.IncrementalBudget := 1;
+  Self.Mode := segcmIncremental;
 end;
 
 destructor TSEGarbageCollector.Destroy;
@@ -7726,7 +7741,7 @@ var
   Node: PSEGCNode;
 begin
   I := Self.FNodeLast;
-  Self.IncrementalBudget := 10000000; // Super high budget so that the sweep can finish its job in one go
+  Self.Mode := segcmMarkSweep;
   while I <> 1 do
   begin
     Node := Self.FNodeList.Ptr(I);
@@ -7803,16 +7818,18 @@ var
   var
     PrevNode: PSEGCNode;
   begin
-    if I <> Self.FNodeLast then
+    if Node^.Next <> 0 then
     begin
       PrevNode := Self.FNodeList.Ptr(Node^.Prev);
       PrevNode^.Next := Node^.Next;
       Self.FNodeList.Ptr(Node^.Next)^.Prev := Node^.Prev;
-    end else
+    end
+    else
     begin
       Self.FNodeLast := Node^.Prev;
       Self.FNodeList.Ptr(Self.FNodeLast)^.Next := 0;
     end;
+
     Node^.Value := Default(TSEValue);
     Self.FNodeAvailStack.Push(I);
     Inc(Self.FObjectsSweepCount);
@@ -7822,7 +7839,7 @@ begin
   I := Self.FNodeSweepLast;
   while I <> 1 do
   begin
-    if I <> 1 then
+    if Self.Mode = segcmIncremental then
     begin
       Inc(ProcessedCount);
       if ProcessedCount mod 64 = 0 then
@@ -7905,63 +7922,63 @@ var
 begin
   while Self.FGrayValueQueue.Count > 0 do
   begin
-    Inc(ProcessedCount);
-    if ProcessedCount mod 256 = 0 then
+    if Self.Mode = segcmIncremental then
     begin
-      TicksValue := TicksInNSec;
-      if TicksValue - Self.FIncrementalLastValueInNSec >= Self.FIncrementalBudgetInNSec then
+      Inc(ProcessedCount);
+      if ProcessedCount mod 256 = 0 then
       begin
-        {$ifdef SE_LOG}
-        Writeln('[GC] Time spent on current mark slice: ', TicksValue - Self.FIncrementalLastValueInNSec, ' nsec');
-        Writeln('[GC] Number of objects in queue: ', Self.FGrayValueQueue.Count);
-        {$endif}
-        break;
+        TicksValue := TicksInNSec;
+        if TicksValue - Self.FIncrementalLastValueInNSec >= Self.FIncrementalBudgetInNSec then
+        begin
+          {$ifdef SE_LOG}
+          Writeln('[GC] Time spent on current mark slice: ', TicksValue - Self.FIncrementalLastValueInNSec, ' nsec');
+          Writeln('[GC] Number of objects in queue: ', Self.FGrayValueQueue.Count);
+          {$endif}
+          break;
+        end;
       end;
     end;
     QCurrentValue := Self.FGrayValueQueue.Dequeue;
+
     if not (QCurrentValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
       continue;
-
     if (QCurrentValue.Ref >= Self.FNodeList.Count) or (QCurrentValue.Ref = 0) then
       continue;
+
     Node := Self.FNodeList.Ptr(QCurrentValue.Ref);
     NodeValue := Node^.Value;
-    NodeVarMap := NodeValue.VarMap;
 
-    if NodeValue.VarPointer = QCurrentValue.VarPointer then
+    if (QCurrentValue.VarPointer = nil) or (NodeValue.VarPointer <> QCurrentValue.VarPointer) then
+      continue;
+    NodeVarMap := NodeValue.VarMap;
+    if NodeVarMap^.Header.Color = Self.CurrentBlack then
+      continue;
+
+    NodeVarMap^.Header.Color := Self.CurrentBlack;
+    if (NodeValue.Kind = sevkMap) and (QCurrentValue.VarMap <> nil) then
     begin
-      if NodeVarMap^.Header.Color = Self.CurrentBlack then
-        continue;
-      {$ifdef SE_THREADS}
-      InterlockedExchange(NodeVarMap^.Header.Color, Self.CurrentBlack);
-      {$else}
-      NodeVarMap^.Header.Color := Self.CurrentBlack;
-      {$endif}
-      if (NodeValue.Kind = sevkMap) and (QCurrentValue.VarMap <> nil) then
+      if SEMapIsValidArray(QCurrentValue) then
       begin
-        if SEMapIsValidArray(QCurrentValue) then
+        VArray := QCurrentValue.VarMap^.Items;
+        for I := 0 to QCurrentValue.VarMap^.Count - 1 do
         begin
-          VArray := QCurrentValue.VarMap^.Items;
-          for I := 0 to QCurrentValue.VarMap^.Count - 1 do
-          begin
-            QValue := VArray[I];
-            Inc(ProcessedCount);
-            if not (QValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
-              Continue;
-            Self.FGrayValueQueue.Enqueue(QValue);
-          end;
-        end else
+          QValue := VArray[I];
+          Inc(ProcessedCount);
+          if not (QValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
+            Continue;
+          Self.FGrayValueQueue.Enqueue(QValue);
+        end;
+      end else
+      begin
+        VArray := QCurrentValue.VarMap^.Items;
+        ShapeManager.Mark(QCurrentValue.VarMap^.Shape);
+        for Key in QCurrentValue.VarMap^.Shape.GetKeys do
         begin
-          VArray := QCurrentValue.VarMap^.Items;
-          ShapeManager.Mark(QCurrentValue.VarMap^.Shape);
-          for Key in QCurrentValue.VarMap^.Shape.GetKeys do
-          begin
-            QValue := QCurrentValue.VarMap^.Get2(@Key);
-            Inc(ProcessedCount);
-            if not (QValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
-              Continue;
-            Self.FGrayValueQueue.Enqueue(QValue);
-          end;
+          QValue := QCurrentValue.VarMap^.Get2(@Key);
+          Inc(ProcessedCount);
+          if not (QValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
+            Continue;
+          Self.FGrayValueQueue.Enqueue(QValue);
         end;
       end;
     end;
@@ -8136,7 +8153,8 @@ begin
         {$ifdef SE_LOG}
         Writeln('[GC] ', Self.FPhase);
         {$endif}
-        Exit;
+        if Self.Mode = segcmIncremental then
+          Exit;
       end;
 
       if Self.FPhase = segcpMark then
@@ -8315,13 +8333,9 @@ begin
       {$ifdef SE_LOG}
      // Writeln('[GC] Write barrier triggered');
       {$endif}
-      {$ifdef SE_THREADS}
-      InterlockedExchange(AValue.VarMap^.Header.Color, SE_GC_GRAY);
-      {$else}
-      AValue.VarMap^.Header.Color := SE_GC_GRAY;
-      {$endif}
       Self.Lock;
       try
+        AValue.VarMap^.Header.Color := SE_GC_GRAY;
         Self.FGrayValueQueue.Enqueue(AValue);
       finally
         Self.Unlock;
@@ -8341,13 +8355,9 @@ begin
       {$ifdef SE_LOG}
      // Writeln('[GC] Write barrier (stack & global) triggered');
       {$endif}
-      {$ifdef SE_THREADS}
-      InterlockedExchange(AValue.VarMap^.Header.Color, SE_GC_GRAY);
-      {$else}
-      AValue.VarMap^.Header.Color := SE_GC_GRAY;
-      {$endif}
       Self.Lock;
       try
+        AValue.VarMap^.Header.Color := SE_GC_GRAY;
         Self.FGrayValueQueue.Enqueue(AValue);
       finally
         Self.Unlock;
@@ -11690,8 +11700,9 @@ begin
     Self.RegisterFunc('sqrt', @TSEBuiltInFunction(nil).SESqrt, 1, [sevkNumber]);
     Self.RegisterFunc('abs', @TSEBuiltInFunction(nil).SEAbs, 1, [sevkNumber]);
     Self.RegisterFunc('frac', @TSEBuiltInFunction(nil).SEFrac, 1, [sevkNumber]);
-    Self.RegisterFunc('mem_object_count', @TSEBuiltInFunction(nil).SEGCObjectCount, 0);
-    Self.RegisterFunc('mem_gc', @TSEBuiltInFunction(nil).SEGCCollect, 0);
+    Self.RegisterFunc('gc_object_count', @TSEBuiltInFunction(nil).SEGCObjectCount, 0);
+    Self.RegisterFunc('gc_collect', @TSEBuiltInFunction(nil).SEGCCollect, 0);
+    Self.RegisterFunc('gc_mode', @TSEBuiltInFunction(nil).SEGCMode, 1);
     Self.RegisterFunc('is_jit', @TSEBuiltInFunction(nil).SEIsJIT, 0);
     Self.RegisterFunc('fs_file_delete', @TSEBuiltInFunction(nil).SEFileDelete, 1);
     Self.RegisterFunc('fs_file_rename', @TSEBuiltInFunction(nil).SEFileRename, 2);
@@ -11804,6 +11815,8 @@ begin
   Self.SetConst('sevkNull', Double(NativeInt(sevkNull)));
   Self.SetConst('sevkFunction', Double(NativeInt(sevkFunction)));
   Self.SetConst('sevkPointer', Double(NativeInt(sevkPointer)));
+  Self.SetConst('segcmMarkSweep', Double(NativeInt(segcmMarkSweep)));
+  Self.SetConst('segcmIncremental', Double(NativeInt(segcmIncremental)));
   {$ifdef SE_THREADS}
   Self.SetConst('wrSignaled', Double(NativeInt(wrSignaled)));
   Self.SetConst('wrTimeout', Double(NativeInt(wrTimeout)));
