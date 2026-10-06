@@ -11470,7 +11470,7 @@ begin
       end;
     except
       on E: Exception do
-        Writeln('[TSEVMThread] ', E.Message);
+        raise Exception.Create('[TSEVMThread] ' + VM.Name + ': ' + E.Message);
     end;
   finally
     Self.VM.Parent.VMThreadList.Remove(Self);
@@ -11521,9 +11521,7 @@ begin
       end;
     except
       on E: Exception do
-      begin
-        Writeln('[TSEVMCoroutine] ', VM.Name, ': ', E.Message);
-      end;
+        raise Exception.Create('[TSEVMCoroutine] ' + VM.Name + ': ' + E.Message);
     end;
   end;
 end;
@@ -12879,12 +12877,12 @@ var
   begin
     Result := APossibleKinds;
     {$ifndef SE_HAS_JIT}
-    Self.FLastVerifyJITBlockResult := False;
+    Self.FLastVerifyJITBlockResult := True;
     Exit;
     {$endif}
     if not Self.OptimizeJIT then
     begin
-      Self.FLastVerifyJITBlockResult := False;
+      Self.FLastVerifyJITBlockResult := True;
       Exit;
     end;
     Sig := Self.JITBlockSignatureStack.Pop;
