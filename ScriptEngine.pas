@@ -1657,8 +1657,9 @@ type
     class function SEDTGetHour(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEDTGetMinute(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEGCObjectCount(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+    class function SEGCIncrementalBudgetSet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEGCCollect(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
-    class function SEGCMode(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+    class function SEGCModeSet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEIsJit(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEChar(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEOrd(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -6019,13 +6020,18 @@ begin
   Result := GC.ObjectCount;
 end;
 
+class function TSEBuiltInFunction.SEGCIncrementalBudgetSet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+begin
+  GC.IncrementalBudget := Args[0].VarNumber;
+end;
+
 class function TSEBuiltInFunction.SEGCCollect(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   GC.GC(True);
   Result := SENull;
 end;
 
-class function TSEBuiltInFunction.SEGCMode(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+class function TSEBuiltInFunction.SEGCModeSet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   GC.Mode := TSEGarbageCollectorMode(Round(Args[0]));
   Result := SENull;
@@ -11701,9 +11707,10 @@ begin
     Self.RegisterFunc('sqrt', @TSEBuiltInFunction(nil).SESqrt, 1, [sevkNumber]);
     Self.RegisterFunc('abs', @TSEBuiltInFunction(nil).SEAbs, 1, [sevkNumber]);
     Self.RegisterFunc('frac', @TSEBuiltInFunction(nil).SEFrac, 1, [sevkNumber]);
+    Self.RegisterFunc('gc_incremental_budget_set', @TSEBuiltInFunction(nil).SEGCIncrementalBudgetSet, 1);
     Self.RegisterFunc('gc_object_count', @TSEBuiltInFunction(nil).SEGCObjectCount, 0);
     Self.RegisterFunc('gc_collect', @TSEBuiltInFunction(nil).SEGCCollect, 0);
-    Self.RegisterFunc('gc_mode', @TSEBuiltInFunction(nil).SEGCMode, 1);
+    Self.RegisterFunc('gc_mode_set', @TSEBuiltInFunction(nil).SEGCModeSet, 1);
     Self.RegisterFunc('is_jit', @TSEBuiltInFunction(nil).SEIsJIT, 0);
     Self.RegisterFunc('fs_file_delete', @TSEBuiltInFunction(nil).SEFileDelete, 1);
     Self.RegisterFunc('fs_file_rename', @TSEBuiltInFunction(nil).SEFileRename, 2);
