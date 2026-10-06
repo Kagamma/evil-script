@@ -580,6 +580,7 @@ type
     property RunCount: QWord read FRunCount;
     property ObjectThreshold: Cardinal read FObjectThreshold write FObjectThreshold;
     property Phase: TSEGarbageCollectorPhase read FPhase write FPhase;
+    // Feel free to change the budget in real-time, for example remaining free ms in each frame
     property IncrementalBudget: Single read FIncrementalBudget write SetIncrementalBudget;
     property Interval: Cardinal read FInterval write FInterval;
     property Mode: TSEGarbageCollectorMode read FMode write FMode;
