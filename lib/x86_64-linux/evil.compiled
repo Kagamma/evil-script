@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <Compiler Value="/run/media/suomi/data/sdks/fpc322/fpc/bin/x86_64-linux/fpc.sh" Date="1788871794"/>
+  <Params Value=" -MObjFPC -Scghi -Cg -O1 -gw3 -gl -l -vewnhibq -Fu/run/media/suomi/data/spaces/GameSpace/evil-script/ -FU/run/media/suomi/data/spaces/GameSpace/evil-script/lib/x86_64-linux/ -FE/run/media/suomi/data/spaces/GameSpace/evil-script/ -o/run/media/suomi/data/spaces/GameSpace/evil-script/evil evil.pas"/>
+</CONFIG>

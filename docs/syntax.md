@@ -99,7 +99,7 @@ Strings, Maps, Buffers, and managed PasObjects are subject to automatic memory m
 
 The virtual machine utilizes a simple incremental garbage collector that periodically reclaims memory by spreading work across multiple frames.
 
-Users can invoke the garbage collector manually by calling the mem_gc() function.
+Users can invoke the garbage collector manually by calling the gc_collect() function.
 
 ## Syntax
 

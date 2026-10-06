@@ -108,5 +108,5 @@ while true {
   draw_cube(1)
   draw_screen()
   sleep(10)
-  mem_gc() // Manually call gc to avoid stuttering
+  gc_collect() // Manually call gc to avoid stuttering
 }

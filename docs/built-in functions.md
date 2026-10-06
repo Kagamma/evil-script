@@ -338,10 +338,10 @@ Alias to `map_clear`.
 Returns length of string, map or buffer.
 
 ## Memory management
-`mem_object_count(): number`
+`gc_object_count(): number`
 - Returns number of objects allocated by script engine.
 
-`mem_gc()`
+`gc_collect()`
 - Triggers garbage collection.
 
 ## Misc

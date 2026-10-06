@@ -24,7 +24,7 @@ const K2 = 5.0          // viewer distance
 K1 = screen_w * K2 / (8 * (R1 + R2))
 
 while true {
-  mem_gc()
+  gc_collect()
 
   // clear buffers   
   array_fill(output, ' ')
