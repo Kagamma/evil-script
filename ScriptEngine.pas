@@ -5468,7 +5468,7 @@ begin
         Exit(SESize(Args[0]));
       end;
     else
-      Exit(0);
+      raise Exception.Create('Length() only accept strings, maps or buffers');
   end;
 end;
 
@@ -7973,7 +7973,11 @@ begin
           Inc(ProcessedCount);
           if not (QValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
             Continue;
-          Self.FGrayValueQueue.Enqueue(QValue);
+          if QValue.VarMap^.Header.Color = Self.CurrentWhite then
+          begin
+            QValue.VarMap^.Header.Color := SE_GC_GRAY;
+            Self.FGrayValueQueue.Enqueue(QValue);
+          end;
         end;
       end else
       begin
@@ -7984,7 +7988,11 @@ begin
           Inc(ProcessedCount);
           if not (QValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
             Continue;
-          Self.FGrayValueQueue.Enqueue(QValue);
+          if QValue.VarMap^.Header.Color = Self.CurrentWhite then
+          begin
+            QValue.VarMap^.Header.Color := SE_GC_GRAY;
+            Self.FGrayValueQueue.Enqueue(QValue);
+          end;
         end;
       end;
     end;
