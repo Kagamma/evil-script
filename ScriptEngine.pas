@@ -7970,7 +7970,6 @@ begin
         end;
       end else
       begin
-        VArray := QCurrentValue.VarMap^.Items;
         ShapeManager.Mark(QCurrentValue.VarMap^.Shape);
         for Key in QCurrentValue.VarMap^.Shape.GetKeys do
         begin
