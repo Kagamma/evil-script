@@ -6024,9 +6024,9 @@ begin
   Result := SENull;
 end;
 
-class function TSEBuiltInFunction.SEGCCollect(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+class function TSEBuiltInFunction.SEGCMode(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  GC.Mode := Round(Args[0]);
+  GC.Mode := TSEGarbageCollectorMode(Round(Args[0]));
   Result := SENull;
 end;
 
