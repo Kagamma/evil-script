@@ -8095,7 +8095,7 @@ var
         begin
           P := @VM.Global.Value^.Data[0];
           P2 := @VM.Global.Value^.Data[VM.Global.Value^.Size - 1];
-          while P <= P2 do
+          while P < P2 do
           begin
             AddReachableValue(P^);
             Inc(P);
@@ -14415,7 +14415,7 @@ var
     begin
       Deep := 0;
       Result := NextTokenExpected([tkIdent]).Value;
-      while PeekAtNextToken.Kind = tkSquareBracketOpen do
+      while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkSmaller] do
       begin
         if (Result <> 'map') and (Result <> 'array') then
           Error('Only "map" and "array" can be nested', PeekAtNextToken);
@@ -14425,7 +14425,7 @@ var
       end;
       for I := 0 to Deep - 1 do
       begin
-        NextTokenExpected([tkSquareBracketClose]);
+        NextTokenExpected([tkSquareBracketClose, tkGreater]);
       end;
     end;
 
