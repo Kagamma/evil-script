@@ -658,6 +658,7 @@ type
     CodeIndex: NativeInt;
     CodeSegmentIndex: NativeInt;
     Line: NativeInt;
+    FuncName,
     Module: String;
   end;
   TSELineOfCodeList = specialize TSEListPtr<TSELineOfCode>;
@@ -8811,32 +8812,28 @@ var
   procedure GetLineOfCode;
   var
     I: NativeInt;
+    CurrentLineOfCode: TSELineOfCode;
     CodeIndex: NativeUInt;
+    CurrentLinePossible: Cardinal;
+    ClosestLinePossible: Cardinal = $FFFFFFFF;
   begin
-    if FramePtr = @Self.Frame[0] then
-    begin
-      I := Self.Parent.LineOfCodeList.Count - 1;
-      while I >= 0 do
-      begin
-        LineOfCode := Self.Parent.LineOfCodeList[I];
-        CodeIndex := NativeUInt(CodePtrLocal - Self.Binaries.Value^.Data[LineOfCode.CodeSegmentIndex].Ptr(0)) div SizeOf(TSEValue);
-        if (CodeIndex >= LineOfCode.CodeIndex) and (LineOfCode.CodeSegmentIndex = CodeSegmentIndexLocal) then
-          Exit;
-        Dec(I);
-      end;
-    end else
-    begin
-      I := 0;
-      while I <= Self.Parent.LineOfCodeList.Count - 1 do
-      begin
-        LineOfCode := Self.Parent.LineOfCodeList[I];
-        CodeIndex := NativeUInt(CodePtrLocal - Self.Binaries.Value^.Data[LineOfCode.CodeSegmentIndex].Ptr(0)) div SizeOf(TSEValue);
-        if (CodeIndex < LineOfCode.CodeIndex) and (LineOfCode.CodeSegmentIndex = CodeSegmentIndexLocal) then
-          Exit;
-        Inc(I);
-      end;
-    end;
+    I := 0;
     LineOfCode.Line := -1;
+    while I <= Self.Parent.LineOfCodeList.Count - 1 do
+    begin
+      CurrentLineOfCode := Self.Parent.LineOfCodeList[I];
+      CodeIndex := NativeUInt(CodePtrLocal - Self.Binaries.Value^.Data[CurrentLineOfCode.CodeSegmentIndex].Ptr(0)) div SizeOf(TSEValue);
+      if CurrentLineOfCode.CodeSegmentIndex = CodeSegmentIndexLocal then
+      begin
+        CurrentLinePossible := Abs(CodeIndex - CurrentLineOfCode.CodeIndex);
+        if CurrentLinePossible < ClosestLinePossible then
+        begin
+          ClosestLinePossible := CurrentLinePossible;
+          LineOfCode := CurrentLineOfCode;
+        end;
+      end;
+      Inc(I);
+    end;
   end;
 
   procedure PrintEvilScriptStackTrace(Message: String);
@@ -11388,9 +11385,9 @@ labelStart:
       begin
         GetLineOfCode;
         if LineOfCode.Module = '' then
-          S := S + Format('Runtime error %s: "%s" at line %d', [E.ClassName, E.Message, LineOfCode.Line])
+          S := S + Format('Runtime error %s: "%s" at line %d (%s)', [E.ClassName, E.Message, LineOfCode.Line, LineOfCode.FuncName])
         else
-          S := S + Format('Runtime error %s: "%s" at line %d (%s)', [E.ClassName, E.Message, LineOfCode.Line, LineOfCode.Module]);
+          S := S + Format('Runtime error %s: "%s" at line %d (%s:%s)', [E.ClassName, E.Message, LineOfCode.Line, LineOfCode.Module, LineOfCode.FuncName]);
         PrintEvilScriptStackTrace(S);
         raise SERuntimeException.Create(S);
       end;
@@ -12617,6 +12614,8 @@ var
       LineOfCode.CodeSegmentIndex := Self.CodeSegmentIndex;
       LineOfCode.Line := Result.Ln;
       LineOfCode.Module := Result.BelongedFileName;
+      if Self.FuncCurrent >= 0 then
+        LineOfCode.FuncName := Self.FuncScriptList.Ptr(Self.FuncCurrent)^.Name;
       CurrentLine := LineOfCode.Line;
       Self.LineOfCodeList.Add(LineOfCode);
     end;
