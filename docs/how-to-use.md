@@ -7,7 +7,7 @@ Below is an overview document that briefly explains how to integrate Evil script
   + [Register new functions with the self variable](#register-new-functions-with-the-self-variable)
   + [Register functions with named arguments](#register-functions-with-named-arguments)
   + [Yield](#yield)
-  + [Exec, ExecFunc, ExecFuncOnly](#exec-execfunc-execfunconly)
+  + [Exec, ExecFunc](#exec-execfunc)
   + [Change global variables](#change-global-variables)
   + [Change constant values](#change-constant-values)
 - [TSEValue](#tsevalue)
@@ -132,7 +132,7 @@ On Pascal side, we call `TScriptEngine.Exec` in a loop until `IsDone` flag is se
   end;
 ```
 
-### Exec, ExecFunc, ExecFuncOnly
+### Exec, ExecFunc
 - `Exec` is used when you want to execute the script until it's done (check the `TScriptEngine.IsDone` flag). `yield` can be used to quit the script and return later.
 - `ExecFunc` executes a named function. If you want to initialize global variables, call `Exec` before `ExecFunc`. `yield` can be used to quit the script and return later.
 
