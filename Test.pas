@@ -166,9 +166,9 @@ begin
   Writeln('--- CallFunctionTestRun ---');
   SE.Source := CallFunction;
   SE.Exec; // Initialize global variables
-  SE.ExecFuncOnly('test', [2]); // 2
-  SE.ExecFuncOnly('test', [2]); // 4
-  SE.ExecFuncOnly('test', [1]); // 5
+  SE.ExecFunc('test', [2]); // 2
+  SE.ExecFunc('test', [2]); // 4
+  SE.ExecFunc('test', [1]); // 5
 end;
 
 procedure YieldTestRun;

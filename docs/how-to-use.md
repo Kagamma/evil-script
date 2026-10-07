@@ -135,7 +135,6 @@ On Pascal side, we call `TScriptEngine.Exec` in a loop until `IsDone` flag is se
 ### Exec, ExecFunc, ExecFuncOnly
 - `Exec` is used when you want to execute the script until it's done (check the `TScriptEngine.IsDone` flag). `yield` can be used to quit the script and return later.
 - `ExecFunc` executes a named function. If you want to initialize global variables, call `Exec` before `ExecFunc`. `yield` can be used to quit the script and return later.
-- `ExecFuncOnly` similar to `ExecFunc` except it's one time only and because of that `yield` CANNOT be used.
 
 ### Change global variables
 Useful if we want to modify a global variable after intialized them via `TScriptEngine.Exec()`

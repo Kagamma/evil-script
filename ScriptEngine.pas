@@ -91,7 +91,7 @@ uses
   {$ifdef SE_STRING_UTF8},LazUTF8{$endif}{$ifdef SE_DYNLIBS}, dynlibs{$endif};
 
 const
-  SE_STACK_RESERVED = 2;
+  SE_STACK_RESERVED = 0;
   SE_GC_GRAY = 2;
 
 type
@@ -1085,11 +1085,7 @@ type
     procedure Parse;
     procedure Reset;
     function Exec: TSEValue;
-    // Execute a function only, currently this does not support yield!
-    function ExecFuncOnly(const Name: String; const Args: array of TSEValue): TSEValue; overload;
-    // This method is equivalent of calling Exec(), then ExecFuncOnly()
     function ExecFunc(const Name: String; const Args: array of TSEValue): TSEValue; overload;
-    function ExecFuncOnly(const AIndex: NativeInt; const Args: array of TSEValue): TSEValue; overload;
     function ExecFunc(const AIndex: NativeInt; const Args: array of TSEValue): TSEValue; overload;
     procedure RegisterFunc(const Name: String; const Func: TSEFunc; const ArgCount: NativeInt; APossibleKinds: TSEValueKindSet = [sevkNumber, sevkString, sevkMap, sevkNull, sevkFunction, sevkPascalObject]);
     function RegisterScriptFunc(const Name: String; const ArgCount: NativeInt; var AIndex: Cardinal; const IsOverride: Boolean = False): PSEFuncScriptInfo;
@@ -6062,7 +6058,7 @@ begin
   Coroutine := TSEVMCoroutine.Create(VM, Args[0], @Args[1], ArgCount - 1, SEThreadStackSize);
   Result.AllocPascalObject(Coroutine, True);
   // Push "self" onto stack
-  Coroutine.VM.Stack[(SE_STACK_RESERVED - 1) + ArgCount] := Result;
+  Coroutine.VM.Stack[ArgCount] := Result;
 end;
 
 class function TSEBuiltInFunction.SECoroutineReset(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -6082,7 +6078,7 @@ begin
   Co := TSEVMCoroutine(Args[0].VarPascalObject^.Value);
   if ArgCount > 1 then
   begin
-    StackPtrLocal := PSEValue(@Co.VM.Stack[0]) + SE_STACK_RESERVED;
+    StackPtrLocal := PSEValue(@Co.VM.Stack[1]){ + SE_STACK_RESERVED};
     Move(Args[1], StackPtrLocal[0], (ArgCount - 1) * SizeOf(TSEValue));
   end;
   Result := Co.Execute;
@@ -8072,10 +8068,12 @@ var
           exit;
         Node := Self.FNodeList.Ptr(AValue.Ref);
         // Check to see if this is an invalid node
+        {.$ifndef SE_CLEAR_STACK}
         if (AValue.VarPointer = nil) or (Node^.Value.VarPointer <> AValue.VarPointer) then
         begin
           exit;
         end;
+        {.$endif}
         AValue.VarMap^.Header.Color := SE_GC_GRAY;
         Self.FGrayValueQueue.Enqueue(AValue);
       end;
@@ -8626,7 +8624,8 @@ begin
   SetLength(Result.Stack, AStackSize);
   SetLength(Result.Frame, Result.FrameSize);
   SetLength(Result.Trap, Result.TrapSize);
-  Result.StackPtr := PSEValue(@Result.Stack[0]) + SE_STACK_RESERVED;
+  FillChar(Result.Stack[0], AStackSize * SizeOf(TSEValue), 0);
+  Result.StackPtr := PSEValue(@Result.Stack[1]){ + SE_STACK_RESERVED};
   Result.FramePtr := @Result.Frame[0];
   Result.FramePtr^.StackPtr := Result.StackPtr;
   Result.TrapPtr := @Result.Trap[0];
@@ -8689,7 +8688,7 @@ begin
   // FillChar(Self.Frame[0], Length(Self.Frame) * SizeOf(TSEFrame), 0);
   // FillChar(Self.Trap[0], Length(Self.Trap) * SizeOf(TSETrap), 0);
   Self.FramePtr := @Self.Frame[0];
-  Self.StackPtr := @Self.Stack[0];
+  Self.StackPtr := @Self.Stack[1];
   Self.FramePtr^.StackPtr := Self.StackPtr;
   Self.TrapPtr := @Self.Trap[0];
   Dec(Self.TrapPtr);
@@ -11483,7 +11482,7 @@ begin
       Self.IsExecuting := True;
       Self.VM.Exec;
       Self.IsExecuting := False;
-      Result := (PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED - 1)^;
+      Result := (PSEValue(@Self.VM.Stack[1]){ + SE_STACK_RESERVED} - 1)^;
       if Self.VM.IsDone then
       begin
         Self.IsTerminated := True;
@@ -11502,7 +11501,7 @@ var
 begin
   if Self.VM = nil then
     Exit;
-  Self.VM.StackPtr := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
+  Self.VM.StackPtr := PSEValue(@Self.VM.Stack[1]){ + SE_STACK_RESERVED};
   for I := 0 to ArgCount - 1 do
   begin
     Self.VM.StackPtr[0] := Args[I];
@@ -11779,7 +11778,7 @@ begin
   Self.FuncScriptList.TryFree;
   Self.FuncImportList.TryFree;
   Self.LineOfCodeList.TryFree;
-  Self.ConstList.Free;
+  Self.ConstList.TryFree;
   Self.ConstLookup.Free;
   Self.ScopeStack.Free;
   Self.ScopeFunc.Free;
@@ -13820,6 +13819,8 @@ var
                   begin
                     Ident := FindVar(Token.Value);
                     Result := Result + Ident^.PossibleKinds;
+                    if not Ident^.IsAssigned then
+                      Error(Format('Variable "%s" is not initialized', [Token.Value]), Token);
                     Ident^.IsUsed := True;
                     if Ident^.IsConst and (Ident^.ConstValue.Kind <> sevkNull) then
                     begin
@@ -14494,7 +14495,7 @@ var
     ParentBinaryPos: NativeInt;
     VarSymbols: TStrings;
     This: PSEIdent;
-    Res, Param: PSEIdent;
+    Res, Param, Thiz: PSEIdent;
     HasOverride: Boolean = False;
   begin
     Self.FLastVerifiedJITBlockLastPlace := -1;
@@ -14535,6 +14536,7 @@ var
           Token := NextTokenExpected([tkIdent]);
           Param := CreateIdent(ikVariable, Token, False, False);
           Param^.PossibleKinds := [sevkNull];
+          Param^.IsAssigned := True;
           ParseTypeAnnotation(Param);
           Inc(ArgCount);
         end;
@@ -14543,7 +14545,8 @@ var
 
       Token.Value := 'self';
       Token.Kind := tkIdent;
-      CreateIdent(ikVariable, Token, True, False);
+      Thiz := CreateIdent(ikVariable, Token, True, False);
+      Thiz^.IsAssigned := True;
 
       Func^.ArgCount := ArgCount;
       for I := 0 to VarSymbols.Count - 1 do
@@ -14936,6 +14939,7 @@ var
       begin
         PIdentFirst := CreateIdent(ikVariable, Token, True, False);
         VarIdent := PIdentFirst^;
+        PIdentFirst^.IsAssigned := True;
         PIdentFirst^.PossibleKinds := [sevkNumber];
       end else
       begin
@@ -15074,6 +15078,7 @@ var
             Token.Value := VarHiddenCountName;
             PIdent := CreateIdent(ikVariable, Token, True, False);
             PIdent^.PossibleKinds := [sevkNumber];
+            PIdent^.IsAssigned := True;
             VarHiddenCountIdent := PIdent^;
 
             Token.Value := VarHiddenArrayName;
@@ -15427,6 +15432,8 @@ var
           UpdateIdentPossibleKinds(Ident, AssignPossibleKinds);
           if Token.Kind = tkOpAssign then
           begin
+            if IsNew then
+              Error(Format('Variable "%s" is not initialized', [Name]), Token);
             case Token.Value of
               '+':
                 if not PeepholeOpXOptimization(opAdd) then
@@ -15489,7 +15496,6 @@ var
   procedure ParseTrap;
   var
     Token: TSEToken;
-    VarIdent: TSEIdent;
     PVarIdent: PSEIdent;
     I,
     JumpCatchBlock,
@@ -15509,10 +15515,10 @@ var
     PVarIdent := FindVar(Token.Value);
     if PVarIdent = nil then
     begin
-      VarIdent := CreateIdent(ikVariable, Token, True, False)^;
-      EmitAssignVar(VarIdent);
-    end else
-      EmitAssignVar(PVarIdent^);
+      PVarIdent := CreateIdent(ikVariable, Token, True, False);
+    end;
+    PVarIdent^.IsAssigned := True;
+    EmitAssignVar(PVarIdent^);
     NextTokenExpected([tkBracketClose]);
     ParseBlock;
 
@@ -15944,80 +15950,6 @@ end;
   - Parameters (0..X)
   - Variables (X+1..Y)
 }
-function TEvilC.ExecFuncOnly(const Name: String; const Args: array of TSEValue): TSEValue;
-var
-  I: NativeInt;
-begin
-  if Name <> '' then
-  begin
-    if not Self.FuncScriptMap.{$ifdef SE_MAP_AVK959}Contains{$else}ContainsKey{$endif}(Name) then
-    begin
-      for I := Self.FuncScriptList.Count - 1 downto 0 do
-      begin
-        if Name = Self.FuncScriptList[I].Name then
-        begin
-          Self.FuncScriptMap.Add(Name, I);
-          Exit(Self.ExecFuncOnly(I, Args));
-        end;
-      end;
-    end else
-      Exit(Self.ExecFuncOnly(Self.FuncScriptMap[Name], Args));
-  end;
-  Exit(SENull);
-end;
-
-function TEvilC.ExecFuncOnly(const AIndex: NativeInt; const Args: array of TSEValue): TSEValue;
-var
-  I: NativeInt;
-  Stack: PSEValue;
-  Func: PSEFuncScriptInfo;
-begin
-  {$ifdef SE_CGE_PROFILER}
-  FrameProfiler.Start('TEvilC.ExecFunc');
-  {$endif}
-  try
-    if not Self.IsLex then
-      Self.Lex;
-    if not Self.IsParsed then
-    begin
-      Self.Parse;
-    end;
-    Self.VM.CodePtr := nil;
-    Self.VM.CodeSegmentIndex := 0;
-    Self.VM.IsPaused := False;
-    Self.VM.IsThrowException := False;
-    Self.VM.FramePtr := @Self.VM.Frame[0];
-    Self.VM.StackPtr := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
-    Self.VM.FramePtr^.StackPtr := Self.VM.StackPtr;
-    Self.VM.TrapPtr := @Self.VM.Trap[0];
-    Dec(Self.VM.TrapPtr);
-    Func := Self.FuncScriptList.Ptr(AIndex);
-    Self.VM.CodeSegmentIndex := Func^.CodeSegmentIndex;
-    Self.VM.StackPtr := Self.VM.StackPtr + Func^.ArgCount + Func^.VarCount;
-    if Self.VM.CodeSegmentIndex <> 0 then
-    begin
-      Stack := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
-      for I := 0 to Length(Args) - 1 do
-      begin
-        Stack[I] := Args[I];
-      end;
-      {$ifdef SE_PROFILER}
-      Self.VM.YieldCompensated := 0;
-      Self.VM.SEProfileItem.FuncName := Self.VM.Name + ':' + Self.FuncScriptList.Ptr(AIndex)^.Name;
-      Self.VM.SEProfileItem.TimeStartInNSec := TSEProfiler.GetTimeInNSec;
-      Self.VM.SEProfilerStack.Push(Self.VM.SEProfileItem);
-      {$endif}
-      Self.VM.Exec;
-      Exit(Stack[-1]);
-    end else
-      Exit(SENull);
-  finally
-    {$ifdef SE_CGE_PROFILER}
-    FrameProfiler.Stop('TEvilC.ExecFunc');
-    {$endif}
-  end;
-end;
-
 function TEvilC.ExecFunc(const Name: String; const Args: array of TSEValue): TSEValue;
 var
   I: NativeInt;
@@ -16050,20 +15982,17 @@ begin
   {$ifdef SE_CGE_PROFILER}
   FrameProfiler.Start('TEvilC.ExecFunc');
   {$endif}
+  for V in Args do
+    if V.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer] then
+      GC.Managed(@V);
   try
     Result := SENull;
     if (not Self.VM.IsDone) and (Self.VM.IsPaused or Self.VM.IsYielded) then
     begin
-      for V in Args do
-        if V.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer] then
-          GC.Managed(@V);
       Self.VM.Exec;
-      for V in Args do
-        if V.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer] then
-          GC.UnManaged(@V);
       if Self.VM.IsDone then
       begin
-        Stack := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
+        Stack := PSEValue(@Self.VM.Stack[1]){ + SE_STACK_RESERVED};
         Result := Stack[-1];
       end;
     end else
@@ -16073,16 +16002,18 @@ begin
       Self.VM.IsPaused := False;
       Self.VM.IsDone := False;
       Self.VM.FramePtr := @Self.VM.Frame[0];
-      Self.VM.StackPtr := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
+      Self.VM.StackPtr := PSEValue(@Self.VM.Stack[1]){ + SE_STACK_RESERVED};
       Self.VM.FramePtr^.StackPtr := Self.VM.StackPtr;
       Self.VM.TrapPtr := @Self.VM.Trap[0];
       Dec(Self.VM.TrapPtr);
       Func := Self.FuncScriptList.Ptr(AIndex);
       Self.VM.CodeSegmentIndex := Func^.CodeSegmentIndex;
-      Self.VM.StackPtr := Self.VM.StackPtr + Func^.ArgCount + Func^.VarCount;
+      Self.VM.StackPtr := Self.VM.StackPtr + Func^.ArgCount;
+      FillQWord(Self.VM.StackPtr[0], Func^.VarCount * 2, 0);
+      Self.VM.StackPtr := Self.VM.StackPtr + Func^.VarCount;
       if Self.VM.CodeSegmentIndex <> 0 then
       begin
-        Stack := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
+        Stack := PSEValue(@Self.VM.Stack[1]){ + SE_STACK_RESERVED};
         for I := 0 to Length(Args) - 1 do
         begin
           Stack[I] := Args[I];
@@ -16101,6 +16032,9 @@ begin
       end;
     end;
   finally
+    for V in Args do
+      if V.Kind in [sevkMap, sevkString, sevkPascalObject, sevkBuffer] then
+        GC.UnManaged(@V);
     {$ifdef SE_CGE_PROFILER}
     FrameProfiler.Stop('TEvilC.ExecFunc');
     {$endif}
@@ -16274,9 +16208,8 @@ begin
   Result.FuncNativeList.Free;
   Result.FuncNativeList := Self.FuncNativeList.Reference;
 
-  Result.ConstList.Count := Self.ConstList.Count;
-  for I := 0 to Self.ConstList.Count - 1 do
-    Result.ConstList[I] := Self.ConstList[I];
+  Result.ConstList.Free;
+  Result.ConstList := Self.ConstList.Reference;
 
   for Key in Self.ConstLookup.Keys do
     Result.ConstLookup.AddOrSetValue(Key, Self.ConstLookup[Key]);
