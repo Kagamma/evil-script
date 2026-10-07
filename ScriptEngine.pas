@@ -62,6 +62,7 @@ unit ScriptEngine;
   {$undef MANUAL_THREAD_SUSPEND}
 {$endif}
 {.define SE_INFINITE_LOOP_CHECK}
+{.define SE_CLEAR_STACK}
 
 interface
 
@@ -11190,7 +11191,9 @@ labelStart:
           FramePtrLocal^.CodePtr := CodePtrLocal + 4;
           FramePtrLocal^.CodeSegmentIndex := CodeSegmentIndexLocal;
           FramePtrLocal^.Func := FuncScriptInfo;
+          {$ifdef SE_CLEAR_STACK}
           FillQWord(StackPtrLocal[0], FuncScriptInfo^.VarCount * 2, 0);
+          {$endif}
           StackPtrLocal := StackPtrLocal + FuncScriptInfo^.VarCount;
           CodeSegmentIndexLocal := FuncScriptInfo^.CodeSegmentIndex;
           CodePtrLocal := Self.Binaries.Value^.Data[CodeSegmentIndexLocal].Ptr(0);
