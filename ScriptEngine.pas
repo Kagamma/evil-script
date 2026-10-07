@@ -61,6 +61,7 @@ unit ScriptEngine;
 {$ifndef SE_THREADS}
   {$undef MANUAL_THREAD_SUSPEND}
 {$endif}
+{.define SE_INFINITE_LOOP_CHECK}
 
 interface
 
@@ -777,6 +778,9 @@ type
   public
     Name: String;
     Owner: TSEVM;
+    {$ifdef SE_INFINITE_LOOP_CHECK}
+    FDurationSinceStart: Cardinal;
+    {$endif}
     {$ifdef SE_PROFILER}
     SEProfilerStack: TSEProfilerStack;
     SEProfileItem: TSEProfilerItem;
@@ -9294,12 +9298,23 @@ var
 
 {$ifdef SE_COMPUTED_GOTO}
   {$if defined(CPUX86_64) or defined(CPUi386)}
-    {$define DispatchGoto :=
-      P := DispatchTable[TSEOpcode(NativeUInt(CodePtrLocal^.VarPointer))];
-      asm
-        jmp P;
-      end
-    }
+    {$ifdef SE_INFINITE_LOOP_CHECK}
+      {$define DispatchGoto :=
+        if PrecomputedTicks - Self.FDurationSinceStart > 20000 then
+          raise SERuntimeException.Create('Infinite loop detected');
+        P := DispatchTable[TSEOpcode(NativeUInt(CodePtrLocal^.VarPointer))];
+        asm
+          jmp P;
+        end
+      }
+    {$else}
+      {$define DispatchGoto :=
+        P := DispatchTable[TSEOpcode(NativeUInt(CodePtrLocal^.VarPointer))];
+        asm
+          jmp P;
+        end
+      }
+    {$endif}
   {$elseif defined(CPUARM) or defined(CPUAARCH64)}
     {$define DispatchGoto :=
       P := DispatchTable[TSEOpcode(NativeUInt(CodePtrLocal^.VarPointer))];
@@ -10606,6 +10621,9 @@ begin
   Self.IsThrowException := False;
   if Self.IsPaused then
     Exit;
+  {$ifdef SE_INFINITE_LOOP_CHECK}
+  Self.FDurationSinceStart := PrecomputedTicks;
+  {$endif}
   GlobalLocal := @Self.Global.Value^.Data[0];
   CodeSegmentIndexLocal := Self.CodeSegmentIndex;
   FuncNativeInfoPtrLocal := Self.Parent.FuncNativeList.Ptr(0);
@@ -11172,6 +11190,7 @@ labelStart:
           FramePtrLocal^.CodePtr := CodePtrLocal + 4;
           FramePtrLocal^.CodeSegmentIndex := CodeSegmentIndexLocal;
           FramePtrLocal^.Func := FuncScriptInfo;
+          FillQWord(StackPtrLocal[0], FuncScriptInfo^.VarCount * 2, 0);
           StackPtrLocal := StackPtrLocal + FuncScriptInfo^.VarCount;
           CodeSegmentIndexLocal := FuncScriptInfo^.CodeSegmentIndex;
           CodePtrLocal := Self.Binaries.Value^.Data[CodeSegmentIndexLocal].Ptr(0);
@@ -14421,6 +14440,7 @@ var
            // Ident^.IsForcedKind := True;
            // Ident^.PossibleKinds := [sevkNumber];
           end;
+        'array',
         'map':
           begin
            // Ident^.IsForcedKind := True;
@@ -14918,6 +14938,10 @@ var
       begin
         VarIdent := FindVar(Token.Value)^;
       end;
+      if PeekAtNextToken.kind = tkColon then
+      begin
+        ParseTypeAnnotation(@VarIdent);
+      end;
       Token := NextTokenExpected([tkAssign, tkIn, tkOf, tkComma]);
 
       VarHiddenTargetName := '___t' + VarIdent.Name;
@@ -15306,10 +15330,6 @@ var
         Error(Format('Cannot reassign value to constant "%s"', [Name]), PeekAtNextToken);
         RewindStartAddr := Self.Binary.Count;
       VarStartTokenPos := Pos;
-      if PeekAtNextToken.kind = tkColon then
-      begin
-        ParseTypeAnnotation(Ident);
-      end;
       Ident^.IsAssigned := True;
     end else
     begin
@@ -15319,60 +15339,63 @@ var
         Exit;
       end;
     end;
+    while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
     begin
+      if FuncRefToken.Value = '' then
+      begin
+        FuncRefToken.Value := '___f' + Self.InternalIdent;
+        FuncRefToken.Kind := tkIdent;
+        FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False)^;
+      end;
+      AssignReturnFuncRef;
       while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
       begin
-        if FuncRefToken.Value = '' then
-        begin
-          FuncRefToken.Value := '___f' + Self.InternalIdent;
-          FuncRefToken.Kind := tkIdent;
-          FuncRefIdent := CreateIdent(ikVariable, FuncRefToken, True, False)^;
-        end;
-        AssignReturnFuncRef;
-        while PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot] do
-        begin
-          if IsNew then
-            Error(Format('Variable "%s" is not an array / a map', [Name]), PeekAtNextToken);
-          if (ArgCount = 0) and (Ident <> nil) then
-            EmitPushVar(Ident^);
-          case PeekAtNextToken.Kind of
-            tkSquareBracketOpen:
+        if IsNew then
+          Error(Format('Variable "%s" is not an array / a map', [Name]), PeekAtNextToken);
+        if (ArgCount = 0) and (Ident <> nil) then
+          EmitPushVar(Ident^);
+        case PeekAtNextToken.Kind of
+          tkSquareBracketOpen:
+            begin
+              NextToken;
+              MarkJITBlock;
+              ArrayIndexPossibleKinds := ParseExpr(False);
+              VerifyJITBlock(ArrayIndexPossibleKinds);
+              if ArrayIndexPossibleKinds - [sevkNumber, sevkBoolean] <> [] then
+                IsJitPossibleForArray := False;
+              NextTokenExpected([tkSquareBracketClose]);
+              if PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot, tkBracketOpen] then
               begin
-                NextToken;
-                MarkJITBlock;
-                ArrayIndexPossibleKinds := ParseExpr(False);
-                VerifyJITBlock(ArrayIndexPossibleKinds);
-                if ArrayIndexPossibleKinds - [sevkNumber, sevkBoolean] <> [] then
-                  IsJitPossibleForArray := False;
-                NextTokenExpected([tkSquareBracketClose]);
-                if PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot, tkBracketOpen] then
-                begin
-                  Emit([Pointer(opLoadMapItem), SENull, Pointer(1)]);
-                  PeepholeArrayAssignOptimization;
-                end;
-                AssignReturnFuncRef;
+                Emit([Pointer(opLoadMapItem), SENull, Pointer(1)]);
+                PeepholeArrayAssignOptimization;
               end;
-            tkDot:
+              AssignReturnFuncRef;
+            end;
+          tkDot:
+            begin
+              NextToken;
+              Token2 := NextTokenExpected([tkIdent]);
+              AssignReturnFuncRef;
+              if PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot, tkBracketOpen] then
               begin
-                NextToken;
-                Token2 := NextTokenExpected([tkIdent]);
-                AssignReturnFuncRef;
-                if PeekAtNextToken.Kind in [tkSquareBracketOpen, tkDot, tkBracketOpen] then
-                begin
-                  Emit([Pointer(opLoadMapAttr), CreateConstStringValue(Token2.Value), Pointer(1)]);
-                end else
-                  Emit([Pointer(opPushConst), CreateConstStringValue(Token2.Value)]);
-                IsDotNotation := True;
-              end;
-          end;
-          Inc(ArgCount);
+                Emit([Pointer(opLoadMapAttr), CreateConstStringValue(Token2.Value), Pointer(1)]);
+              end else
+                Emit([Pointer(opPushConst), CreateConstStringValue(Token2.Value)]);
+              IsDotNotation := True;
+            end;
         end;
+        Inc(ArgCount);
       end;
     end;
 
     if Ident <> nil then
+    begin
+      if PeekAtNextToken.kind = tkColon then
+      begin
+        ParseTypeAnnotation(Ident);
+      end;
       Token := PeekAtNextTokenExpected([tkAssign, tkOpAssign, tkBracketOpen])
-    else
+    end else
       Token := PeekAtNextTokenExpected([tkBracketOpen]);
     AssignPossibleKinds := [];
     case Token.Kind of
@@ -15414,6 +15437,12 @@ var
               '/':
                 if not PeepholeOpXOptimization(opDiv) then
                   Emit([Pointer(opDiv)]);
+              '&':
+                  Emit([Pointer(opAnd)]);
+              '|':
+                  Emit([Pointer(opOr)]);
+              '~':
+                  Emit([Pointer(opXor)]);
             end;
           end;
           if ArgCount > 0 then
