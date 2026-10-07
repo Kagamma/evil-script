@@ -11778,7 +11778,7 @@ begin
   Self.FuncScriptList.TryFree;
   Self.FuncImportList.TryFree;
   Self.LineOfCodeList.TryFree;
-  Self.ConstList.TryFree;
+  Self.ConstList.Free;
   Self.ConstLookup.Free;
   Self.ScopeStack.Free;
   Self.ScopeFunc.Free;
@@ -16208,8 +16208,9 @@ begin
   Result.FuncNativeList.Free;
   Result.FuncNativeList := Self.FuncNativeList.Reference;
 
-  Result.ConstList.Free;
-  Result.ConstList := Self.ConstList.Reference;
+  Result.ConstList.Count := Self.ConstList.Count;
+  for I := 0 to Self.ConstList.Count - 1 do
+    Result.ConstList[I] := Self.ConstList[I];
 
   for Key in Self.ConstLookup.Keys do
     Result.ConstLookup.AddOrSetValue(Key, Self.ConstLookup[Key]);
