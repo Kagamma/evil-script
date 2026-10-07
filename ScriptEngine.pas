@@ -8086,7 +8086,7 @@ var
       begin
         VM := VMList[I];
         P := @VM.Stack[0];
-        while P <= VM.StackPtr do
+        while P < VM.StackPtr do
         begin
           AddReachableValue(P^);
           Inc(P);
@@ -8095,7 +8095,7 @@ var
         begin
           P := @VM.Global.Value^.Data[0];
           P2 := @VM.Global.Value^.Data[VM.Global.Value^.Size - 1];
-          while P < P2 do
+          while P <= P2 do
           begin
             AddReachableValue(P^);
             Inc(P);
