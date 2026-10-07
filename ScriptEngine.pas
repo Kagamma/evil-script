@@ -5608,7 +5608,10 @@ class function TSEBuiltInFunction.SECheckArrayValid(const VM: TSEVM; const Args:
 begin
   Result := Args[0];
   if not Result.IsValidArray then
-    raise SERuntimeException.Create('Invalid array while performing for-in loop: ' + Args[0].ToString);
+  begin
+    VM.IsThrowException := True;
+    Result := 'Invalid array while performing for-in loop: ' + Args[0].ToString;
+  end;
 end;
 
 class function TSEBuiltInFunction.SEArrayResize(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
