@@ -4677,11 +4677,11 @@ begin
     sevkString:
       begin
         S := V.VarString^.Data;
-        GC.AllocString(@Result, S);
+        Result.AllocString(S);
       end;
     sevkMap:
       begin
-        GC.AllocMap(@Result);
+        Result.AllocMap;
         if not SEMapIsValidArray(V) then
         begin
           for Key in V.VarMap^.Shape.GetKeys do
@@ -4977,7 +4977,7 @@ end;
 class function TSEBuiltInFunction.SEBufferCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   SEValidateType(@Args[0], sevkNumber, 1, {$I %CURRENTROUTINE%});
-  GC.AllocBuffer(@Result, Round(Args[0].VarNumber));
+  Result.AllocBuffer(Round(Args[0].VarNumber));
 end;
 
 class function TSEBuiltInFunction.SEBufferLength(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -5247,7 +5247,7 @@ end;
 class function TSEBuiltInFunction.SEStringToBuffer(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   SEValidateType(@Args[0], sevkString, 1, {$I %CURRENTROUTINE%});
-  GC.AllocBuffer(@Result, Length(Args[0].VarString^.Data));
+  Result.AllocBuffer(Length(Args[0].VarString^.Data));
   Move(Args[0].VarString^.Data[1], PByte(Result.VarBuffer^.Ptr)[0], Length(Args[0].VarString^.Data));
 end;
 
@@ -5257,7 +5257,7 @@ var
 begin
   SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   S := PChar(Args[0].VarBuffer^.Ptr);
-  GC.AllocString(@Result, S);
+  Result.AllocString(S);
 end;
 
 class function TSEBuiltInFunction.SEWBufferToString(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -5268,7 +5268,7 @@ begin
   SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   WS := PWideChar(Args[0].VarBuffer^.Ptr);
   S := UTF8Encode(WS);
-  GC.AllocString(@Result, S);
+  Result.AllocString(S);
 end;
 
 class function TSEBuiltInFunction.SEArrayToBufferF32(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -5278,7 +5278,7 @@ var
 begin
   SEValidateType(@Args[0], sevkMap, 1, {$I %CURRENTROUTINE%});
   Size := SESize(Args[0]);
-  GC.AllocBuffer(@Result, Size * 4);
+  Result.AllocBuffer(Size * 4);
   for I := 0 to Size - 1 do
   begin
     Single((Result.VarBuffer^.Ptr + I * 4)^) := SEMapGet(Args[0], I).VarNumber;
@@ -5292,7 +5292,7 @@ var
 begin
   SEValidateType(@Args[0], sevkMap, 1, {$I %CURRENTROUTINE%});
   Size := SESize(Args[0]);
-  GC.AllocBuffer(@Result, Size * 8);
+  Result.AllocBuffer(Size * 8);
   for I := 0 to Size - 1 do
   begin
     Double((Result.VarBuffer^.Ptr + I * 8)^) := SEMapGet(Args[0], I).VarNumber;
@@ -5307,7 +5307,7 @@ begin
   SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   SEValidateType(@Args[1], sevkNumber, 2, {$I %CURRENTROUTINE%});
   Size := Round(Args[1].VarNumber);
-  GC.AllocMap(@Result);
+  Result.AllocMap;
   Result.VarMap^.Resize(Size);
   for I := 0 to Size - 1 do
   begin
@@ -5323,7 +5323,7 @@ begin
   SEValidateType(@Args[0], sevkBuffer, 1, {$I %CURRENTROUTINE%});
   SEValidateType(@Args[1], sevkNumber, 2, {$I %CURRENTROUTINE%});
   Size := Round(Args[1].VarNumber);
-  GC.AllocMap(@Result);
+  Result.AllocMap;
   Result.VarMap^.Resize(Size);
   for I := 0 to Size - 1 do
   begin
@@ -5470,7 +5470,7 @@ class function TSEBuiltInFunction.SEMapCreate(const VM: TSEVM; const Args: PSEVa
 var
   I: NativeInt = 0;
 begin
-  GC.AllocMap(@Result);
+  Result.AllocMap;
   while I < ArgCount - 1 do
   begin
     if Args[I].Kind = sevkString then
@@ -5483,7 +5483,7 @@ end;
 
 class function TSEBuiltInFunction.SEMapCreateEmpty(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  GC.AllocMap(@Result);
+  Result.AllocMap;
   Result.VarMap^.ToMap;
 end;
 
@@ -5529,7 +5529,7 @@ var
   Keys: TStringDynArray;
 begin
   SEValidateType(@Args[0], sevkMap, 1, {$I %CURRENTROUTINE%});
-  GC.AllocMap(@Result);
+  Result.AllocMap;
   if not SEMapIsValidArray(Args[0]) then
   begin
     Keys := Args[0].VarMap^.Shape.GetKeys;
@@ -5557,7 +5557,7 @@ var
   Keys: TStringDynArray;
 begin
   SEValidateType(@Args[0], sevkMap, 1, {$I %CURRENTROUTINE%});
-  GC.AllocMap(@Result);
+  Result.AllocMap;
   if not SEMapIsValidArray(Args[0]) then
   begin
     Keys := Args[0].VarMap^.Shape.GetKeys;
@@ -5681,7 +5681,7 @@ var
   V: Double;
   I: NativeInt = 0;
 begin
-  GC.AllocMap(@Result);
+  Result.AllocMap;
   V := Args[0];
   if ArgCount = 3 then
     Result.VarMap^.Capacity := Round(Args[1].VarNumber * (1 / Args[2].VarNumber)) // Set capacity beforehand
@@ -5762,7 +5762,7 @@ var
   I: NativeInt;
 begin
   D := SplitString(Args[0], Args[1]);
-  GC.AllocMap(@Result);
+  Result.AllocMap;
   for I := 0 to Length(D) - 1 do
     SEMapSet(Result, I, D[I]);
 end;
@@ -5826,7 +5826,7 @@ end;
 
 class function TSEBuiltInFunction.SEStringUpperCase(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  GC.AllocString(@Result, '');
+  Result.AllocString('');
   case Args[0].Kind of
     sevkString: Result.VarString^.Data := UpperCase(Args[0].VarString^.Data);
     sevkBoolean,
@@ -5836,7 +5836,7 @@ end;
 
 class function TSEBuiltInFunction.SEStringLowerCase(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
-  GC.AllocString(@Result, '');
+  Result.AllocString('');
   case Args[0].Kind of
     sevkString: Result.VarString^.Data := LowerCase(Args[0].VarString^.Data);
     sevkBoolean,
@@ -5851,7 +5851,7 @@ var
   C: NativeInt = 0;
   V: TSEValue;
 begin
-  GC.AllocString(@Result, '');
+  Result.AllocString('');
   R := TRegExpr.Create(Args[1].VarString^.Data);
   if R.Exec(Args[0].VarString^.Data) then
   repeat
@@ -6055,7 +6055,7 @@ var
 begin
   SEValidateType(@Args[0], sevkFunction, 1, {$I %CURRENTROUTINE%});
   Coroutine := TSEVMCoroutine.Create(VM, Args[0], @Args[1], ArgCount - 1, SEThreadStackSize);
-  GC.AllocPascalObject(@Result, Coroutine, True);
+  Result.AllocPascalObject(Coroutine, True);
   // Push "self" onto stack
   Coroutine.VM.Stack[(SE_STACK_RESERVED - 1) + ArgCount] := Result;
 end;
@@ -6109,7 +6109,7 @@ var
 begin
   SEValidateType(@Args[0], sevkFunction, 1, {$I %CURRENTROUTINE%});
   Thread := TSEVMThread.Create(VM, Args[0], @Args[1], ArgCount - 1, SEThreadStackSize);
-  GC.AllocPascalObject(@Result, Thread, True);
+  Result.AllocPascalObject(Thread, True);
   // Push "self" onto stack
   Thread.VM.Stack[(SE_STACK_RESERVED - 1) + ArgCount] := Result;
 end;
@@ -6156,8 +6156,7 @@ var
   Critical: TCriticalSection;
 begin
   Critical := TCriticalSection.Create;
-  GC.AllocPascalObject(@Result, Critical, True);
-  Result := SENull;
+  Result.AllocPascalObject(Critical, True);
 end;
 
 class function TSEBuiltInFunction.SECriticalEnter(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -6185,7 +6184,7 @@ var
   Event: TEventObject;
 begin
   Event := TEvent.Create(nil, True, False, '');
-  GC.AllocPascalObject(@Result, Event, True);
+  Result.AllocPascalObject(Event, True);
 end;
 
 class function TSEBuiltInFunction.SEEventSet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -6220,11 +6219,10 @@ var
   SizeToRead: Int64;
 begin
   FS := TFileStream.Create(Args[0], fmOpenRead);
-  Result := SENull;
   try
     if ArgCount = 1 then
     begin
-      GC.AllocBuffer(@Result, FS.Size);
+      Result.AllocBuffer(FS.Size);
       FS.Read(Result.VarBuffer^.Ptr^, FS.Size);
     end else
     if ArgCount = 3 then
@@ -6232,7 +6230,7 @@ begin
       SizeToRead := Min(FS.Size - Round(Args[1].VarNumber), Round(Args[2].VarNumber));
       if SizeToRead > 0 then
       begin
-        GC.AllocBuffer(@Result, SizeToRead);
+        Result.AllocBuffer(SizeToRead);
         FS.Position := Round(Args[1].VarNumber);
         FS.Read(Result.VarBuffer^.Ptr^, SizeToRead);
       end;
@@ -6309,12 +6307,11 @@ var
   SL: TStringList;
   I: NativeInt;
 begin
-  Result := SENull;
   {$ifdef SE_HAS_FILEUTIL}
   SL := TStringList.Create;
   try
     FindAllFiles(SL, Args[0], Args[1], Args[2], Round(Args[3].VarNumber));
-    GC.AllocMap(@Result);
+    Result.AllocMap;
     for I := 0 to SL.Count - 1 do
       SEMapSet(Result, I, SL[I]);
   finally
@@ -6367,12 +6364,11 @@ var
   SL: TStringList;
   I: NativeInt;
 begin
-  Result := SENull;
   {$ifdef SE_HAS_FILEUTIL}
   SL := TStringList.Create;
   try
     FindAllDirectories(SL, Args[0], Args[1]);
-    GC.AllocMap(@Result);
+    Result.AllocMap;
     for I := 0 to SL.Count - 1 do
       SEMapSet(Result, I, SL[I]);
   finally
