@@ -93,6 +93,9 @@ const
   SE_GC_GRAY = 2;
 
 type
+  SERuntimeException = Exception;
+  SECompilerException = Exception;
+
   TSEOpcode = (
     opPushConst,
     opPushConstString,
@@ -783,6 +786,7 @@ type
     ThreadOwner: TSEVMThread;
     {$endif}
     CoroutineOwner: TSEVMCoroutine;
+    IsThrowException: Boolean;
     IsPaused: Boolean;
     IsDone: Boolean;
     IsYielded: Boolean;
@@ -1960,17 +1964,17 @@ var
   N: Integer;
 begin
   if Alignment <= 0 then
-    raise Exception.Create('Invalid alignment');
+    raise SECompilerException.Create('Invalid alignment');
 
   if (Alignment and (Alignment - 1)) <> 0 then
-    raise Exception.Create('Alignment must be a power of two');
+    raise SECompilerException.Create('Alignment must be a power of two');
 
   while (Self.FCode.Count and (Alignment - 1)) <> 0 do
     EmitByte(FillByte);
 
   N := Self.FCode.Count;
   if N < 0 then
-    raise Exception.Create('Code size overflow');
+    raise SECompilerException.Create('Code size overflow');
 end;
 
 { =====================================================================
@@ -1989,10 +1993,10 @@ class function TX64Emitter.MemIndex(Base, Index: TX64Reg; Scale: Byte;
   Disp: LongInt): TX64Mem;
 begin
   if not (Scale in [1, 2, 4, 8]) then
-    raise Exception.Create('Scale must be 1, 2, 4 or 8');
+    raise SECompilerException.Create('Scale must be 1, 2, 4 or 8');
 
   if (Ord(Index) and 7) = 4 then
-    raise Exception.Create('RSP/R12 cannot be used as SIB index');
+    raise SECompilerException.Create('RSP/R12 cannot be used as SIB index');
 
   Result.Base := Ord(Base);
   Result.Index := Ord(Index);
@@ -2008,7 +2012,7 @@ begin
     addresses, load the address into a register and use [reg]. }
 
   if PtrUInt(Address) > $FFFFFFFF then
-    raise Exception.Create(
+    raise SECompilerException.Create(
       'MemAbsolute requires a 32-bit address; use a register for arbitrary addresses');
 
   Result.Base := -1;
@@ -2102,10 +2106,10 @@ var
   ScaleBits: Integer;
 begin
   if M.Index < -1 then
-    raise Exception.Create('Invalid memory index');
+    raise SECompilerException.Create('Invalid memory index');
 
   if (M.Index >= 0) and ((M.Index and 7) = 4) then
-    raise Exception.Create('RSP/R12 cannot be SIB index');
+    raise SECompilerException.Create('RSP/R12 cannot be SIB index');
 
   BaseLow := 0;
   IndexLow := 4;
@@ -2129,7 +2133,7 @@ begin
     else if M.Scale = 4 then ScaleBits := 2
     else if M.Scale = 8 then ScaleBits := 3
     else
-      raise Exception.Create('Invalid SIB scale');
+      raise SECompilerException.Create('Invalid SIB scale');
 
     EmitSIB(ScaleBits, IndexLow, 5);
     EmitU32(LongWord(M.Disp));
@@ -2163,7 +2167,7 @@ begin
     else if M.Scale = 4 then ScaleBits := 2
     else if M.Scale = 8 then ScaleBits := 3
     else
-      raise Exception.Create('Invalid SIB scale');
+      raise SECompilerException.Create('Invalid SIB scale');
 
     EmitSIB(ScaleBits, IndexLow, BaseLow);
   end;
@@ -2248,10 +2252,10 @@ end;
 procedure TX64Emitter.BindLabel(L: TX64Label);
 begin
   if (L < 0) or (L >= Self.FLabels.Count) then
-    raise Exception.Create('Invalid label');
+    raise SECompilerException.Create('Invalid label');
 
   if Self.FLabels.Ptr(L)^.Bound then
-    raise Exception.Create('Label already bound');
+    raise SECompilerException.Create('Label already bound');
 
   Self.FLabels.Ptr(L)^.Bound := True;
   Self.FLabels.Ptr(L)^.Position := Self.FCode.Count;
@@ -2369,10 +2373,10 @@ begin
     L := Self.FJumps.Ptr(I)^.LabelID;
 
     if (L < 0) or (L >= Self.FLabels.Count) then
-      raise Exception.Create('Invalid jump label');
+      raise SECompilerException.Create('Invalid jump label');
 
     if not Self.FLabels.Ptr(L)^.Bound then
-      raise Exception.Create('Unbound label');
+      raise SECompilerException.Create('Unbound label');
 
     PatchPos := Self.FJumps.Ptr(I)^.DisplacementOffset;
     NextInstruction := PatchPos + 4;
@@ -2382,7 +2386,7 @@ begin
       int64(TargetPos) - int64(NextInstruction);
 
     if (Rel < Low(LongInt)) or (Rel > High(LongInt)) then
-      raise Exception.Create('Jump out of rel32 range');
+      raise SECompilerException.Create('Jump out of rel32 range');
 
     V := LongWord(LongInt(Rel));
 
@@ -3295,7 +3299,7 @@ end;
 procedure TX64Emitter.EmitArithMemImm(Group: Byte; W: Boolean; const M: TX64Mem; Imm: Int64);
 begin
   if Group > 7 then
-    raise Exception.Create('Invalid arithmetic group');
+    raise SECompilerException.Create('Invalid arithmetic group');
 
   EmitRex(W, 0, M.Index, M.Base);
 
@@ -3308,7 +3312,7 @@ begin
   else
   begin
     if (Imm < -2147483648) or (Imm > 2147483647) then
-      raise Exception.Create('Immediate does not fit signed 32-bit');
+      raise SECompilerException.Create('Immediate does not fit signed 32-bit');
 
     EmitByte($81);
     EmitMemModRM(Group, M);
@@ -3554,7 +3558,7 @@ var
   JITBlock: TSEJITBlock;
 begin
   if Self.FCode.Count = 0 then
-    raise Exception.Create('Cannot execute empty code');
+    raise SECompilerException.Create('Cannot execute empty code');
 
   ResolveLabels;
   Size := NativeUInt(Self.FCode.Count);
@@ -3874,7 +3878,7 @@ end;
 function TSEShape.GetOffsetHash(Hash: NativeUInt; const Name: String): Integer;
 begin
   if not TryGetOffsetHash(Hash, Name, Result) then
-    raise Exception.CreateFmt('Property "%s" does not exist in shape %d', [Name, FID]);
+    raise SERuntimeException.CreateFmt('Property "%s" does not exist in shape %d', [Name, FID]);
 end;
 
 function TSEShape.HasProperty(const Name: String): Boolean;
@@ -3996,7 +4000,7 @@ begin
   {$endif}
   try
     if AParent = nil then
-      raise Exception.Create('AddProperty: Parent shape cannot be nil');
+      raise SECompilerException.Create('AddProperty: Parent shape cannot be nil');
 
     { If this exact transition already exists, reuse the existing shape. }
 
@@ -4032,7 +4036,7 @@ begin
   {$endif}
   try
     if AParent = nil then
-      raise Exception.Create('RemoveProperty: Parent shape cannot be nil');
+      raise SECompilerException.Create('RemoveProperty: Parent shape cannot be nil');
 
     { Reuse an existing delete transition. }
 
@@ -4049,7 +4053,7 @@ begin
     if not AParent.HasProperty(Name) then
     begin
       Exit(AParent); // Property does not exist, so we don't have to change shape...
-      // raise Exception.CreateFmt('Property "%s" does not exist in shape %d', [Name, AParent.ID]);
+      // raise SERuntimeException.CreateFmt('Property "%s" does not exist in shape %d', [Name, AParent.ID]);
     end;
 
     { Create a tombstone. }
@@ -4154,7 +4158,7 @@ begin
         WriteLn('Parent Ptr    = ', PtrUInt(Parent));
         WriteLn('Shape Marked  = ', not Shape.FGarbage);
         WriteLn('Parent Marked = ', not Parent.FGarbage);
-        raise Exception.Create('Shape has a parent that is not in FShapes');
+        raise SERuntimeException.Create('Shape has a parent that is not in FShapes');
       end;
     end;
   end;
@@ -4323,7 +4327,7 @@ begin
   begin
     WriteStr(S1, Expected);
     WriteStr(S2, V^.Kind);
-    raise Exception.Create(Format('[%s] Parameter #%d: Expected %s, got %s', [FuncName, At, S1, S2]));
+    raise SERuntimeException.Create(Format('[%s] Parameter #%d: Expected %s, got %s', [FuncName, At, S1, S2]));
   end;
 end;
 
@@ -4337,7 +4341,7 @@ begin
       Exit;
   for I in Expected do
     S := S + IntToStr(I) + ', ';
-  raise Exception.Create(Format('Expected number of arguments: %s but got %d', [S, ArgCount]));
+  raise SERuntimeException.Create(Format('Expected number of arguments: %s but got %d', [S, ArgCount]));
 end;
 
 function StringIndexOf(S, P: String): NativeInt; inline;
@@ -4417,7 +4421,7 @@ begin
       Result := ConstStrings.Ptr(Value.VarConstStringIndex)^.VarString^.Data;
     else
       begin
-        raise Exception.Create('Invalid kind during SEValueToText call! ' + IntToStr(Cardinal(Value.Kind)));
+        raise SERuntimeException.Create('Invalid kind during SEValueToText call! ' + IntToStr(Cardinal(Value.Kind)));
       end;
   end;
 end;
@@ -4852,7 +4856,7 @@ begin
           else
           begin
             WriteStr(PName, Prop.PropertyType.TypeKind);
-            raise Exception.Create('Type "' + PName + '" not supported');
+            raise SERuntimeException.Create('Type "' + PName + '" not supported');
           end;
         end;
         Prop.SetValue(Obj, V);
@@ -4889,7 +4893,7 @@ begin
      // Result := Method.Invoke(Obj, MethodArgs);
       Result := Rtti.Invoke(MethodCode, MethodArgs, ccReg, nil, False, False);
     end else
-      raise Exception.Create('Method "' + MethodName + '" not found!');
+      raise SERuntimeException.Create('Method "' + MethodName + '" not found!');
   finally
     Ctx.Free;
   end;
@@ -5468,7 +5472,10 @@ begin
         Exit(SESize(Args[0]));
       end;
     else
-      raise Exception.Create('Length() only accept strings, maps or buffers, but got ' + ValueKindNames[Args[0].Kind]);
+      begin
+        VM.IsThrowException := True;
+        Result := 'Length() only accept strings, maps or buffers, but got ' + ValueKindNames[Args[0].Kind];
+      end;
   end;
 end;
 
@@ -5601,7 +5608,7 @@ class function TSEBuiltInFunction.SECheckArrayValid(const VM: TSEVM; const Args:
 begin
   Result := Args[0];
   if not Result.IsValidArray then
-    raise Exception.Create('Invalid array while performing for-in loop: ' + Args[0].ToString);
+    raise SERuntimeException.Create('Invalid array while performing for-in loop: ' + Args[0].ToString);
 end;
 
 class function TSEBuiltInFunction.SEArrayResize(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -6497,7 +6504,7 @@ begin
   finally
     Json.Free;
     if ErrorStr <> '' then
-      raise Exception.Create(ErrorStr);
+      raise SERuntimeException.Create(ErrorStr);
   end;
 end;
 
@@ -6543,7 +6550,7 @@ class function TSEBuiltInFunction.SEJSONStringify(const VM: TSEVM; const Args: P
           SB.Append('null');
         else
           begin
-            raise Exception.Create(Format('Array element "%d" with type "%s" is not a valid JSON value!', [I, ValueKindNames[V.Kind]]))
+            raise SERuntimeException.Create(Format('Array element "%d" with type "%s" is not a valid JSON value!', [I, ValueKindNames[V.Kind]]))
           end;
       end;
       Inc(J);
@@ -6581,7 +6588,7 @@ class function TSEBuiltInFunction.SEJSONStringify(const VM: TSEVM; const Args: P
           SB.Append('null');
         else
           begin
-            raise Exception.Create(Format('Key "%s" with type "%s" is not a valid JSON value!', [Key, ValueKindNames[V.Kind]]))
+            raise SERuntimeException.Create(Format('Key "%s" with type "%s" is not a valid JSON value!', [Key, ValueKindNames[V.Kind]]))
           end;
       end;
       Inc(I);
@@ -7171,7 +7178,7 @@ begin
     else
     begin
       WriteStr(PName, V.Kind);
-      raise Exception.Create('Type "' + PName + '" not supported');
+      raise SERuntimeException.Create('Type "' + PName + '" not supported');
     end;
   end;
 end;
@@ -8020,7 +8027,6 @@ var
           VMList[I].ThreadOwner.IsRequestForSuspendByGC := True;
           {$ifdef MANUAL_THREAD_SUSPEND}
           VMList[I].IsRequestForSuspend := True;
-          while not VMList[I].ThreadOwner.Suspended do ;
           {$else}
           VMList[I].ThreadOwner.Suspend;
           {$endif}
@@ -8798,7 +8804,6 @@ var
   FramePtrLocal: PSEFrame;
   FuncImport, P, PP, PC: Pointer;
   LineOfCode: TSELineOfCode;
-  IsScriptException: Boolean = False;
 
   procedure GetLineOfCode;
   var
@@ -8992,11 +8997,11 @@ var
     {$endif}
   begin
     {$ifndef SE_LIBFFI}
-      raise Exception.Create('You need to enable SE_LIBFFI in order to call external function "' + FuncImportInfo^.Name + '"');
+      raise SERuntimeException.Create('You need to enable SE_LIBFFI in order to call external function "' + FuncImportInfo^.Name + '"');
     {$else}
     FuncImport := FuncImportInfo^.Func;
     if FuncImport = nil then
-      raise Exception.Create(Format('Function "%s" is null', [FuncImportInfo^.Name]));
+      raise SERuntimeException.Create(Format('Function "%s" is null', [FuncImportInfo^.Name]));
     ArgCount := Length(FuncImportInfo^.Args);
     ArgSize := ArgCount * 8;
 
@@ -9158,7 +9163,7 @@ var
     end;
     I := NativeInt(ffi_prep_cif(@ffiCif, ffiAbi, ArgCount, @ffiResultType, @ffiArgTypes[0]));
     if I <> NativeInt(FFI_OK) then
-      raise Exception.Create('FFI status is not OK (' + IntToStr(I) + ') while calling external function "' + FuncImportInfo^.Name + '"');
+      raise SERuntimeException.Create('FFI status is not OK (' + IntToStr(I) + ') while calling external function "' + FuncImportInfo^.Name + '"');
     ffi_call(@ffiCif, ffi_fn(FuncImport), @ImportResult, @ffiArgValues[0]);
     if FuncImportInfo^.Return = seakF32 then
       ImportResultS := PSingle(@ImportResult)^
@@ -10539,7 +10544,7 @@ var
         E.MovMemReg64(E.Mem(regR13, 0), regR14);
       end else
       if XMMStackPtr > XMM_START + 1 then
-        raise Exception.Create('JIT error: XMMStackPtr > ' + IntToStr(XMM_START + 1));
+        raise SERuntimeException.Create('JIT error: XMMStackPtr > ' + IntToStr(XMM_START + 1));
       { Increase CodePtr }
       // Check the next opcode to see if the next one is also a JITBlockPotential
       Op := TSEOpcode(NativeUInt(JitCodePtrLocal[BIndex].VarPointer));
@@ -10616,6 +10621,7 @@ begin
   if Self.IsDone then
     Self.Reset;
   Self.IsYielded := False;
+  Self.IsThrowException := False;
   if Self.IsPaused then
     Exit;
   GlobalLocal := @Self.Global.Value^.Data[0];
@@ -11156,13 +11162,13 @@ labelStart:
           {$endif}
           TV := TSEFunc(FuncNativeInfo^.Func)(Self, StackPtrLocal, ArgCount, This);
           Push(TV);
-          if IsDone then
-          begin
-            Exit;
-          end;
           {$ifdef SE_PROFILER}
           SEProfiler.AddReport(SEProfilerStack.Pop);
           {$endif}
+          if IsDone then
+            Exit;
+          if IsThrowException then
+            goto labelThrow;
           CheckForGCFast;
           Inc(CodePtrLocal, 4);
           DispatchGoto;
@@ -11179,7 +11185,7 @@ labelStart:
           {$endif}
           Inc(FramePtrLocal);
           //if FramePtrLocal > @Self.Frame[Self.FrameSize - 1] then
-          //  raise Exception.Create('Too much recursion');
+          //  raise SERuntimeException.Create('Too much recursion');
           FramePtrLocal^.StackPtr := StackPtrLocal - {ArgCount}NativeInt(CodePtrLocal[2].VarPointer);
           FramePtrLocal^.CodePtr := CodePtrLocal + 4;
           FramePtrLocal^.CodeSegmentIndex := CodeSegmentIndexLocal;
@@ -11325,16 +11331,16 @@ labelStart:
       {$ifndef SE_COMPUTED_GOTO}opThrow:{$endif}
         begin
         labelThrow:
-          IsScriptException := True;
+          IsThrowException := False;
           if Self.TrapPtr < @Self.Trap[0] then
-            raise Exception.Create(SEValueToText(Pop^))
+            raise SERuntimeException.Create(SEValueToText(Pop^))
           else
           begin
             TV := Pop^;
             FramePtrLocal := Self.TrapPtr^.FramePtr;
             StackPtrLocal := Self.TrapPtr^.StackPtr;
             CodeSegmentIndexLocal := Self.TrapPtr^.CodeSegmentIndex;
-            CodePtrLocal := Self.Binaries.Value^.Data[Self.TrapPtr^.CodeSegmentIndex].Ptr(0) + Self.TrapPtr^.CatchCodeIndex;
+            CodePtrLocal := Self.Binaries.Value^.Data[Self.TrapPtr^.CodeSegmentIndex].Ptr(Self.TrapPtr^.CatchCodeIndex);
             Push(TV);
             Dec(Self.TrapPtr);
           end;
@@ -11376,9 +11382,6 @@ labelStart:
     on E: Exception do
     begin
       S := #10 + DumpCallStack + #10;
-      {$ifdef SE_COMPUTED_GOTO}
-      if Self.TrapPtr < @Self.Trap[0] then
-      {$endif}
       begin
         GetLineOfCode;
         if LineOfCode.Module = '' then
@@ -11386,43 +11389,7 @@ labelStart:
         else
           S := S + Format('Runtime error %s: "%s" at line %d (%s)', [E.ClassName, E.Message, LineOfCode.Line, LineOfCode.Module]);
         PrintEvilScriptStackTrace(S);
-        raise Exception.Create(S);
-      {$ifdef SE_COMPUTED_GOTO}
-      end else
-      if not IsScriptException then
-      begin
-        GetLineOfCode;
-        if LineOfCode.Module = '' then
-          S := S + Format('Runtime error %s: "%s" at line %d', [E.ClassName, E.Message, LineOfCode.Line])
-        else
-          S := S + Format('Runtime error %s: "%s" at line %d (%s)', [E.ClassName, E.Message, LineOfCode.Line, LineOfCode.Module]);
-        raise Exception.Create(S);
-        IsScriptException := False;
-        Push(S);
-        ArgCount := 1;
-        FuncScriptInfo := Self.Parent.FuncScriptList.Ptr(1);
-        Inc(FramePtrLocal);
-        if FramePtrLocal > @Self.Frame[Self.FrameSize - 1] then
-          raise Exception.Create('Too much recursion');
-        FramePtrLocal^.StackPtr := StackPtrLocal - ArgCount;
-        FramePtrLocal^.CodePtr := CodePtrLocal;
-        FramePtrLocal^.CodeSegmentIndex := CodeSegmentIndexLocal;
-        FramePtrLocal^.Func := FuncScriptInfo;
-        StackPtrLocal := StackPtrLocal + FuncScriptInfo^.VarCount;
-        CodeSegmentIndexLocal := FuncScriptInfo^.CodeSegmentIndex;
-        CodePtrLocal := Self.Binaries.Value^.Data[CodeSegmentIndexLocal].Ptr(0);
-        DispatchGoto;
-      end else
-      begin
-        FramePtrLocal := Self.TrapPtr^.FramePtr;
-        StackPtrLocal := Self.TrapPtr^.StackPtr;
-        CodeSegmentIndexLocal := FramePtrLocal^.CodeSegmentIndex;
-        CodePtrLocal := Self.Binaries.Value^.Data[CodeSegmentIndexLocal].Ptr(0) + Self.TrapPtr^.CatchCodeIndex;
-        Push(E.Message);
-        Dec(Self.TrapPtr);
-        DispatchGoto;
-        Break;
-      {$endif}
+        raise SERuntimeException.Create(S);
       end;
     end;
   end;
@@ -11470,7 +11437,7 @@ begin
       end;
     except
       on E: Exception do
-        raise Exception.Create('[TSEVMThread] ' + VM.Name + ': ' + E.Message);
+        raise SERuntimeException.Create('[TSEVMThread] ' + VM.Name + ': ' + E.Message);
     end;
   finally
     Self.VM.Parent.VMThreadList.Remove(Self);
@@ -11521,7 +11488,7 @@ begin
       end;
     except
       on E: Exception do
-        raise Exception.Create('[TSEVMCoroutine] ' + VM.Name + ': ' + E.Message);
+        raise SERuntimeException.Create('[TSEVMCoroutine] ' + VM.Name + ': ' + E.Message);
     end;
   end;
 end;
@@ -11911,9 +11878,9 @@ var
     ErrorLn := Ln;
     ErrorCol := Col;
     if N = '' then
-      raise Exception.CreateFmt('[%d:%d] %s', [Ln, Col, S])
+      raise SECompilerException.CreateFmt('[%d:%d] %s', [Ln, Col, S])
     else
-      raise Exception.CreateFmt('[%s:%d:%d] %s', [N, Ln, Col, S]);
+      raise SECompilerException.CreateFmt('[%s:%d:%d] %s', [N, Ln, Col, S]);
   end;
 
   procedure FindFiles(const Path: String; out Files: TStringDynArray);
@@ -12593,9 +12560,9 @@ var
     ErrorLn := Token.Ln;
     ErrorCol := Token.Col;
     if Token.BelongedFileName = '' then
-      raise Exception.CreateFmt('[%d:%d] %s', [Token.Ln, Token.Col, S])
+      raise SECompilerException.CreateFmt('[%d:%d] %s', [Token.Ln, Token.Col, S])
     else
-      raise Exception.CreateFmt('[%s:%d:%d] %s', [Token.BelongedFileName, Token.Ln, Token.Col, S]);
+      raise SECompilerException.CreateFmt('[%s:%d:%d] %s', [Token.BelongedFileName, Token.Ln, Token.Col, S]);
   end;
 
   function FindVar(const Name: String; const IsSameLocal: Boolean = False): PSEIdent; inline;
@@ -13655,7 +13622,7 @@ var
           Emit(Data);
       except
         on E: Exception do
-          raise Exception.Create(Format('Error while performing optimization! (%s)', [E.Message]));
+          raise SECompilerException.Create(Format('Error while performing optimization! (%s)', [E.Message]));
       end;
     end;
 
@@ -15930,7 +15897,7 @@ begin
 
   Self.VM.BinaryClear;
   Self.VM.IsDone := True;
-  Self.Vm.IsPaused := False;
+  Self.VM.IsPaused := False;
   Self.CodeSegmentIndex := 0;
   Self.IsDone := False;
   Self.IsParsed := False;
@@ -16027,7 +15994,7 @@ begin
     Self.VM.CodePtr := nil;
     Self.VM.CodeSegmentIndex := 0;
     Self.VM.IsPaused := False;
-    Self.VM.IsDone := False;
+    Self.VM.IsThrowException := False;
     Self.VM.FramePtr := @Self.VM.Frame[0];
     Self.VM.StackPtr := PSEValue(@Self.VM.Stack[0]) + SE_STACK_RESERVED;
     Self.VM.FramePtr^.StackPtr := Self.VM.StackPtr;
@@ -16171,7 +16138,7 @@ var
     Result := NextToken;
     if Result.Kind in Expected then
       Exit;
-    raise Exception.Create(Format('Expected %s but got %s', [TokenTypeString(Expected), TokenNames[Result.Kind]]));
+    raise SECompilerException.Create(Format('Expected %s but got %s', [TokenTypeString(Expected), TokenNames[Result.Kind]]));
   end;
 
   function PeekAtNextToken: TSEToken;
@@ -16208,7 +16175,7 @@ begin
         end;
         NextTokenExpected([tkBracketClose]);
       end else
-        raise Exception.Create(FuncNativeInfo.Name + ': ArgCount and parameter count mismatch');
+        raise SECompilerException.Create(FuncNativeInfo.Name + ': ArgCount and parameter count mismatch');
     end;
     Self.FuncNativeList.Add(FuncNativeInfo);
   finally
