@@ -536,7 +536,6 @@ type
   private
     FVMThreadList: TSEVMList;
     FPhase: TSEGarbageCollectorPhase;
-    FLockFlag: Boolean;
     {$ifdef SE_THREADS}
     FLock: TRTLCriticalSection;
     {$endif}
@@ -3932,8 +3931,6 @@ begin
 end;
 
 function TSEShape.GetKeys: TStringDynArray;
-var
-  I: Integer;
 begin
   BuildKeys;
   Result := Copy(FKeys);
@@ -4112,7 +4109,6 @@ end;
 procedure TSEShapeManager.Mark(AShape: TSEShape);
 var
   Current: TSEShape;
-  S: String;
 begin
   if not FBeginMark then
     Exit;
@@ -4168,7 +4164,6 @@ var
   I: Integer;
   Shape: TSEShape;
   Parent: TSEShape;
-  Child: TSEShape;
 begin
   if not FBeginMark then
     Exit;
@@ -4605,10 +4600,8 @@ end;
 
 procedure SEDisAsm(const VM: TSEVM; var Res: String);
 var
-  I, J, K: NativeInt;
+  I, J: NativeInt;
   SB: TStringBuilder;
-  Binary: TSEBinary;
-  Op: TSEOpcode;
   S: String;
 begin
   SB := TStringBuilder.Create;
@@ -5367,8 +5360,6 @@ begin
 end;
 
 class function TSEBuiltInFunction.SEWriteln(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
-var
-  I: NativeInt;
 begin
   TSEBuiltInFunction.SEWrite(VM, Args, ArgCount, nil);
   Writeln;
@@ -5376,11 +5367,6 @@ begin
 end;
 
 class function TSEBuiltInFunction.SEShapeInfo(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
-var
-  Keys: TStringDynArray;
-  I, Offset: Integer;
-  S: TSEShape;
-  Res: String;
 begin
   SEValidateType(@Args[0], sevkMap, 1, {$I %CURRENTROUTINE%});
   if SEMapIsValidArray(Args[0]) then
@@ -5496,8 +5482,6 @@ begin
 end;
 
 class function TSEBuiltInFunction.SEMapCreateEmpty(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
-var
-  I: NativeInt = 0;
 begin
   GC.AllocMap(@Result);
   Result.VarMap^.ToMap;
@@ -5744,6 +5728,7 @@ end;
 class function TSEBuiltInFunction.SESleep(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   Sleep(Round(Args[0].VarNumber));
+  Result := SENull;
 end;
 
 class function TSEBuiltInFunction.SEStringGrep(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -6034,6 +6019,7 @@ end;
 class function TSEBuiltInFunction.SEGCIncrementalBudgetSet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   GC.IncrementalBudget := Args[0].VarNumber;
+  Result := SENull;
 end;
 
 class function TSEBuiltInFunction.SEGCCollect(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -6079,6 +6065,7 @@ begin
   SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
   SEValidateType(@Args[1], sevkFunction, 2, {$I %CURRENTROUTINE%});
   TSEVMCoroutine(Args[0].VarPascalObject^.Value).Reset(Args[1], @Args[2], ArgCount - 3, nil);
+  Result := SENull;
 end;
 
 class function TSEBuiltInFunction.SECoroutineResume(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -6106,6 +6093,7 @@ class function TSEBuiltInFunction.SECoroutineTerminate(const VM: TSEVM; const Ar
 begin
   SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
   TSEVMCoroutine(Args[0].VarPascalObject^.Value).IsTerminated := True;
+  Result := SENull;
 end;
 
 class function TSEBuiltInFunction.SECoroutineIsExecuting(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -6131,6 +6119,7 @@ begin
   SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
   while TSEVMThread(Args[0].VarPascalObject^.Value).IsRequestForSuspendByGC do Sleep(1);
   TSEVMThread(Args[0].VarPascalObject^.Value).Start;
+  Result := SENull;
 end;
 
 class function TSEBuiltInFunction.SEThreadIsTerminated(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -6144,6 +6133,7 @@ begin
   SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
   if not TSEVMThread(Args[0].VarPascalObject^.Value).Terminated then
     TSEVMThread(Args[0].VarPascalObject^.Value).Suspend;
+  Result := SENull;
 end;
 
 class function TSEBuiltInFunction.SEThreadTerminate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -6151,12 +6141,14 @@ begin
   SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
   if not TSEVMThread(Args[0].VarPascalObject^.Value).Terminated then
     TSEVMThread(Args[0].VarPascalObject^.Value).Terminate;
+  Result := SENull;
 end;
 
 class function TSEBuiltInFunction.SEThreadWait(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
   TSEVMThread(Args[0].VarPascalObject^.Value).WaitFor;
+  Result := SENull;
 end;
 
 class function TSEBuiltInFunction.SECriticalCreate(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -6165,18 +6157,21 @@ var
 begin
   Critical := TCriticalSection.Create;
   GC.AllocPascalObject(@Result, Critical, True);
+  Result := SENull;
 end;
 
 class function TSEBuiltInFunction.SECriticalEnter(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
   TCriticalSection(Args[0].VarPascalObject^.Value).Enter;
+  Result := SENull;
 end;
 
 class function TSEBuiltInFunction.SECriticalLeave(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
   TCriticalSection(Args[0].VarPascalObject^.Value).Leave;
+  Result := SENull;
 end;
 
 class function TSEBuiltInFunction.SECriticalTry(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -6197,6 +6192,7 @@ class function TSEBuiltInFunction.SEEventSet(const VM: TSEVM; const Args: PSEVal
 begin
   SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
   TEventObject(Args[0].VarPascalObject^.Value).SetEvent;
+  Result := SENull;
 end;
 
 class function TSEBuiltInFunction.SEEventWait(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -6209,6 +6205,7 @@ class function TSEBuiltInFunction.SEEventReset(const VM: TSEVM; const Args: PSEV
 begin
   SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
   TEventObject(Args[0].VarPascalObject^.Value).ResetEvent;
+  Result := SENull;
 end;
 {$endif}
 
@@ -6249,6 +6246,7 @@ class function TSEBuiltInFunction.SEFileWriteText(const VM: TSEVM; const Args: P
 var
   FS: TFileStream;
 begin
+  Result := SENull;
   if FileExists(Args[0].VarString^.Data) then
     FS := TFileStream.Create(Args[0], fmOpenWrite)
   else
@@ -6265,6 +6263,7 @@ class function TSEBuiltInFunction.SEFileWriteBinary(const VM: TSEVM; const Args:
 var
   FS: TFileStream;
 begin
+  Result := SENull;
   if FileExists(Args[0].VarString^.Data) then
     FS := TFileStream.Create(Args[0], fmOpenWrite)
   else
@@ -6404,7 +6403,6 @@ class function TSEBuiltInFunction.SEJSONParse(const VM: TSEVM; const Args: PSEVa
   var
     I: NativeInt;
     D: TJSONData;
-    Name: String;
     V: TSEValue;
   begin
     GC.AllocMap(@R);
@@ -6661,7 +6659,7 @@ procedure SEValueAdd(out R: TSEValue; constref V1, V2: TSEValue); overload;
 var
   I, Len: NativeInt;
   Temp: TSEValue;
-  Key, S: String;
+  S: String;
 begin
   if V1.Kind = V2.Kind then
   case V1.Kind of
@@ -7825,10 +7823,8 @@ end;
 
 procedure TSEGarbageCollector.Sweep; inline;
 var
-  Node, PrevNode: PSEGCNode;
-  I, J, MS, NodeIndex: NativeInt;
-  Key: String;
-  Value, ItemValue: TSEValue;
+  Node: PSEGCNode;
+  I: NativeInt;
   ProcessedCount: Cardinal = 0;
   TicksValue: QWord;
 
@@ -8141,10 +8137,6 @@ var
 begin
   if (not Forced) and (Self.FObjectsLastTimeVisited + Self.FObjectThreshold > Self.FObjects) then
     Exit;
-  if Self.FLockFlag then
-    Exit;
-  if Self.FNodeLast = 0 then
-    Exit;
   if IsThread > 0 then
     Exit;
   {$ifdef SE_THREADS}
@@ -8396,12 +8388,10 @@ begin
   {$ifdef SE_THREADS}
   EnterCriticalSection(Self.FLock);
   {$endif}
-  Self.FLockFlag := True;
 end;
 
 procedure TSEGarbageCollector.Unlock;
 begin
-  Self.FLockFlag := False;
   {$ifdef SE_THREADS}
   LeaveCriticalSection(Self.FLock);
   {$endif}
@@ -8621,9 +8611,6 @@ begin
 end;
 
 function TSEVM.Fork(const AStackSize: Cardinal; const AName: String): TSEVM;
-var
-  StackCount: Cardinal;
-  I: NativeInt;
 begin
   Result := TSEVM.Create;
   Result.Binaries.Free;
@@ -9517,10 +9504,9 @@ var
     XMM_START = 3;
     XMM_END = 14;
   var
-    I, J, BIndex, BFinish: NativeInt;
+    BIndex, BFinish: NativeInt;
     Op: TSEOpcode;
     XMMStackPtr: Byte;
-    P: Pointer;
     IsCodePtrAssigned: Boolean;
     LabelYes, LabelDone: TX64Label;
     LastOpKind: TSEValueKind = sevkNull;
@@ -11455,7 +11441,6 @@ end;
 
 constructor TSEVMCoroutine.Create(const AVM: TSEVM; constref Fn: TSEValue; const Args: PSEValue; const ArgCount, AStackSize: Cardinal);
 var
-  I: NativeInt;
   Func: PSEFuncScriptInfo;
 begin
   inherited Create;
@@ -12622,8 +12607,6 @@ var
   end;
 
   function NextTokenExpected(const Expected: TSETokenKindSet): TSEToken; inline;
-  var
-    Kind: TSETokenKind;
   begin
     Result := NextToken;
     if Result.Kind in Expected then
@@ -12632,8 +12615,6 @@ var
   end;
 
   function PeekAtNextTokenExpected(const Expected: TSETokenKindSet): TSEToken; inline;
-  var
-    Kind: TSETokenKind;
   begin
     Result := PeekAtNextToken;
     if Result.Kind in Expected then
@@ -12653,8 +12634,6 @@ var
   end;
 
   function PeekAtPrevOpExpected(const Ind: NativeInt; const Expected: TSEOpcodeSet): PSEOpcodeInfo; inline;
-  var
-    Op: TSEOpcode;
   begin
     Result := PeekAtPrevOp(Ind);
     if Result <> nil then
@@ -13030,9 +13009,7 @@ var
   function PeepholeArrayAssignOptimization: Boolean;
   var
     A: TSEValue;
-    Size,
-    I: NativeInt;
-    P: Pointer;
+    Size: NativeInt;
     OpInfoPrev1,
     OpInfoPrev2: PSEOpcodeInfo;
     Op: TSEOpcode;
@@ -13064,9 +13041,7 @@ var
   function PeepholeIncOptimization: Boolean;
   var
     A: TSEValue;
-    Size,
-    I: NativeInt;
-    P: Pointer;
+    Size: NativeInt;
     VarBase, VarAddr, VarBasePush, VarBaseAddr: Pointer;
     OpInfoPrev1,
     OpInfoPrev2,
@@ -13111,9 +13086,7 @@ var
 
   function PeepholeOp0Optimization(Op: TSEOpcode): Boolean;
   var
-    A, B: TSEValue;
-    I: NativeInt;
-    P: Pointer;
+    A: TSEValue;
     OpInfoPrev1,
     OpInfoPrev2: PSEOpcodeInfo;
   begin
@@ -13250,7 +13223,6 @@ var
   function PeepholeOp1Optimization(Op: TSEOpcode): Boolean;
   var
     A: TSEValue;
-    I: NativeInt;
     P: Pointer;
     OpInfoPrev1: PSEOpcodeInfo;
   begin
@@ -13744,7 +13716,6 @@ var
       function ParseMapAssign: TSEValueKindSet;
       var
         FuncNativeInfo: PSEFuncNativeInfo;
-        I: NativeInt;
         Ind: Cardinal;
       begin
         FuncNativeInfo := FindFuncNative('___map_create_empty', Ind);
@@ -14254,7 +14225,6 @@ var
     DefinedArgCount: NativeInt;
     ArgCount: NativeInt = 0;
     Token: TSEToken;
-    This: PSEIdent;
 
     procedure ParseNamedArguments;
     type
@@ -14507,7 +14477,6 @@ var
     This: PSEIdent;
     Res, Param: PSEIdent;
     HasOverride: Boolean = False;
-    KindName: String;
   begin
     Self.FLastVerifiedJITBlockLastPlace := -1;
     ReturnList := TList.Create;
@@ -14921,7 +14890,6 @@ var
     BreakList,
     ContinueList: TList;
     I: NativeInt;
-    TokenInsert,
     Token: TSEToken;
     PIdent, PIdentFirst: PSEIdent;
     VarIdent,
@@ -15150,7 +15118,6 @@ var
     JumpEnd: NativeInt;
     Circuit: TSEShortCircuitJump;
     JumpList: TSEShortCircuitJumpList;
-    I: Integer;
   begin
     JumpList := TSEShortCircuitJumpList.Create;
     try
@@ -15302,14 +15269,8 @@ var
     ArgCount: NativeInt = 0;
     I, J,
     RewindStartAddr,
-    OpBinaryStart,
-    OpBinaryEnd,
     VarStartTokenPos,
     VarEndTokenPos: NativeInt;
-    AccessNumber: TSEValue;
-    AccessString: String;
-    OpInfoPrev1: PSEOpcodeInfo;
-    KindName: String;
     FirstExprOpIndex: Integer;
     ArrayIndexPossibleKinds,
     AssignPossibleKinds: TSEValueKindSet;
