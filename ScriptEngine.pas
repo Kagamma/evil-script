@@ -236,6 +236,7 @@ type
     Header: TSEValueHeader;
     Base: Pointer;
     Ptr: Pointer;
+    Size: NativeUInt;
   end;
   PSEBuffer = ^TSEBuffer;
   TSEPascalObject = record
@@ -1585,6 +1586,7 @@ type
 
     class function SETypeOf(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEKindOf(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+    class function SEAssert(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEWrite(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEWriteln(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEShapeInfo(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -1841,7 +1843,6 @@ var
   {$endif}
   FS: TFormatSettings;
   CommonNativeFuncList: TSEFuncNativeList;
-  FunctionAssert: array of TSEValue;
   FunctionThrow: array of TSEValue;
   ConstStrings: TSEValueList;
   ConstStringsLookup: TSEStringLookupMap;
@@ -4403,7 +4404,7 @@ begin
         Result := 'buffer@' + IntToStr(NativeUInt(Value.VarBuffer^.Ptr));
         if Value.VarBuffer^.Base <> nil then
         begin
-          Result := Result + ' <' + IntToStr(MemSize(Value.VarBuffer^.Base) - 16) + ' bytes>';
+          Result := Result + ' <' + IntToStr(Value.VarBuffer^.Size) + ' bytes>';
         end;
       end;
     sevkPointer:
@@ -4435,7 +4436,7 @@ begin
       end;
     sevkBuffer:
       begin
-        Result := MemSize(Value.VarBuffer^.Base) - 16;
+        Result := Value.VarBuffer^.Size;
       end;
     sevkString:
       begin
@@ -5348,6 +5349,16 @@ end;
 class function TSEBuiltInFunction.SEKindOf(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   Result := Double(NativeInt(Args[0].Kind));
+end;
+
+class function TSEBuiltInFunction.SEAssert(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+begin
+  if Args[0] = False then
+  begin
+    VM.IsThrowException := True;
+    Result := Args[1];
+  end else
+    Result := SENull;
 end;
 
 class function TSEBuiltInFunction.SEWrite(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -7853,7 +7864,7 @@ begin
     if Self.Mode = segcmIncremental then
     begin
       Inc(ProcessedCount);
-      if ProcessedCount mod 64 = 0 then
+      if ProcessedCount mod 256 = 0 then
       begin
         TicksValue := TicksInNSec;
         if TicksValue - Self.FIncrementalLastValueInNSec >= Self.FIncrementalBudgetInNSec then
@@ -7920,7 +7931,6 @@ end;
 
 procedure TSEGarbageCollector.Mark;
 var
-  Node: PSEGCNode;
   NodeValue: TSEValue;
   NodeVarMap: PSEValueMap;
   Key: String;
@@ -7953,14 +7963,19 @@ begin
 
     if not (QCurrentValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
       continue;
+
+    {$ifndef SE_CLEAR_STACK}
     if (QCurrentValue.Ref >= Self.FNodeList.Count) or (QCurrentValue.Ref = 0) then
       continue;
 
-    Node := Self.FNodeList.Ptr(QCurrentValue.Ref);
-    NodeValue := Node^.Value;
+    NodeValue := Self.FNodeList.Ptr(QCurrentValue.Ref)^.Value;
 
     if (QCurrentValue.VarPointer = nil) or (NodeValue.VarPointer <> QCurrentValue.VarPointer) then
       continue;
+    {$else}
+    NodeValue := QCurrentValue;
+    {$endif}
+
     NodeVarMap := NodeValue.VarMap;
     if NodeVarMap^.Header.Color = Self.CurrentBlack then
       continue;
@@ -8064,16 +8079,16 @@ var
       begin
         if not (AValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
           exit;
+        {$ifndef SE_CLEAR_STACK}
         if (AValue.Ref >= Self.FNodeList.Count) or (AValue.Ref = 0) then
           exit;
         Node := Self.FNodeList.Ptr(AValue.Ref);
         // Check to see if this is an invalid node
-        {.$ifndef SE_CLEAR_STACK}
         if (AValue.VarPointer = nil) or (Node^.Value.VarPointer <> AValue.VarPointer) then
         begin
           exit;
         end;
-        {.$endif}
+        {$endif}
         AValue.VarMap^.Header.Color := SE_GC_GRAY;
         Self.FGrayValueQueue.Enqueue(AValue);
       end;
@@ -8254,10 +8269,12 @@ begin
       GetMem(PValue^.VarBuffer^.Base, Size);
       // PValue^.VarBuffer^.Ptr := Pointer(NativeUInt(PValue^.VarBuffer^.Base)) + ((16 - Pointer(NativeUInt(PValue^.VarBuffer^.Base) mod 16)) mod 16);
       PValue^.VarBuffer^.Ptr := PValue^.VarBuffer^.Base;//Pointer(NativeUInt(PValue^.VarBuffer^.Base) + NativeUInt(PValue^.VarBuffer^.Base) mod 16);
+      PValue^.VarBuffer^.Size := Size;
     end else
     begin
       PValue^.VarBuffer^.Base := nil;
       PValue^.VarBuffer^.Ptr := nil;
+      PValue^.VarBuffer^.Size := 0;
     end;
     Self.AddToList(PValue);
   finally
@@ -8809,7 +8826,7 @@ var
     while I <= Self.Parent.LineOfCodeList.Count - 1 do
     begin
       CurrentLineOfCode := Self.Parent.LineOfCodeList[I];
-      CodeIndex := NativeUInt(CodePtrLocal - Self.Binaries.Value^.Data[CurrentLineOfCode.CodeSegmentIndex].Ptr(0)) div SizeOf(TSEValue);
+      CodeIndex := NativeUInt(CodePtrLocal - Self.Binaries.Value^.Data[CurrentLineOfCode.CodeSegmentIndex].Ptr(0));
       if CurrentLineOfCode.CodeSegmentIndex = CodeSegmentIndexLocal then
       begin
         CurrentLinePossible := Abs(CodeIndex - CurrentLineOfCode.CodeIndex);
@@ -11660,6 +11677,7 @@ begin
     Self.RegisterFunc('string_extract_ext', @TSEBuiltInFunction(nil).SEStringExtractExt, 1, [sevkString]);
     Self.RegisterFunc('lerp', @TSEBuiltInFunction(nil).SELerp, 3, [sevkNumber]);
     Self.RegisterFunc('slerp', @TSEBuiltInFunction(nil).SESLerp, 3, [sevkNumber]);
+    Self.RegisterFunc('assert', @TSEBuiltInFunction(nil).SEAssert, 2);
     Self.RegisterFunc('write', @TSEBuiltInFunction(nil).SEWrite, -1);
     Self.RegisterFunc('writeln', @TSEBuiltInFunction(nil).SEWriteln, -1);
     Self.RegisterFunc('shape_info', @TSEBuiltInFunction(nil).SEShapeInfo, 1);
@@ -15845,16 +15863,9 @@ var
   Dummy: Cardinal;
 
 begin
-  // Implement assert function
-  Self.RegisterScriptFunc('assert', 2, Dummy);
-  if not Self.OptimizeAsserts then
-  begin
-    Self.Binary := Self.VM.Binaries.Value^.Data[1];
-    Self.Binary.AddRange(FunctionAssert);
-  end;
   // Implement ___throw function
   Self.RegisterScriptFunc('___throw', 1, Dummy);
-  Self.Binary := Self.VM.Binaries.Value^.Data[2];
+  Self.Binary := Self.VM.Binaries.Value^.Data[1];
   Self.Binary.AddRange(FunctionThrow);
   ContinueStack := TSEListStack.Create;
   BreakStack := TSEListStack.Create;
@@ -16009,7 +16020,9 @@ begin
       Func := Self.FuncScriptList.Ptr(AIndex);
       Self.VM.CodeSegmentIndex := Func^.CodeSegmentIndex;
       Self.VM.StackPtr := Self.VM.StackPtr + Func^.ArgCount;
+      {$ifdef SE_CLEAR_STACK}
       FillQWord(Self.VM.StackPtr[0], Func^.VarCount * 2, 0);
+      {$endif}
       Self.VM.StackPtr := Self.VM.StackPtr + Func^.VarCount;
       if Self.VM.CodeSegmentIndex <> 0 then
       begin
@@ -16259,15 +16272,6 @@ initialization
   ConstStringsLookup := TSEStringLookupMap.Create;
   GC.AllocMap(@ScriptVarMap);
   IsThread := 0;
-  FunctionAssert := [
-    Pointer(opPushLocalVar), Pointer(0), Pointer(0),
-    Pointer(opNot),
-    Pointer(opJumpEqual1Rel), true, Pointer(5),
-    Pointer(opJumpUnconditionalRel), Pointer(6),
-    Pointer(opPushLocalVar), Pointer(1), Pointer(0),
-    Pointer(opThrow),
-    Pointer(opPopFrame)
-  ];
   FunctionThrow := [
     Pointer(opPushLocalVar), Pointer(0), Pointer(0),
     Pointer(opThrow),
