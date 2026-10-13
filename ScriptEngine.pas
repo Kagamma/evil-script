@@ -7622,7 +7622,7 @@ procedure TSEValueMapHelper.Del2(const Key: PString);
 var
   Remap: TIntegerDynArray;
   NewValues: array of TSEValue;
-  I: Integer;
+  I, Index: Integer;
 begin
   if Self.Shape.TryGetOffset(Key^, Index) then
   begin
