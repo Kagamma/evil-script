@@ -1045,6 +1045,7 @@ type
     OptimizeTailRecursives: Boolean; // True = enable recursive optimization, default is true
     OptimizeTailCalls: Boolean; // True = enable tail calls optimization, default is false
     ErrorLn, ErrorCol: NativeInt;
+    AssertFuncSymbols: TStringDynArray;
     VM: TSEVM;
     {$ifdef SE_THREADS}
     VMThreadList: TSEVMThreadList;
@@ -1085,6 +1086,7 @@ type
     procedure Lex(const IsIncluded: Boolean = False);
     procedure Parse;
     procedure Reset;
+    procedure AddAssertSymbol(const AName: String);
     function Exec: TSEValue;
     function ExecFunc(const Name: String; const Args: array of TSEValue): TSEValue; overload;
     function ExecFunc(const AIndex: NativeInt; const Args: array of TSEValue): TSEValue; overload;
@@ -1713,6 +1715,7 @@ type
 
     class function SEJSONParse(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEJSONStringify(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+    class function SEJSONPretty(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 
     class function SEPasObjectClassName(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEInvoke(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -5829,6 +5832,7 @@ class function TSEBuiltInFunction.SEStringFormat(const VM: TSEVM; const Args: PS
 var
   I: NativeInt;
 begin
+  SEValidateType(@Args[0], sevkString, 1, {$I %CURRENTROUTINE%});
   Result := Args[0].VarString^.Data;
   for I := 1 to ArgCount do
   begin
@@ -6619,6 +6623,25 @@ begin
   end;
 end;
 
+class function TSEBuiltInFunction.SEJSONPretty(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+var
+  Data: TJSONData;
+  Json: String = 'null';
+begin
+  Result := SENull;
+  if Args[0].Kind = sevkMap then
+    Json := TSEBuiltInFunction(nil).SEJSONStringify(VM, Args, 1, nil)
+  else
+  if Args[0].Kind = sevkString then
+    Json := Args[0].VarString^.Data;
+  Data := GetJSON(Json);
+  try
+    Result := Data.FormatJSON;
+  finally
+    Data.Free;
+  end;
+end;
+
 class function TSEBuiltInFunction.SEPasObjectClassName(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   SEValidateType(@Args[0], sevkPascalObject, 1, {$I %CURRENTROUTINE%});
@@ -6836,7 +6859,7 @@ begin
       R := False = V2.AsBoolean;
   end
   else
-    R := V1.VarPointer = V2.VarPointer;
+    R := (V1.VarPointer = V2.VarPointer) and (V1.Kind = V2.Kind);
 end;
 
 procedure SEValueNotEqual(out R: TSEValue; constref V1, V2: TSEValue); inline; overload;
@@ -6870,7 +6893,7 @@ begin
       R := False <> V2.AsBoolean;
   end
   else
-    R := V1.VarPointer <> V2.VarPointer;
+    R := (V1.VarPointer <> V2.VarPointer) or (V1.Kind <> V2.Kind);
 end;
 
 procedure SEValueShiftLeft(out R: TSEValue; constref V1, V2: TSEValue); inline; overload;
@@ -6934,7 +6957,7 @@ begin
       Result := False = V2.AsBoolean;
   end
   else
-    Result := V1.VarPointer = V2.VarPointer;
+    Result := (V1.VarPointer = V2.VarPointer) and (V1.Kind = V2.Kind);
 end;
 
 function SEValueNotEqual(constref V1, V2: TSEValue): Boolean; inline; overload;
@@ -6966,7 +6989,7 @@ begin
       Result := False <> V2.AsBoolean;
   end
   else
-    Result := V1.VarPointer <> V2.VarPointer;
+    Result := (V1.VarPointer <> V2.VarPointer) or (V1.Kind <> V2.Kind);
 end;
 
 // ----- TSEValue operator overloading
@@ -7601,18 +7624,22 @@ var
   NewValues: array of TSEValue;
   I: Integer;
 begin
-  Self.Shape := ShapeManager.RemoveProperty(Self.Shape, Key^);
-  if Self.Shape.NeedsCompaction then
+  if Self.Shape.TryGetOffset(Key^, Index) then
   begin
-    Self.Shape := ShapeManager.Compact(Self.Shape, Remap);
-    SetLength(NewValues, Self.Shape.SlotCount + Self.IncSize);
-    for I := 0 to High(Remap) do
-      if Remap[I] >= 0 then
-        NewValues[Remap[I]] := Self.Items[I];
-    //
-    Self.Count := Self.Shape.SlotCount;
-    Self.Capacity := Self.Count + Self.IncSize;
-    Self.Items := NewValues;
+    Self.Items[Index] := SENull;
+    Self.Shape := ShapeManager.RemoveProperty(Self.Shape, Key^);
+    if Self.Shape.NeedsCompaction then
+    begin
+      Self.Shape := ShapeManager.Compact(Self.Shape, Remap);
+      SetLength(NewValues, Self.Shape.SlotCount + Self.IncSize);
+      for I := 0 to High(Remap) do
+        if Remap[I] >= 0 then
+          NewValues[Remap[I]] := Self.Items[I];
+      //
+      Self.Count := Self.Shape.SlotCount;
+      Self.Capacity := Self.Count + Self.IncSize;
+      Self.Items := NewValues;
+    end;
   end;
 end;
 
@@ -8079,7 +8106,7 @@ var
       begin
         if not (AValue.Kind in [sevkMap, sevkString, sevkBuffer, sevkPascalObject]) then
           exit;
-        {$ifndef SE_CLEAR_STACK}
+        {.$ifndef SE_CLEAR_STACK}
         if (AValue.Ref >= Self.FNodeList.Count) or (AValue.Ref = 0) then
           exit;
         Node := Self.FNodeList.Ptr(AValue.Ref);
@@ -8088,7 +8115,7 @@ var
         begin
           exit;
         end;
-        {$endif}
+        {.$endif}
         AValue.VarMap^.Header.Color := SE_GC_GRAY;
         Self.FGrayValueQueue.Enqueue(AValue);
       end;
@@ -8884,10 +8911,14 @@ var
     CurFrame: PSEFrame;
     CurFunc: PSEFuncScriptInfo;
     I, J: NativeInt;
+    CurrentLineOfCode,
     LineOfCode: TSELineOfCode;
     Nodes: TSEStackTraceSymbolArray;
     NodeCount: NativeInt = 0;
+    CodeIndex,
     CodeSegmentIndex: NativeInt;
+    ClosestLinePossible,
+    CurrentLinePossible: Cardinal;
   begin
     if Self.Parent.StackTraceHandler <> nil then
     begin
@@ -8900,18 +8931,27 @@ var
           SetLength(Nodes, NodeCount);
           CurFunc := CurFrame^.Func;
 
-          J := Self.Parent.LineOfCodeList.Count - 1;
-          while J >= 0 do
+          J := 0;
+          CurrentLinePossible := 0;
+          ClosestLinePossible := $FFFFFFFF;
+          LineOfCode.Line := -1;
+
+          while J <= Self.Parent.LineOfCodeList.Count - 1 do
           begin
-            LineOfCode := Self.Parent.LineOfCodeList[J];
-            if I = 1 then
-              CodeSegmentIndex := 0
-            else
-              CodeSegmentIndex := Self.Frame[I - 1].Func^.CodeSegmentIndex;
-            if (CurFrame^.CodeSegmentIndex < LineOfCode.CodeIndex) and (CodeSegmentIndex = LineOfCode.CodeSegmentIndex) then
-              break;
-            Dec(J);
+            CurrentLineOfCode := Self.Parent.LineOfCodeList[J];
+            CodeIndex := NativeUInt(CurFrame^.CodePtr - Self.Binaries.Value^.Data[CurrentLineOfCode.CodeSegmentIndex].Ptr(0));
+            if CurrentLineOfCode.CodeSegmentIndex = CurFrame^.CodeSegmentIndex then
+            begin
+              CurrentLinePossible := Abs(CodeIndex - CurrentLineOfCode.CodeIndex);
+              if CurrentLinePossible < ClosestLinePossible then
+              begin
+                ClosestLinePossible := CurrentLinePossible;
+                LineOfCode := CurrentLineOfCode;
+              end;
+            end;
+            Inc(J);
           end;
+
           Nodes[NodeCount - 1].Name := CurFunc^.Name + ' [' + LineOfCode.Module + ':' + IntToStr(LineOfCode.Line) + ']';
           for J := 0 to CurFrame^.Func^.VarSymbols.Count - 1 do
           begin
@@ -10785,10 +10825,7 @@ labelStart:
         begin
         labelEqual0:
           A := Pop;
-          if A^.Kind = sevkNumber then
-            StackPtrLocal^ := A^.VarNumber = CodePtrLocal[1].VarNumber
-          else
-            SEValueEqual(StackPtrLocal^, A^, CodePtrLocal[1]);
+          SEValueEqual(StackPtrLocal^, A^, CodePtrLocal[1]);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
@@ -10797,10 +10834,7 @@ labelStart:
         begin
         labelNotEqual0:
           A := Pop;
-          if A^.Kind = sevkNumber then
-            StackPtrLocal^ := A^.VarNumber <> CodePtrLocal[1].VarNumber
-          else
-            SEValueNotEqual(StackPtrLocal^, A^, CodePtrLocal[1]);
+          SEValueNotEqual(StackPtrLocal^, A^, CodePtrLocal[1]);
           Inc(StackPtrLocal);
           Inc(CodePtrLocal, 2);
           DispatchGoto;
@@ -11405,9 +11439,9 @@ labelStart:
       begin
         GetLineOfCode;
         if LineOfCode.Module = '' then
-          S := S + Format('Runtime error %s: "%s" at line %d (%s)', [E.ClassName, E.Message, LineOfCode.Line, LineOfCode.FuncName])
+          S := S + Format('Runtime error %s: "%s" at line %d <%s>', [E.ClassName, E.Message, LineOfCode.Line, LineOfCode.FuncName])
         else
-          S := S + Format('Runtime error %s: "%s" at line %d (%s:%s)', [E.ClassName, E.Message, LineOfCode.Line, LineOfCode.Module, LineOfCode.FuncName]);
+          S := S + Format('Runtime error %s: "%s" at line %d (%s:%d <%s>)', [E.ClassName, E.Message, LineOfCode.Line, LineOfCode.Module, LineOfCode.Line, LineOfCode.FuncName]);
         PrintEvilScriptStackTrace(S);
         raise SERuntimeException.Create(S);
       end;
@@ -11582,6 +11616,8 @@ begin
   Self.ScopeStack.Capacity := 16;
   Self.LineOfCodeList.Capacity := 1024;
   //
+  Self.AddAssertSymbol('assert');
+  //
   Self.JITBlockCount := $1FF;
   Self.VM.Parent := Self;
   if CommonNativeFuncList.Count = 0 then
@@ -11735,6 +11771,7 @@ begin
     {$ifdef SE_HAS_JSON}
     Self.RegisterFunc('json_parse', @TSEBuiltInFunction(nil).SEJSONParse, 1);
     Self.RegisterFunc('json_stringify', @TSEBuiltInFunction(nil).SEJSONStringify, 1);
+    Self.RegisterFunc('json_pretty', @TSEBuiltInFunction(nil).SEJSONPretty, 1);
     {$endif}
     Self.RegisterFunc('pasobject_classname', @TSEBuiltInFunction(nil).SEPasObjectClassName, 1);
     Self.RegisterFunc('invoke', @TSEBuiltInFunction(nil).SEInvoke, -1);
@@ -11807,6 +11844,15 @@ begin
   Self.GlobalVarSymbols.Free;
   Self.JITBlockSignatureStack.Free;
   inherited;
+end;
+
+procedure TEvilC.AddAssertSymbol(const AName: String);
+var
+  Len: Integer;
+begin
+  Len := Length(Self.AssertFuncSymbols);
+  SetLength(Self.AssertFuncSymbols, Len + 1);
+  Self.AssertFuncSymbols[Len] := AName;
 end;
 
 procedure TEvilC.AddDefaultConsts;
@@ -14594,7 +14640,7 @@ var
 
       // The pointer may be changed due to reallocation, need to query for it again
       Func := Self.FuncScriptList.Ptr(FuncIndex);
-      Func^.VarCount := Self.LocalVarCountList[Self.LocalVarCountList.Count - 1] - ArgCount; // 2 pad
+      Func^.VarCount := Self.LocalVarCountList[Self.LocalVarCountList.Count - 1] - ArgCount + 1; // 2 pad
       Self.Binary := ParentBinary;
       Self.CodeSegmentIndex := ParentBinaryPos;
     finally
@@ -15621,12 +15667,12 @@ var
         end;
       tkFunction:
         begin
-          if Self.OptimizeAsserts and (Token.Value = 'assert') then
+          if Self.OptimizeAsserts and (Token.Value in Self.AssertFuncSymbols) then
             CanEmit := False;
           NextToken;
           ParseFuncCall(Token.Value);
           ParseVarAssign('', False);
-          if Self.OptimizeAsserts and (Token.Value = 'assert') then
+          if Self.OptimizeAsserts and (Token.Value in Self.AssertFuncSymbols) then
             CanEmit := True;
         end;
       else
@@ -16201,6 +16247,7 @@ var
 begin
   Result := TEvilC.Create;
   Result.Owner := Self.Owner;
+  Result.AssertFuncSymbols := Self.AssertFuncSymbols;
   Result.OptimizeAsserts := Self.OptimizeAsserts;
   Result.OptimizeConstantFolding := Self.OptimizeConstantFolding;
   Result.OptimizeConstants := Self.OptimizeConstants;
