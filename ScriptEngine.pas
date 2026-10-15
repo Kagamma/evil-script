@@ -4687,18 +4687,10 @@ begin
     sevkMap:
       begin
         Result.AllocMap;
-        if not SEMapIsValidArray(V) then
+        Result.VarMap^.Shape := V.VarMap^.Shape;
+        for I := V.VarMap^.Count - 1 downto 0 do
         begin
-          for Key in V.VarMap^.Shape.GetKeys do
-          begin
-            SEMapSet(Result, Key, V.VarMap^.Get2(@Key));
-          end;
-        end else
-        begin
-          for I := 0 to V.VarMap^.Count - 1 do
-          begin
-            SEMapSet(Result, I, V.VarMap^.Get2(I));
-          end;
+          SEMapSet(Result, I, V.VarMap^.Items[I]);
         end;
       end;
   end;
@@ -6615,11 +6607,19 @@ var
 begin
   SB := TStringBuilder.Create;
   try
-    if Args[0].Kind = sevkMap then
-      Decide(SB, Args[0]);
-    Result := SB.ToString;
-  finally
-    SB.Free;
+    try
+      if Args[0].Kind = sevkMap then
+        Decide(SB, Args[0]);
+      Result := SB.ToString;
+    finally
+      SB.Free;
+    end;
+  except
+    on E: SERuntimeException do
+    begin
+      VM.IsThrowException := True;
+      Result := E.Message;
+    end;
   end;
 end;
 
@@ -11673,6 +11673,7 @@ begin
     Self.RegisterFunc('___map_create', @TSEBuiltInFunction(nil).SEMapCreate, -1, [sevkMap]);
     Self.RegisterFunc('___map_create_empty', @TSEBuiltInFunction(nil).SEMapCreateEmpty, 0, [sevkMap]);
     Self.RegisterFunc('map_clone', @TSEBuiltInFunction(nil).SEMapClone, 1);
+    Self.RegisterFunc('clone', @TSEBuiltInFunction(nil).SEMapClone, 1);
     Self.RegisterFunc('map_key_exists', @TSEBuiltInFunction(nil).SEMapKeyExists, 2);
     Self.RegisterFunc('map_key_delete', @TSEBuiltInFunction(nil).SEMapKeyDelete, 2);
     Self.RegisterFunc('map_keys_get', @TSEBuiltInFunction(nil).SEMapKeysGet, 1, [sevkString]);
@@ -14640,7 +14641,7 @@ var
 
       // The pointer may be changed due to reallocation, need to query for it again
       Func := Self.FuncScriptList.Ptr(FuncIndex);
-      Func^.VarCount := Self.LocalVarCountList[Self.LocalVarCountList.Count - 1] - ArgCount + 1; // 2 pad
+      Func^.VarCount := Self.LocalVarCountList[Self.LocalVarCountList.Count - 1] - ArgCount; // 2 pad
       Self.Binary := ParentBinary;
       Self.CodeSegmentIndex := ParentBinaryPos;
     finally
