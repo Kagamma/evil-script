@@ -16,7 +16,6 @@ uses
 {$R *.res}
 
 begin
-  GC.EnableParallel := True;
   RequireDerivedFormResource:=True;
   Application.Scaled:=True;
   Application.{%H-}MainFormOnTaskbar:=True;
