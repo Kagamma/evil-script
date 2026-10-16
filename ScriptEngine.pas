@@ -6124,7 +6124,7 @@ begin
   Thread := TSEVMThread.Create(VM, Args[0], @Args[1], ArgCount - 1, SEThreadStackSize);
   Result.AllocPascalObject(Thread, True);
   // Push "self" onto stack
-  Thread.VM.Stack[(SE_STACK_RESERVED - 1) + ArgCount] := Result;
+  Thread.VM.Stack[ArgCount] := Result;
 end;
 
 class function TSEBuiltInFunction.SEThreadStart(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
