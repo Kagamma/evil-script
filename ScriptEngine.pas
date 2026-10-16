@@ -1669,6 +1669,7 @@ type
     class function SEGCIncrementalBudgetSet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEGCCollect(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEGCModeSet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+    class function SEGCIntervalSet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEIsJit(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEChar(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
     class function SEOrd(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
@@ -6037,6 +6038,12 @@ end;
 class function TSEBuiltInFunction.SEGCModeSet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
 begin
   GC.Mode := TSEGarbageCollectorMode(Round(Args[0]));
+  Result := SENull;
+end;
+
+class function TSEBuiltInFunction.SEGCIntervalSet(const VM: TSEVM; const Args: PSEValue; const ArgCount: Cardinal; const This: PSEValue): TSEValue;
+begin
+  GC.Interval := Round(Args[0].VarNumber);
   Result := SENull;
 end;
 
@@ -11737,6 +11744,7 @@ begin
     Self.RegisterFunc('gc_object_count', @TSEBuiltInFunction(nil).SEGCObjectCount, 0);
     Self.RegisterFunc('gc_collect', @TSEBuiltInFunction(nil).SEGCCollect, 0);
     Self.RegisterFunc('gc_mode_set', @TSEBuiltInFunction(nil).SEGCModeSet, 1);
+    Self.RegisterFunc('gc_interval_set', @TSEBuiltInFunction(nil).SEGCIntervalSet, 1);
     Self.RegisterFunc('is_jit', @TSEBuiltInFunction(nil).SEIsJIT, 0);
     Self.RegisterFunc('fs_file_delete', @TSEBuiltInFunction(nil).SEFileDelete, 1);
     Self.RegisterFunc('fs_file_rename', @TSEBuiltInFunction(nil).SEFileRename, 2);

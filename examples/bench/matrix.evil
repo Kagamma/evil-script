@@ -4,6 +4,8 @@
 N = 200          // matrix size (try 100, 200, 300, 400…)
 ITERATIONS = 10  // how many times to multiply
 
+gc_interval_set(20000) // Do not let the incremental GC to fire
+
 // ---------- helpers ----------
 fn create_matrix(n, value) {
   m = []
