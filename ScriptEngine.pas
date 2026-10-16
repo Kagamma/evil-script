@@ -1742,7 +1742,6 @@ function SEGet(const AName: String): TSEValue;
 procedure SESet(const AName: String; constref AValue: TSEValue);
 
 operator := (V: Extended) R: TSEValue;
-operator := (V: Double) R: TSEValue;
 operator := (V: Single) R: TSEValue;
 operator := (V: String) R: TSEValue;
 operator := (V: Boolean) R: TSEValue;
@@ -1761,7 +1760,6 @@ operator := (V: Int8) R: TSEValue;
 operator := (V: UInt8) R: TSEValue;
 
 operator := (V: TSEValue) R: Extended;
-operator := (V: TSEValue) R: Double;
 operator := (V: TSEValue) R: Single;
 operator := (V: TSEValue) R: String;
 operator := (V: TSEValue) R: Boolean;
@@ -7000,12 +6998,6 @@ begin
   R.VarNumber := V;
 end;
 
-operator := (V: Double) R: TSEValue; inline;
-begin
-  R.Kind := sevkNumber;
-  R.VarNumber := V;
-end;
-
 operator := (V: Single) R: TSEValue; inline;
 begin
   R.Kind := sevkNumber;
@@ -7133,10 +7125,6 @@ begin
   R := V.AsBoolean;
 end;
 operator := (V: TSEValue) R: Extended; inline;
-begin
-  R := V.VarNumber;
-end;
-operator := (V: TSEValue) R: Double; inline;
 begin
   R := V.VarNumber;
 end;
