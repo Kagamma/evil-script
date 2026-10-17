@@ -8180,7 +8180,6 @@ begin
   try
     try
       {$endif}
-      FVMThreadList := TSEVMList.Create;
       {$ifdef SE_CGE_PROFILER}
       FrameProfiler.Start('TEvilC.GC');
       {$endif}
