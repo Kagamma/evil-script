@@ -112,13 +112,12 @@ Users can invoke the garbage collector manually by calling the gc_collect() func
 Operator                                                Precedence
 ======================================================  ==========
  !, sign "-"                                             1
- *, /                                                    2
+ *, /, pow "^"                                           2
  +, subtract "-"                                         3
- pow "^"                                                 4
- bitshift <<, >>                                         5
- equal "=", !=, <, <=, >, >=, &, &&, |, ||, ~            6
- ternary                                                 7
- assign "=", +=, -=, *=, /=                              8
+ bitshift <<, >>                                         4
+ equal "=", !=, <, <=, >, >=, &, &&, |, ||, ~            5
+ ternary                                                 6
+ assign "=", +=, -=, *=, /=                              7
 
 ```
 
